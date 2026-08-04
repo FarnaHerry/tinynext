@@ -64,3 +64,8 @@ mcpp run            # 启动 GUI 窗口
 5. **安全提示**：tinyhttps 默认 `verifySsl=true` 但 mbedTLS 用 `VERIFY_OPTIONAL`
    握手，证书校验并非强制。如需严格校验，需自行提供 CA bundle
    （`SSL_CERT_FILE`）或改进库。
+6. **双击不弹终端**：Windows 默认把 exe 链接成控制台子系统，双击会附带一个
+   黑窗口。已在 `mcpp.toml` 的 `[target.'cfg(windows)'.build]` 里加了
+   `-Wl,-subsystem:windows` + `-Wl,-entry:mainCRTStartup`（GUI 子系统的默认
+   入口是 WinMainCRTStartup，而入口代码是 `main()`，必须显式指回
+   mainCRTStartup），现在直接启动 GUI 窗口、无控制台。

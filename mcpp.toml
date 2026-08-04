@@ -13,6 +13,13 @@ license     = "Apache-2.0"
 kind = "bin"
 main = "src/app.cpp"
 
+# Make the exe a Windows GUI-subsystem app (no console window on launch).
+# /entry:mainCRTStartup keeps calling main() — glfw_app_main.cpp defines
+# main(), and the GUI subsystem's default entry (WinMainCRTStartup) would
+# otherwise demand a WinMain that doesn't exist.
+[target.'cfg(windows)'.build]
+ldflags = ["-Wl,-subsystem:windows", "-Wl,-entry:mainCRTStartup"]
+
 [dependencies]
 tinyhttps = "0.2.9"
 
