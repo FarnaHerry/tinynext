@@ -48,6 +48,12 @@ public:
     // boundary; the task ends up in the Cancelled state.
     void cancel(std::uint64_t id);
 
+    // Permanently remove a task from the list. If its worker is still running
+    // it is cancelled first and joined before this returns, so the task is
+    // guaranteed gone from snapshot() afterwards. Does not touch the file on
+    // disk.
+    void remove(std::uint64_t id);
+
     // Pause a queued/running task. The worker parks at the next block boundary
     // (the connection stays open); the task enters the Paused state. No-op
     // unless the task is Queued or Downloading.

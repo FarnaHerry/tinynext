@@ -94,6 +94,28 @@ void DownloadManager::cancel(std::uint64_t id) {
     }
 }
 
+void DownloadManager::remove(std::uint64_t id) {
+    // Cancel first (if running), then drop it from the list so the UI forgets
+    // it immediately. Keep the shared_ptr so the worker's late state writes
+    // stay safe, then join without holding the mutex.
+    std::shared_ptr<Task> task;
+    {
+        std::lock_guard lock(mutex_);
+        for (auto it = tasks_.begin(); it != tasks_.end(); ++it) {
+            if ((*it)->id == id) {
+                task = *it;
+                task->cancelRequested.store(true);
+                task->pauseCv.notify_all();  // wake a parked (paused) worker
+                tasks_.erase(it);
+                break;
+            }
+        }
+    }
+    if (task && task->worker.joinable()) {
+        task->worker.join();
+    }
+}
+
 void DownloadManager::pause(std::uint64_t id) {
     std::lock_guard lock(mutex_);
     for (const auto& task : tasks_) {
