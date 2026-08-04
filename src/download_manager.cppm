@@ -1,18 +1,14 @@
-// download_manager.hpp — thread-safe download engine for the tinynext UI.
+// download_manager.cppm — module interface for the download engine.
 //
-// The public surface is plain C++ types only, so the UI translation unit never
-// needs to know about the tinyhttps module. Implementation lives in
-// download_manager.cpp, which is the only TU that imports mcpplibs.tinyhttps.
-//
-// Every TU that includes this header must already have done `import std;`
-// BEFORE the include — the header deliberately does not #include standard
-// library headers itself, because doing so after `import std;` redefines the
-// std module's entities (verified: "redefinition of 'defer_lock'").
-#pragma once
+// The only place the tinyhttps module leaks in is the implementation unit
+// (download_manager.cpp); consumers of this module see plain C++ types only.
+export module tinynext.download_manager;
+
+import std;
 
 namespace dl {
 
-enum class State {
+export enum class State {
     Queued,
     Downloading,
     Paused,
@@ -22,7 +18,7 @@ enum class State {
 };
 
 // Immutable snapshot of one download task, safe to read from any thread.
-struct TaskView {
+export struct TaskView {
     std::uint64_t id;
     std::string url;
     std::filesystem::path destPath;
@@ -33,7 +29,7 @@ struct TaskView {
     double speedBps;              // bytes/second, last measured
 };
 
-class DownloadManager {
+export class DownloadManager {
 public:
     // Initializes the platform networking layer (on Windows this is Winsock:
     // tinyhttps never calls WSAStartup itself, so without this every connect

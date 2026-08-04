@@ -40,9 +40,15 @@ mcpp run            # 启动 GUI 窗口
 - `src/app.cpp` — EUI 应用入口。启用 `app-main` 特性后，`main()` 由包内的
   GLFW 入口（`core/app/glfw_app_main.cpp`）提供，本项目只定义
   `app::dslAppConfig()` 和 `app::compose()`（**因此任何 TU 都不能再定义 `main()`**）。
-- `src/download_manager.hpp/.cpp` — 线程安全的下载管理器。每个任务独立
-  `std::thread` + 独立 `HttpClient`（该库非线程安全），进度写入互斥保护区，
-  UI 线程通过 `snapshot()` 每帧读取。
+- `src/download_manager.cppm` — 模块接口 `export module tinynext.download_manager;`。
+  下载管理器线程安全，每个任务独立 `std::thread` + 独立 `HttpClient`（该库非
+  线程安全），进度写入互斥保护区，UI 线程通过 `snapshot()` 每帧读取。
+- `src/download_manager.cpp` — 模块实现单元（`module tinynext.download_manager;`），
+  唯一 import 了 `mcpplibs.tinyhttps` 的 TU。
+
+模块化程度：`import std` + `import mcpplibs.tinyhttps` + `import tinynext.download_manager`
+全模块；**唯一的 `#include` 是 `<eui_neo.h>`**（EUI-NEO 是 header-only C++17 库，
+上游没有模块接口，`import eui;` 是 compat 计划里的独立工程）。
 - `assets/` — EUI 默认中文字体（JingNanJunJunTi）+ 图标字体，运行时按
   `exeDir/assets/` 或 `assets/` 相对路径解析。
 

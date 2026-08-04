@@ -12,8 +12,7 @@
 // After the import, no standard header may be #included again in this TU —
 // the std module already declares them.
 import std;
-
-#include "download_manager.hpp"
+import tinynext.download_manager;
 
 namespace {
 

@@ -1,4 +1,5 @@
-// download_manager.cpp — download engine backed by mcpplibs::tinyhttps.
+// download_manager.cpp — module implementation unit for tinynext.download_manager,
+// backed by mcpplibs::tinyhttps.
 //
 // This is the only translation unit in the project that imports the tinyhttps
 // module. Each download runs on its own std::thread with its own HttpClient,
@@ -6,13 +7,10 @@
 // thread-safe. Progress and state are written under mutex_ so the UI thread can
 // snapshot() them freely.
 
+module tinynext.download_manager;
+
 import std;
 import mcpplibs.tinyhttps;
-
-// NOTE: no `#include <...>` of standard headers here — with `import std;` they
-// must never be pulled in as headers (redefinition errors). The project header
-// below also relies on `import std;` being visible first.
-#include "download_manager.hpp"
 
 namespace dl {
 
