@@ -1,0 +1,20 @@
+[package]
+name        = "tinynext"
+version     = "0.1.0"
+description = "A GUI downloader: EUI-NEO frontend + tinyhttps download engine"
+license     = "Apache-2.0"
+
+# No src/main.cpp exists: with the `app-main` feature, main() comes from
+# compat.eui-neo's GLFW entry point (core/app/glfw_app_main.cpp), so mcpp
+# cannot auto-infer a bin target. Declare it explicitly — app.cpp supplies
+# app::dslAppConfig() + app::compose(), and everything else in src/ is still
+# compiled and linked via the default glob.
+[targets.tinynext]
+kind = "bin"
+main = "src/app.cpp"
+
+[dependencies]
+tinyhttps = "0.2.9"
+
+[dependencies.compat]
+eui-neo = { version = "0.5.3", features = ["app-main"] }

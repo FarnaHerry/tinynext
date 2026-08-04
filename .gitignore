@@ -1,0 +1,6 @@
+target/
+.mcpp/
+downloads/
+compile_commands.json
+dist/
+*.zip
