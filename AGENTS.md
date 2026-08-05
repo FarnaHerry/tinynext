@@ -21,11 +21,14 @@ mcpp run            # 启动 GUI（Linux 用 run.sh）
 ```bash
 tinynext https://example.com/file.zip     # 添加下载；应用没开会自动启动
 tinynext url1 url2                         # 一次多个
+tinynext agent                             # 打印 CLI 使用教学（给 AI 用），退出
 ```
 
 - **单实例**：重复启动不弹新窗口——第二实例把 URL 转发给已运行实例（写
   `<temp>/tinynext.inbox`，Windows 上还会聚焦窗口）后退出。
 - 只有 `http://` / `https://` 开头的参数会被当作下载；非 URL 参数忽略。
+- `agent` / `--agent` / `help` 参数会打印 CLI 使用教学并退出（不进 GUI）——AI
+  不知道用法时先跑 `tinynext agent`。
 - 详细：`docs/cli.md`。
 
 ## 代码结构（全模块）

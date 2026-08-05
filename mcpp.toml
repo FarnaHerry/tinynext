@@ -31,7 +31,7 @@ ldflags = ["-Wl,-subsystem:windows", "-Wl,-entry:mainCRTStartup"]
 tinyhttps = "0.2.9"
 
 [dependencies.compat]
-eui-neo = { version = "0.5.3", features = ["app-main"] }
+eui-neo = { version = "0.5.5", features = ["app-main"] }
 
 [dependencies.nlohmann]
 json = "3.12.0"

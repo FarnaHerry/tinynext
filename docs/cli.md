@@ -14,9 +14,13 @@ tinynext https://a.example.com/1.zip https://b.example.com/2.bin
 
 # 应用没在运行时：自动启动应用并加入下载列表
 # 应用已在运行时：把链接转发给已运行实例，它自动添加；Windows 上还会把窗口切到前台
+
+# 给 AI/脚本看的 CLI 使用教学（打印到 stdout 后退出，不进 GUI）
+tinynext agent
 ```
 
-非 URL 参数（不以 `http://` / `https://` 开头）会被忽略。
+非 URL 参数（不以 `http://` / `https://` 开头）会被忽略；第一个参数若是
+`agent` / `--agent` / `help` / `--help` / `-h`，则打印上面的教学文本并退出。
 
 ## 单实例规则
 

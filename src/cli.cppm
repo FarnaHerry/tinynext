@@ -41,9 +41,9 @@ std::filesystem::path inboxPath() {
 
 } // namespace
 
-// Command-line arguments that look like download URLs (https:// or http://),
-// in order. Parsed once and cached; safe to call from a static initializer.
-export std::vector<std::string> commandLineUrls() {
+// All command-line arguments (excluding the exe path), in order. Parsed once
+// and cached; safe to call from a static initializer.
+export std::vector<std::string> commandLineArgs() {
     static const std::vector<std::string> cached = [] {
         std::vector<std::string> args;
 #ifdef _WIN32
@@ -83,6 +83,16 @@ export std::vector<std::string> commandLineUrls() {
             start = end + 1;
         }
 #endif
+        return args;
+    }();
+    return cached;
+}
+
+// Command-line arguments that look like download URLs (https:// or http://),
+// in order. Parsed once and cached.
+export std::vector<std::string> commandLineUrls() {
+    static const std::vector<std::string> cached = [] {
+        auto args = commandLineArgs();
         // Keep only arguments that look like download URLs.
         std::erase_if(args, [](const std::string& a) {
             return !(a.starts_with("https://") || a.starts_with("http://"));
@@ -90,6 +100,59 @@ export std::vector<std::string> commandLineUrls() {
         return args;
     }();
     return cached;
+}
+
+// `tinynext agent` —— 打印给 AI 的 CLI 使用教学并退出（不进 GUI、不走单实例）。
+// 返回 true 表示已输出、调用方应退出进程。Windows 是 GUI 子系统，用
+// AttachConsole + WriteFile 写父进程控制台 / 继承的 stdout 句柄。
+export bool runAgentHelpIfRequested() {
+    const auto args = commandLineArgs();
+    if (args.empty()) return false;
+    const std::string& first = args.front();
+    if (first != "agent" && first != "--agent" && first != "help" &&
+        first != "--help" && first != "-h") {
+        return false;
+    }
+
+    constexpr const char* kHelp = R"(TinyNext — a single-instance GUI downloader with a small CLI.
+
+USAGE
+  tinynext <https-url> [more-urls...]   Add download(s). The GUI auto-starts if needed.
+  tinynext agent                        Print this usage guide (what you are reading now).
+
+RULES
+  - Only arguments starting with http:// or https:// are treated as downloads; ignore the rest.
+  - Single-instance: if TinyNext is already running, the URLs are forwarded to the running
+    instance and this process exits immediately — a new window is NOT opened. The running
+    instance adds the tasks itself.
+  - Only HTTPS downloads are supported; http:// URLs are auto-upgraded to https://.
+  - Files land in the configured download directory (default: the system Downloads folder).
+  - The filename is taken from the last path segment of the URL.
+
+EXAMPLES
+  tinynext https://example.com/file.zip
+  tinynext https://a.example.com/x.bin https://b.example.com/y.tar.gz
+
+TROUBLESHOOTING
+  - A download did not start: make sure the URL starts with https://.
+  - Forwarding is done via a file at <temp>/tinynext.inbox — check it to confirm the URL was queued.
+)";
+
+#ifdef _WIN32
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut == nullptr || hOut == INVALID_HANDLE_VALUE) {
+        AttachConsole(ATTACH_PARENT_PROCESS);  // 拿到父进程控制台（若存在）
+        hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    }
+    if (hOut != nullptr && hOut != INVALID_HANDLE_VALUE) {
+        DWORD written = 0;
+        WriteFile(hOut, kHelp, static_cast<DWORD>(std::strlen(kHelp)), &written, nullptr);
+    }
+#else
+    std::cout << kHelp;
+    std::cout.flush();
+#endif
+    return true;
 }
 
 // Try to become the primary instance. Returns true if this process owns the
@@ -178,6 +241,10 @@ export std::vector<std::string> drainInbox() {
 // 模块全局的动态初始化先于任何引用 TU 的静态初始化执行。
 struct CliBoot {
     CliBoot() {
+        // `tinynext agent`：打印 CLI 使用教学并退出，不进 GUI、不走单实例。
+        if (runAgentHelpIfRequested()) {
+            std::exit(0);
+        }
         if (!acquireSingleInstance()) {
             forwardToRunningInstance(commandLineUrls());
             std::exit(0);
