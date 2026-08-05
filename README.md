@@ -96,6 +96,33 @@ Windows 发行打包用 `.\make-dist.ps1`：它自动把 `engines/` 里的 aria2
 4. 主题跟随系统：Windows 读注册表、macOS 读 `AppleInterfaceStyle`、Linux 读 gtk
    `settings.ini`（均 best-effort）。
 
+## 发布（GitHub Releases）
+
+CI 工作流 `.github/workflows/release.yml` 在推送 `v*` 标签时自动在 Windows /
+Linux / macOS 三平台构建并创建 Release（也可 `workflow_dispatch` 手动触发——只
+构建并上传 artifacts、不建 Release，便于先修跨平台编译错误）。
+
+流程：
+
+1. 把工作流推到仓库后，先用 `workflow_dispatch` 跑一遍，按失败作业逐一修复
+   Linux / macOS 的编译问题（这两个平台是首次在 CI 编译 POSIX 分支）。
+2. 三平台都绿后打标签并推送：
+   ```bash
+   git tag v0.1.0 && git push origin v0.1.0
+   ```
+3. 到仓库 Releases 页把自动生成的 **draft** release 补充说明后发布。
+
+产物（aria2-next 二进制在 CI 上按 `engines/checksums.sha256` 校验后随包附上）：
+
+| 平台 | 产物 | 打包脚本 |
+|------|------|----------|
+| Windows x64 | `tinynext-v*-win64.zip` | `make-dist.ps1` |
+| Linux x64 | `tinynext-v*-linux-x86_64.tar.gz` | `make-dist.sh linux x86_64` |
+| macOS arm64 / x64 | `tinynext-v*-macos-{arm64,x86_64}.tar.gz` | `make-dist.sh macos …` |
+
+Linux 包内含 `run.sh` 启动脚本（走系统 loader + 系统 Mesa，原理见仓库根
+`run.sh`），目标机器需 glibc ≥ 2.39 且有桌面 GLX。
+
 ## 技术栈
 
 | 组件 | 包 | 版本 |

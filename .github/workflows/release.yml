@@ -1,0 +1,149 @@
+# release.yml — build TinyNext on Windows / Linux / macOS and publish a GitHub
+# Release on every `v*` tag.
+#
+#   * `mcpp` is installed from the official one-line script (→ ~/.mcpp).
+#   * The aria2-next engine binary is downloaded per-platform from the
+#     AnInsomniacy/aria2-next v2.5.5 release and verified against
+#     engines/checksums.sha256 before packaging.
+#   * Packaging: Windows → make-dist.ps1 (zip), unix → make-dist.sh (tar.gz).
+#
+# NOTE: the Linux / macOS jobs were not locally verifiable (only Windows has
+# been built); the first runs are effectively the platform verification for
+# the POSIX code paths. Expect them to need fixes — iterate on the failing job.
+#
+# Manual iteration without a tag: use the "workflow_dispatch" trigger (builds
+# and uploads artifacts only; the Release is created only for tag pushes).
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: win64
+            os: windows-latest
+            engine_asset: aria2-next-2.5.5-windows-x86_64.exe
+            engine_file: engines/aria2-next.exe
+            pkg_cmd: powershell -NoProfile -ExecutionPolicy Bypass -File make-dist.ps1
+            pkg_glob: tinynext-v*.zip
+          - name: linux-x64
+            os: ubuntu-latest
+            engine_asset: aria2-next-2.5.5-linux-x86_64
+            engine_file: engines/aria2-next
+            pkg_cmd: bash make-dist.sh linux x86_64
+            pkg_glob: tinynext-v*.tar.gz
+          - name: macos-arm64
+            os: macos-latest
+            engine_asset: aria2-next-2.5.5-macos-arm64
+            engine_file: engines/aria2-next
+            pkg_cmd: bash make-dist.sh macos arm64
+            pkg_glob: tinynext-v*.tar.gz
+          - name: macos-x64
+            os: macos-13
+            engine_asset: aria2-next-2.5.5-macos-x86_64
+            engine_file: engines/aria2-next
+            pkg_cmd: bash make-dist.sh macos x86_64
+            pkg_glob: tinynext-v*.tar.gz
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mcpp (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          curl -fsSL https://github.com/mcpp-community/mcpp/releases/latest/download/install.sh | bash
+          echo "$HOME/.mcpp/bin" >> "$GITHUB_PATH"
+
+      - name: Install mcpp (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          bash -lc 'curl -fsSL https://github.com/mcpp-community/mcpp/releases/latest/download/install.sh | bash'
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "install.sh unsupported on Windows — falling back to xlings"
+            irm https://d2learn.org/xlings-install.ps1.txt | iex
+            xlings install mcpp -y
+            "$HOME/.xlings/subos/default/bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          } else {
+            $p = bash -lc 'cygpath -w "$HOME/.mcpp/bin"'
+            $p.Trim() | Out-File -FilePath $env:GITHUB_PATH -Append
+          }
+
+      - name: Cache mcpp toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.mcpp
+          key: mcpp-${{ runner.os }}-${{ hashFiles('mcpp.lock') }}
+
+      - name: Build release
+        run: mcpp build --release
+
+      - name: Fetch aria2-next engine (checksum-verified)
+        shell: bash
+        run: |
+          mkdir -p engines
+          curl -fL -o "engines/${{ matrix.engine_asset }}" \
+            "https://github.com/AnInsomniacy/aria2-next/releases/download/v2.5.5/${{ matrix.engine_asset }}"
+          (cd engines && sha256sum -c checksums.sha256 --ignore-missing) || {
+            echo "aria2-next checksum mismatch — aborting" >&2; exit 1; }
+          mv "engines/${{ matrix.engine_asset }}" "${{ matrix.engine_file }}"
+          chmod +x "${{ matrix.engine_file }}"
+
+      - name: Package
+        shell: bash
+        run: ${{ matrix.pkg_cmd }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.pkg_glob }}
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: TinyNext ${{ github.ref_name }}
+          draft: true
+          body: |
+            ## TinyNext ${{ github.ref_name }}
+
+            - **Win64**: `tinynext-v*-win64.zip`
+            - **Linux x64**: `tinynext-v*-linux-x86_64.tar.gz`（需 glibc ≥2.39 且桌面环境有 Mesa/GLX；内含 `run.sh` 启动脚本）
+            - **macOS Apple Silicon**: `tinynext-v*-macos-arm64.tar.gz`
+            - **macOS Intel**: `tinynext-v*-macos-x86_64.tar.gz`
+
+            内置下载引擎 `tinyhttps`（零依赖）+ 可选 `aria2-next`（分片多连接，已随包附带）。
+            在设置页可切换引擎、修改下载路径、主题与 aria2 参数。
+          files: artifacts/*
