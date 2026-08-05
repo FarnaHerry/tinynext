@@ -11,6 +11,11 @@
 # been built); the first runs are effectively the platform verification for
 # the POSIX code paths. Expect them to need fixes — iterate on the failing job.
 #
+# NOTE: Intel macOS (macos-x86_64) is NOT built here — the official mcpp
+# install.sh only ships linux-x86_64 / linux-aarch64 / macosx-arm64 binaries.
+# Add a macos-13 runner back once the macosx-x64 mcpp binary (or a subos
+# install on macOS) is verified.
+#
 # Manual iteration without a tag: use the "workflow_dispatch" trigger (builds
 # and uploads artifacts only; the Release is created only for tag pushes).
 
@@ -51,12 +56,6 @@ jobs:
             engine_file: engines/aria2-next
             pkg_cmd: bash make-dist.sh macos arm64
             pkg_glob: tinynext-v*.tar.gz
-          - name: macos-x64
-            os: macos-13
-            engine_asset: aria2-next-2.5.5-macos-x86_64
-            engine_file: engines/aria2-next
-            pkg_cmd: bash make-dist.sh macos x86_64
-            pkg_glob: tinynext-v*.tar.gz
 
     steps:
       - uses: actions/checkout@v4
@@ -72,21 +71,17 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          bash -lc 'curl -fsSL https://github.com/mcpp-community/mcpp/releases/latest/download/install.sh | bash'
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "install.sh unsupported on Windows — falling back to xlings"
-            irm https://d2learn.org/xlings-install.ps1.txt | iex
-            xlings install mcpp -y
-            "$HOME/.xlings/subos/default/bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-          } else {
-            $p = bash -lc 'cygpath -w "$HOME/.mcpp/bin"'
-            $p.Trim() | Out-File -FilePath $env:GITHUB_PATH -Append
-          }
+          # 官方 install.sh 只支持 linux/mac，Windows 走 xlings/subos。
+          irm https://d2learn.org/xlings-install.ps1.txt | iex
+          # 当前进程的 PATH 不会自动刷新，用全路径调用 xlings。
+          & "$env:USERPROFILE\.xlings\bin\xlings.exe" install mcpp -y
+          # mcpp 装到 subos/default/bin；写入 GITHUB_PATH 供后续步骤使用。
+          "$env:USERPROFILE\.xlings\subos\default\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Cache mcpp toolchain
         uses: actions/cache@v4
         with:
-          path: ~/.mcpp
+          path: ${{ runner.os == 'Windows' && '~/.xlings' || '~/.mcpp' }}
           key: mcpp-${{ runner.os }}-${{ hashFiles('mcpp.lock') }}
 
       - name: Build release
@@ -142,7 +137,6 @@ jobs:
             - **Win64**: `tinynext-v*-win64.zip`
             - **Linux x64**: `tinynext-v*-linux-x86_64.tar.gz`（需 glibc ≥2.39 且桌面环境有 Mesa/GLX；内含 `run.sh` 启动脚本）
             - **macOS Apple Silicon**: `tinynext-v*-macos-arm64.tar.gz`
-            - **macOS Intel**: `tinynext-v*-macos-x86_64.tar.gz`
 
             内置下载引擎 `tinyhttps`（零依赖）+ 可选 `aria2-next`（分片多连接，已随包附带）。
             在设置页可切换引擎、修改下载路径、主题与 aria2 参数。

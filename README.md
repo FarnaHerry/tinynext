@@ -118,7 +118,11 @@ Linux / macOS 三平台构建并创建 Release（也可 `workflow_dispatch` 手�
 |------|------|----------|
 | Windows x64 | `tinynext-v*-win64.zip` | `make-dist.ps1` |
 | Linux x64 | `tinynext-v*-linux-x86_64.tar.gz` | `make-dist.sh linux x86_64` |
-| macOS arm64 / x64 | `tinynext-v*-macos-{arm64,x86_64}.tar.gz` | `make-dist.sh macos …` |
+| macOS Apple Silicon | `tinynext-v*-macos-arm64.tar.gz` | `make-dist.sh macos arm64` |
+
+（macOS Intel 暂不参与 CI 构建——官方 mcpp install.sh 只提供 macosx-arm64
+二进制；等 Intel 的 mcpp 二进制或 macOS 上 subos 安装验证后再加 `macos-13`
+runner。）
 
 Linux 包内含 `run.sh` 启动脚本（走系统 loader + 系统 Mesa，原理见仓库根
 `run.sh`），目标机器需 glibc ≥ 2.39 且有桌面 GLX。
