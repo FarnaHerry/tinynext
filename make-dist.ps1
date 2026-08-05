@@ -1,4 +1,4 @@
-# make-dist.ps1 — build the release app and package it into a distributable zip.
+# make-dist.ps1 - build the release app and package it into a distributable zip.
 #
 # Windows notes:
 #   * `mcpp pack` is not yet supported on Windows (mcpp error), so we assemble
@@ -7,6 +7,11 @@
 #     and `mcpp build --release` points it at the release output.
 #   * The zip name/version is read from mcpp.toml so it never drifts from the
 #     package version.
+#
+# IMPORTANT: keep this file ASCII-only. Windows PowerShell 5.1 reads scripts
+# without a UTF-8 BOM as ANSI; a non-ASCII byte (e.g. the em-dash U+2014, whose
+# UTF-8 last byte 0x94 decodes to the smart-quote U+201D in ANSI) then becomes a
+# quote character PowerShell treats as a string delimiter, breaking the parse.
 #
 # Usage (from PowerShell in this directory):
 #   .\make-dist.ps1
@@ -40,16 +45,17 @@ New-Item -ItemType Directory -Path $dist | Out-Null
 Copy-Item $exe (Join-Path $dist $exeName)
 Copy-Item (Join-Path $root "assets") (Join-Path $dist "assets") -Recurse
 
-# aria2-next 引擎二进制（exeDir/engines/aria2-next.exe 运行时解析）。没有它，
-# 发行包只有内置 tinyhttps 引擎可用。文件已 gitignore，机器上可能没下载，
-# 所以存在就带上、缺失则警告（不中断打包）。
+# aria2-next engine binary (resolved at runtime as exeDir/engines/aria2-next.exe).
+# Without it the package only has the built-in tinyhttps engine. The engines dir
+# is gitignored and may be absent on some machines, so copy if present, warn if
+# missing (do not abort packaging).
 $enginesDir = Join-Path $root "engines"
 if (Test-Path $enginesDir) {
     Copy-Item $enginesDir (Join-Path $dist "engines") -Recurse
     $engineFiles = (Get-ChildItem $enginesDir | ForEach-Object Name) -join ", "
     Write-Host "  engines: $engineFiles"
 } else {
-    Write-Warning "  engines/ 不存在 —— aria2-next 引擎二进制未打包（发行包仅 tinyhttps 引擎）"
+    Write-Warning "  engines/ missing - aria2-next engine NOT packaged (built-in tinyhttps only)"
 }
 
 Write-Host "== 4/4 compress =="
@@ -59,4 +65,4 @@ Compress-Archive -Path (Join-Path $dist "*") -DestinationPath $zip -CompressionL
 Write-Host "  produced: $zip"
 
 $size = (Get-Item $zip).Length / 1MB
-Write-Host ("done — {0} ({1:N1} MB)" -f $zip, $size)
+Write-Host ("done - {0} ({1:N1} MB)" -f $zip, $size)
