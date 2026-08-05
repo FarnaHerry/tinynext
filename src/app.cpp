@@ -116,26 +116,35 @@ std::filesystem::path pickDownloadFolder() {
 #endif
 }
 
-// 所有布局尺寸都按“逻辑像素”设计。eui 的逻辑坐标空间 = 物理像素 / DPI 缩放：
-// 窗口为 920x620 物理像素时，逻辑空间是 460x310（本机 content scale = 2.0）。
-// 因此本文件的数值都按逻辑空间取值，并尽量用 screen.width/height 推算，
-// 随窗口缩放自适应。
-constexpr float kMargin = 12.0f;
-constexpr float kInputHeight = 26.0f;
-constexpr float kPagerHeight = 24.0f;    // 翻页行高
-constexpr float kPagerBottomMargin = 10.0f;  // 翻页行距窗口底部
-constexpr float kSizeDropdownWidth = 96.0f;  // 分页大小下拉框宽
+// ---- UI 缩放 ----
+// eui 没有全局缩放开关（components::button 自带 .scale() 但只作用于组件按钮，
+// 覆盖不了大量自绘控件），所以这里用一个统一系数放大所有尺寸/字号/间距。
+// 以后想整体改大改小，只调 kUI 这一个数。窗口尺寸同样经 S() 放大 —— 布局在
+// 逻辑像素空间（= 窗口屏幕像素），只有窗口和内容一起放大，高 DPI 屏上整体
+// 才会真正变大（本机 2560x1600 @150%，逻辑桌面 1707x1067，1.4 倍后窗口
+// 1288x868 刚好铺满一屏）。
+constexpr float kUI = 1.4f;
+constexpr float S(float v) { return v * kUI; }
+
+// 所有布局尺寸都按“逻辑像素”设计。eui 的逻辑坐标空间 = 物理像素 / DPI 缩放，
+// 即窗口的屏幕像素尺寸。本文件所有数值都经 S() 放大 kUI 倍，并尽量用
+// screen.width/height 推算，随窗口缩放自适应。
+constexpr float kMargin = S(12.0f);
+constexpr float kInputHeight = S(26.0f);
+constexpr float kPagerHeight = S(24.0f);    // 翻页行高
+constexpr float kPagerBottomMargin = S(10.0f);  // 翻页行距窗口底部
+constexpr float kSizeDropdownWidth = S(96.0f);  // 分页大小下拉框宽
 
 // 卡片式下载项：高度、内边距与间距。
-constexpr float kCardHeight = 68.0f;
-constexpr float kCardPad = 10.0f;
-constexpr float kCardGap = 6.0f;
-constexpr float kCardIconW = 22.0f;  // 卡片操作图标按钮边长
-constexpr float kCardIconGap = 4.0f;
+constexpr float kCardHeight = S(68.0f);
+constexpr float kCardPad = S(10.0f);
+constexpr float kCardGap = S(6.0f);
+constexpr float kCardIconW = S(22.0f);  // 卡片操作图标按钮边长
+constexpr float kCardIconGap = S(4.0f);
 
 // 布局：主侧边栏为纯图标栏；下载页内部再分一个下载状态子侧边栏。
-constexpr float kRailWidth = 26.0f;         // 大侧边栏（图标栏）宽
-constexpr float kSubSidebarWidth = 96.0f;   // 下载页内状态子侧边栏宽
+constexpr float kRailWidth = S(26.0f);         // 大侧边栏（图标栏）宽
+constexpr float kSubSidebarWidth = S(96.0f);   // 下载页内状态子侧边栏宽
 
 // ---------------------------------------------------------------- themes --
 
@@ -536,7 +545,7 @@ void drawCardAction(eui::Ui& ui, const std::string& id, float x, float y,
         .size(kCardIconW, kCardIconW)
         .icon(icon)
         .text("")
-        .iconSize(11.0f)
+        .iconSize(S(11.0f))
         .theme(theme.components, primary)
         .onClick(std::move(onClick))
         .build();
@@ -572,38 +581,38 @@ void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth) {
                 .position(0, 0)
                 .size(cardWidth, kCardHeight)
                 .color(theme.components.surface)
-                .radius(8.0f)
+                .radius(S(8.0f))
                 .border(1.0f, components::theme::withOpacity(theme.components.border, 0.55f))
                 .build();
 
             // ---- 第 1 行：文件名 + 状态 ----
-            const float stateW = 46.0f;
+            const float stateW = S(46.0f);
             components::text(ui, fid + ".name")
-                .position(kCardPad, 9.0f)
-                .size(inner - stateW - 6.0f, 15.0f)
+                .position(kCardPad, S(9.0f))
+                .size(inner - stateW - S(6.0f), S(15.0f))
                 .text(fileNameFromUrl(task.url))
-                .fontSize(13.0f)
-                .lineHeight(15.0f)
-                .maxWidth(inner - stateW - 6.0f)
+                .fontSize(S(13.0f))
+                .lineHeight(S(15.0f))
+                .maxWidth(inner - stateW - S(6.0f))
                 .color(theme.nameText)
                 .build();
             components::text(ui, fid + ".state")
-                .position(cardWidth - kCardPad - stateW, 9.0f)
-                .size(stateW, 15.0f)
+                .position(cardWidth - kCardPad - stateW, S(9.0f))
+                .size(stateW, S(15.0f))
                 .text(stateLabel(task.state))
-                .fontSize(10.0f)
-                .lineHeight(15.0f)
+                .fontSize(S(10.0f))
+                .lineHeight(S(15.0f))
                 .horizontalAlign(core::HorizontalAlign::Right)
                 .color(stateColor(task.state))
                 .build();
 
             // ---- 第 2 行：进度条 ----
             ui.stack(fid + ".progress.slot")
-                .position(kCardPad, 28.0f)
-                .size(inner, 6.0f)
+                .position(kCardPad, S(28.0f))
+                .size(inner, S(6.0f))
                 .content([&] {
                     components::progress(ui, fid + ".progress")
-                        .size(inner, 6.0f)
+                        .size(inner, S(6.0f))
                         .value(progress)
                         .theme(theme.components)
                         .build();
@@ -628,10 +637,10 @@ void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth) {
                                  (actionCount > 0 ? (actionCount - 1) * kCardIconGap : 0.0f);
 
             components::text(ui, fid + ".info")
-                .position(kCardPad, 42.0f)
+                .position(kCardPad, S(42.0f))
                 .size(inner - iconsW, kCardIconW)
                 .text(cardInfoText(task))
-                .fontSize(10.0f)
+                .fontSize(S(10.0f))
                 .lineHeight(kCardIconW)
                 .maxWidth(inner - iconsW)
                 .color(theme.metaText)
@@ -639,7 +648,7 @@ void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth) {
 
             // 从右往左摆放：状态操作（打开所在文件夹/打开/取消/暂停）在右，
             // 通用操作（删除/复制链接）在左，阅读顺序为左→右。
-            const float btnY = 42.0f;
+            const float btnY = S(42.0f);
             float bx = cardWidth - kCardPad;
             const auto place = [&](const std::string& aid, unsigned int icon,
                                    bool primary, std::function<void()> cb) {
@@ -697,9 +706,9 @@ void buildPageSizePicker(eui::Ui& ui, const std::string& id, float width, float 
                          const AppTheme& theme) {
     static const char* kLabels[] = {"5 条/页", "10 条/页", "20 条/页", "50 条/页", "100 条/页"};
     constexpr int kCount = 5;
-    const float itemHeight = 22.0f;
-    const float popupPad = 3.0f;
-    const float popupGap = 3.0f;
+    const float itemHeight = S(22.0f);
+    const float popupPad = S(3.0f);
+    const float popupGap = S(3.0f);
     const float popupHeight = itemHeight * kCount + popupPad * 2.0f;
     const int selected = pageSizeIndex();
     const auto& tokens = theme.components;
@@ -713,27 +722,27 @@ void buildPageSizePicker(eui::Ui& ui, const std::string& id, float width, float 
             ui.rect(id + ".field")
                 .size(width, height)
                 .color(tokens.surface)
-                .radius(8.0f)
+                .radius(S(8.0f))
                 .border(1.0f, components::theme::withOpacity(tokens.border, 0.78f))
                 .transition(transition)
                 .onClick([] { g_pageSizeOpen = !g_pageSizeOpen; })
                 .build();
 
             ui.text(id + ".label")
-                .x(9.0f)
-                .size(width - 30.0f, height)
+                .x(S(9.0f))
+                .size(width - S(30.0f), height)
                 .text(kLabels[selected])
-                .fontSize(11.0f)
+                .fontSize(S(11.0f))
                 .lineHeight(height)
                 .color(tokens.text)
                 .verticalAlign(core::VerticalAlign::Center)
                 .build();
 
             ui.text(id + ".chevron")
-                .x(width - 20.0f)
-                .size(14.0f, height)
+                .x(width - S(20.0f))
+                .size(S(14.0f), height)
                 .icon(g_pageSizeOpen ? 0xF077 : 0xF078)  // chevron-up / chevron-down
-                .fontSize(10.0f)
+                .fontSize(S(10.0f))
                 .lineHeight(height)
                 .color(tokens.primary)
                 .horizontalAlign(core::HorizontalAlign::Center)
@@ -750,7 +759,7 @@ void buildPageSizePicker(eui::Ui& ui, const std::string& id, float width, float 
                         ui.rect(id + ".popup.bg")
                             .size(width, popupHeight)
                             .color(tokens.dark ? tokens.surfaceActive : tokens.surface)
-                            .radius(8.0f)
+                            .radius(S(8.0f))
                             .border(1.0f, components::theme::withOpacity(tokens.border, 0.78f))
                             .build();
 
@@ -762,7 +771,7 @@ void buildPageSizePicker(eui::Ui& ui, const std::string& id, float width, float 
                                 .size(width - popupPad * 2.0f, itemHeight)
                                 .states({0.0f, 0.0f, 0.0f, 0.0f}, tokens.surfaceHover,
                                         tokens.surfaceActive)
-                                .radius(5.0f)
+                                .radius(S(5.0f))
                                 .onClick([i] {
                                     g_pageSize = kPageSizes[i];
                                     g_page = 1;
@@ -771,11 +780,11 @@ void buildPageSizePicker(eui::Ui& ui, const std::string& id, float width, float 
                                 .build();
 
                             ui.text(id + ".item.label." + std::to_string(i))
-                                .x(popupPad + 8.0f)
+                                .x(popupPad + S(8.0f))
                                 .y(itemY)
-                                .size(width - popupPad * 2.0f - 16.0f, itemHeight)
+                                .size(width - popupPad * 2.0f - S(16.0f), itemHeight)
                                 .text(kLabels[i])
-                                .fontSize(11.0f)
+                                .fontSize(S(11.0f))
                                 .lineHeight(itemHeight)
                                 .color(i == selected ? tokens.primary : tokens.text)
                                 .verticalAlign(core::VerticalAlign::Center)
@@ -806,16 +815,16 @@ void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y,
         .position(x, y)
         .size(width, height)
         .color(active ? activeFill : idle)
-        .radius(8.0f)
+        .radius(S(8.0f))
         .transition(transition)
         .build();
 
     if (active) {
         ui.rect(id + ".bar")
-            .position(x, y + 6.0f)
-            .size(3.0f, height - 12.0f)
+            .position(x, y + S(6.0f))
+            .size(S(3.0f), height - S(12.0f))
             .color(tokens.primary)
-            .radius(1.5f)
+            .radius(S(1.5f))
             .build();
     }
 
@@ -824,17 +833,17 @@ void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y,
         .position(x, y)
         .size(width, height)
         .states(idle, active ? idle : tokens.surfaceHover, tokens.surfaceActive)
-        .radius(8.0f)
+        .radius(S(8.0f))
         .transition(transition)
         .onClick(std::move(onClick))
         .build();
 
     // 图标。
     ui.text(id + ".icon")
-        .position(x + 8.0f, y)
-        .size(16.0f, height)
+        .position(x + S(8.0f), y)
+        .size(S(16.0f), height)
         .icon(icon)
-        .fontSize(11.0f)
+        .fontSize(S(11.0f))
         .lineHeight(height)
         .color(textColor)
         .horizontalAlign(core::HorizontalAlign::Center)
@@ -843,10 +852,10 @@ void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y,
 
     // 文字。
     ui.text(id + ".label")
-        .position(x + 30.0f, y)
-        .size(width - 36.0f, height)
+        .position(x + S(30.0f), y)
+        .size(width - S(36.0f), height)
         .text(label)
-        .fontSize(12.0f)
+        .fontSize(S(12.0f))
         .lineHeight(height)
         .color(textColor)
         .verticalAlign(core::VerticalAlign::Center)
@@ -863,33 +872,33 @@ void drawRailItem(eui::Ui& ui, const std::string& id, float y, float railWidth,
     const core::Color activeFill =
         components::theme::withAlpha(tokens.primary, theme.dark ? 0.22f : 0.14f);
     const core::Color iconColor = active ? tokens.primary : tokens.text;
-    const float itemW = railWidth - 8.0f;   // 两侧各留 4px
+    const float itemW = railWidth - S(8.0f);   // 两侧各留 4px
     const float x = (railWidth - itemW) * 0.5f;
 
     // 激活高亮底色。
     ui.rect(id + ".bg")
         .position(x, y)
-        .size(itemW, 24.0f)
+        .size(itemW, S(24.0f))
         .color(active ? activeFill : idle)
-        .radius(7.0f)
+        .radius(S(7.0f))
         .transition(transition)
         .build();
 
     if (active) {
         ui.rect(id + ".bar")
-            .position(0, y + 4.0f)
-            .size(2.0f, 16.0f)
+            .position(0, y + S(4.0f))
+            .size(S(2.0f), S(16.0f))
             .color(tokens.primary)
-            .radius(1.0f)
+            .radius(S(1.0f))
             .build();
     }
 
     // 点击命中区（悬停反馈）。
     ui.rect(id + ".hit")
         .position(x, y)
-        .size(itemW, 24.0f)
+        .size(itemW, S(24.0f))
         .states(idle, active ? idle : tokens.surfaceHover, tokens.surfaceActive)
-        .radius(7.0f)
+        .radius(S(7.0f))
         .transition(transition)
         .onClick(std::move(onClick))
         .build();
@@ -897,10 +906,10 @@ void drawRailItem(eui::Ui& ui, const std::string& id, float y, float railWidth,
     // 图标（水平居中）。
     ui.text(id + ".icon")
         .position(0, y)
-        .size(railWidth, 24.0f)
+        .size(railWidth, S(24.0f))
         .icon(icon)
-        .fontSize(13.0f)
-        .lineHeight(24.0f)
+        .fontSize(S(13.0f))
+        .lineHeight(S(24.0f))
         .color(iconColor)
         .horizontalAlign(core::HorizontalAlign::Center)
         .verticalAlign(core::VerticalAlign::Center)
@@ -916,7 +925,7 @@ const DslAppConfig& dslAppConfig() {
         .title("TinyNext 下载器")
         .pageId("tinynext")
         .clearColor({0.075f, 0.085f, 0.105f, 1.0f})
-        .windowSize(920, 620)
+        .windowSize(static_cast<int>(S(920.0f)), static_cast<int>(S(620.0f)))
         .fps(90.0)
         .showDebugStatsInTitle(false)
         .textFont("JingNanJunJunTi-JinNanJunJunTi-Bold-2.ttf")
@@ -945,10 +954,10 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
     // ---- 布局尺寸：左侧图标栏 + 右侧内容区 ----
     // contentX/contentWidth 按页面不同在分支内计算：设置页紧跟图标栏；
     // 下载页在图标栏后还多一个下载状态子侧边栏。
-    const float inputY = 14.0f;
-    const float listTop = inputY + kInputHeight + 10.0f;
+    const float inputY = S(14.0f);
+    const float listTop = inputY + kInputHeight + S(10.0f);
     const float pagerY = screen.height - kPagerBottomMargin - kPagerHeight;
-    const float listHeight = std::max(0.0f, pagerY - listTop - 4.0f);
+    const float listHeight = std::max(0.0f, pagerY - listTop - S(4.0f));
 
     // 根用 stack：底层铺满窗口的主题背景（clearColor 在初始化时固化、无法运行时
     // 修改，所以背景色由 compose 每帧重绘，主题切换即时生效），其余控件用
@@ -994,17 +1003,17 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
 
                     // 应用 logo：项目名缩写 "TN"（TinyNext），主色圆角块特例。
                     ui.rect("sidebar.logo.bg")
-                        .position(4.0f, 10.0f)
-                        .size(18.0f, 18.0f)
+                        .position(S(4.0f), S(10.0f))
+                        .size(S(18.0f), S(18.0f))
                         .color(theme.components.primary)
-                        .radius(5.0f)
+                        .radius(S(5.0f))
                         .build();
                     ui.text("sidebar.logo")
-                        .position(0, 10.0f)
-                        .size(kRailWidth, 18.0f)
+                        .position(0, S(10.0f))
+                        .size(kRailWidth, S(18.0f))
                         .text("TN")
-                        .fontSize(8.0f)
-                        .lineHeight(18.0f)
+                        .fontSize(S(8.0f))
+                        .lineHeight(S(18.0f))
                         .color(theme.dark ? theme.components.surface
                                           : theme.components.background)
                         .horizontalAlign(core::HorizontalAlign::Center)
@@ -1012,33 +1021,33 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                         .build();
 
                     // 应用页导航：下载列表（默认第一页）/ 设置。
-                    float railY = 40.0f;
+                    float railY = S(40.0f);
                     drawRailItem(ui, "nav.downloads", railY, kRailWidth, 0xF03A,
                                  g_page_view == Page::Downloads, theme,
                                  [] { g_page_view = Page::Downloads; });
-                    railY += 30.0f;
+                    railY += S(30.0f);
                     drawRailItem(ui, "nav.settings", railY, kRailWidth, 0xF013,
                                  g_page_view == Page::Settings, theme,
                                  [] { g_page_view = Page::Settings; });
 
                     // 关于：主题切换上方，信息图标（circle-info），打开软件信息弹窗。
                     components::button(ui, "rail.info")
-                        .position((kRailWidth - 22.0f) * 0.5f, screen.height - 54.0f)
-                        .size(22.0f, 22.0f)
+                        .position((kRailWidth - S(22.0f)) * 0.5f, screen.height - S(54.0f))
+                        .size(S(22.0f), S(22.0f))
                         .icon(0xF05A)  // circle-info
                         .text("")
-                        .iconSize(11.0f)
+                        .iconSize(S(11.0f))
                         .theme(theme.components, false)
                         .onClick([] { g_aboutOpen = true; })
                         .build();
 
                     // 主题切换：底部，仅图标（月亮/太阳）。
                     components::button(ui, "theme.toggle")
-                        .position((kRailWidth - 22.0f) * 0.5f, screen.height - 28.0f)
-                        .size(22.0f, 22.0f)
+                        .position((kRailWidth - S(22.0f)) * 0.5f, screen.height - S(28.0f))
+                        .size(S(22.0f), S(22.0f))
                         .icon(g_dark ? 0xF186 : 0xF185)  // moon / sun
                         .text("")
-                        .iconSize(11.0f)
+                        .iconSize(S(11.0f))
                         .theme(theme.components, false)
                         .onClick([] {
                             // Quick flip switches to the opposite explicit mode
@@ -1061,7 +1070,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 // 列表），右侧是输入栏 + 卡片任务列表 + 翻页控件组。
                 const float railRight = kRailWidth + kMargin;            // 图标栏右侧
                 const float subX = railRight;                            // 状态子侧边栏
-                const float contentX = subX + kSubSidebarWidth + 10.0f;  // 列表区起点
+                const float contentX = subX + kSubSidebarWidth + S(10.0f);  // 列表区起点
                 const float contentWidth = screen.width - contentX - kMargin;
 
                 // ---- 下载状态子侧边栏：所有 / 下载中 / 已完成 ----
@@ -1076,29 +1085,29 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                             .position(0, 0)
                             .size(kSubSidebarWidth, subHeight)
                             .color(theme.components.surface)
-                            .radius(8.0f)
+                            .radius(S(8.0f))
                             .build();
 
                         components::text(ui, "sub.filter.label")
-                            .position(9.0f, 10.0f)
-                            .size(kSubSidebarWidth - 18.0f, 14.0f)
+                            .position(S(9.0f), S(10.0f))
+                            .size(kSubSidebarWidth - S(18.0f), S(14.0f))
                             .text("下载状态")
-                            .fontSize(10.0f)
-                            .lineHeight(14.0f)
+                            .fontSize(S(10.0f))
+                            .lineHeight(S(14.0f))
                             .color(theme.metaText)
                             .build();
 
-                        const float itemW = kSubSidebarWidth - 12.0f;
-                        float itemY = 28.0f;
-                        drawSidebarItem(ui, "filter.all", 6.0f, itemY, itemW, 22.0f,
+                        const float itemW = kSubSidebarWidth - S(12.0f);
+                        float itemY = S(28.0f);
+                        drawSidebarItem(ui, "filter.all", S(6.0f), itemY, itemW, S(22.0f),
                                         "所有", 0xF03A, g_filter == Filter::All, theme,
                                         [] { g_filter = Filter::All; g_page = 1; });
-                        itemY += 27.0f;
-                        drawSidebarItem(ui, "filter.active", 6.0f, itemY, itemW, 22.0f,
+                        itemY += S(27.0f);
+                        drawSidebarItem(ui, "filter.active", S(6.0f), itemY, itemW, S(22.0f),
                                         "下载中", 0xF019, g_filter == Filter::Active, theme,
                                         [] { g_filter = Filter::Active; g_page = 1; });
-                        itemY += 27.0f;
-                        drawSidebarItem(ui, "filter.done", 6.0f, itemY, itemW, 22.0f,
+                        itemY += S(27.0f);
+                        drawSidebarItem(ui, "filter.done", S(6.0f), itemY, itemW, S(22.0f),
                                         "已完成", 0xF00C, g_filter == Filter::Done, theme,
                                         [] { g_filter = Filter::Done; g_page = 1; });
                     })
@@ -1106,11 +1115,11 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
 
                 // ---- 添加下载：右上角一个 ➕ 图标，点击弹出对话框 ----
                 components::button(ui, "add.btn")
-                    .position(contentX + contentWidth - 28.0f, inputY)
-                    .size(28.0f, kInputHeight)
+                    .position(contentX + contentWidth - S(28.0f), inputY)
+                    .size(S(28.0f), kInputHeight)
                     .icon(0xF067)  // fa-plus
                     .text("")
-                    .iconSize(13.0f)
+                    .iconSize(S(13.0f))
                     .theme(theme.components, true)
                     .onClick([] {
                         g_urlText.clear();
@@ -1125,11 +1134,11 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                         : g_filter == Filter::Active ? "暂无下载中的任务"
                                                       : "暂无已完成的任务";
                     components::text(ui, "empty.hint")
-                        .position(contentX, listTop + 16.0f)
-                        .size(contentWidth, 24.0f)
+                        .position(contentX, listTop + S(16.0f))
+                        .size(contentWidth, S(24.0f))
                         .text(hint)
-                        .fontSize(12.0f)
-                        .lineHeight(24.0f)
+                        .fontSize(S(12.0f))
+                        .lineHeight(S(24.0f))
                         .color(theme.hintText)
                         .build();
                 } else {
@@ -1147,9 +1156,9 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 }
 
                 // ---- 翻页控件组：◀ 第 X / Y 页 ▶ [分页大小]，整合进一个容器 ----
-                constexpr float kChevWidth = 18.0f;
-                constexpr float kPageLabelWidth = 54.0f;
-                constexpr float kPagerGap = 4.0f;
+                constexpr float kChevWidth = S(18.0f);
+                constexpr float kPageLabelWidth = S(54.0f);
+                constexpr float kPagerGap = S(4.0f);
                 const float groupWidth = kChevWidth + kPagerGap + kPageLabelWidth +
                                          kPagerGap + kChevWidth + kPagerGap +
                                          kSizeDropdownWidth;
@@ -1163,10 +1172,10 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                     .zIndex(10)
                     .content([&] {
                         components::button(ui, "pager.prev")
-                            .size(kChevWidth, 20.0f)
+                            .size(kChevWidth, S(20.0f))
                             .icon(0xF053)  // chevron-left
                             .text("")
-                            .iconSize(11.0f)
+                            .iconSize(S(11.0f))
                             .theme(theme.components, false)
                             .disabled(g_page <= 1)
                             .onClick([] { if (g_page > 1) --g_page; })
@@ -1175,17 +1184,17 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                         components::text(ui, "pager.label")
                             .size(kPageLabelWidth, kPagerHeight)
                             .text(std::format("第 {} / {} 页", g_page, totalPages))
-                            .fontSize(11.0f)
+                            .fontSize(S(11.0f))
                             .lineHeight(kPagerHeight)
                             .horizontalAlign(core::HorizontalAlign::Center)
                             .color(theme.metaText)
                             .build();
 
                         components::button(ui, "pager.next")
-                            .size(kChevWidth, 20.0f)
+                            .size(kChevWidth, S(20.0f))
                             .icon(0xF054)  // chevron-right
                             .text("")
-                            .iconSize(11.0f)
+                            .iconSize(S(11.0f))
                             .theme(theme.components, false)
                             .disabled(g_page >= totalPages)
                             .onClick([totalPages] { if (g_page < totalPages) ++g_page; })
@@ -1200,19 +1209,19 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 // ---- 状态消息（短暂显示，翻页行上方）----
                 if (g_statusTimer > 0.0f && !g_statusMessage.empty()) {
                     components::text(ui, "status")
-                        .position(contentX, pagerY - 24.0f)
-                        .size(contentWidth, 18.0f)
+                        .position(contentX, pagerY - S(24.0f))
+                        .size(contentWidth, S(18.0f))
                         .text(g_statusMessage)
-                        .fontSize(12.0f)
-                        .lineHeight(18.0f)
+                        .fontSize(S(12.0f))
+                        .lineHeight(S(18.0f))
                         .color(theme.statusText)
                         .build();
                 }
 
                 // ---- 添加下载弹窗（模态）：链接输入 + 提交/取消 ----
                 if (g_addOpen) {
-                    const float dlgW = 280.0f;
-                    const float dlgH = 150.0f;
+                    const float dlgW = S(280.0f);
+                    const float dlgH = S(150.0f);
                     const float dlgX = (screen.width - dlgW) * 0.5f;
                     const float dlgY = (screen.height - dlgH) * 0.5f;
 
@@ -1235,24 +1244,24 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                                 .position(0, 0)
                                 .size(dlgW, dlgH)
                                 .color(theme.components.surface)
-                                .radius(10.0f)
+                                .radius(S(10.0f))
                                 .border(1.0f,
                                         components::theme::withOpacity(
                                             theme.components.border, 0.6f))
                                 .build();
 
                             components::text(ui, "add.dialog.title")
-                                .position(16.0f, 12.0f)
-                                .size(dlgW - 32.0f, 20.0f)
+                                .position(S(16.0f), S(12.0f))
+                                .size(dlgW - S(32.0f), S(20.0f))
                                 .text("添加下载")
-                                .fontSize(14.0f)
-                                .lineHeight(20.0f)
+                                .fontSize(S(14.0f))
+                                .lineHeight(S(20.0f))
                                 .color(theme.titleText)
                                 .build();
 
                             components::input(ui, "add.url")
-                                .position(16.0f, 40.0f)
-                                .size(dlgW - 32.0f, 28.0f)
+                                .position(S(16.0f), S(40.0f))
+                                .size(dlgW - S(32.0f), S(28.0f))
                                 .placeholder("https://example.com/file.zip")
                                 .value(g_urlText)
                                 .theme(theme.components)
@@ -1261,19 +1270,19 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                                 .build();
 
                             components::button(ui, "add.cancel")
-                                .position(dlgW - 16.0f - 76.0f - 8.0f - 76.0f, 108.0f)
-                                .size(76.0f, 26.0f)
+                                .position(dlgW - S(16.0f) - S(76.0f) - S(8.0f) - S(76.0f), S(108.0f))
+                                .size(S(76.0f), S(26.0f))
                                 .text("取消")
-                                .fontSize(12.0f)
+                                .fontSize(S(12.0f))
                                 .theme(theme.components, false)
                                 .onClick([] { g_addOpen = false; })
                                 .build();
 
                             components::button(ui, "add.submit")
-                                .position(dlgW - 16.0f - 76.0f, 108.0f)
-                                .size(76.0f, 26.0f)
+                                .position(dlgW - S(16.0f) - S(76.0f), S(108.0f))
+                                .size(S(76.0f), S(26.0f))
                                 .text("提交")
-                                .fontSize(12.0f)
+                                .fontSize(S(12.0f))
                                 .theme(theme.components, true)
                                 .onClick([] { if (addDownload()) g_addOpen = false; })
                                 .build();
@@ -1285,34 +1294,34 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 // 设置页没有下载状态子侧边栏，内容区紧跟图标栏右侧。
                 const float contentX = kRailWidth + kMargin;
                 const float contentWidth = screen.width - contentX - kMargin;
-                const float infoX = contentX + 8.0f;
+                const float infoX = contentX + S(8.0f);
                 components::text(ui, "settings.title")
-                    .position(infoX, 16.0f)
-                    .size(contentWidth - 16.0f, 24.0f)
+                    .position(infoX, S(16.0f))
+                    .size(contentWidth - S(16.0f), S(24.0f))
                     .text("设置")
-                    .fontSize(17.0f)
-                    .lineHeight(24.0f)
+                    .fontSize(S(17.0f))
+                    .lineHeight(S(24.0f))
                     .color(theme.titleText)
                     .build();
 
                 components::text(ui, "settings.subtitle")
-                    .position(infoX, 42.0f)
-                    .size(contentWidth - 16.0f, 16.0f)
+                    .position(infoX, S(42.0f))
+                    .size(contentWidth - S(16.0f), S(16.0f))
                     .text("下载默认保存到你的系统下载目录，可在此修改。")
-                    .fontSize(11.0f)
-                    .lineHeight(16.0f)
+                    .fontSize(S(11.0f))
+                    .lineHeight(S(16.0f))
                     .color(theme.hintText)
                     .build();
 
                 // ---- 主题设置：跟随系统 / 深色 / 浅色 ----
-                const float labelW = 90.0f;
-                float nextY = 58.0f;
+                const float labelW = S(90.0f);
+                float nextY = S(58.0f);
                 components::text(ui, "settings.theme.label")
                     .position(infoX, nextY)
-                    .size(labelW, 22.0f)
+                    .size(labelW, S(22.0f))
                     .text("主题")
-                    .fontSize(12.0f)
-                    .lineHeight(22.0f)
+                    .fontSize(S(12.0f))
+                    .lineHeight(S(22.0f))
                     .color(theme.metaText)
                     .build();
 
@@ -1322,14 +1331,14 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                     {"深色", cfg::ThemeMode::Dark},
                     {"浅色", cfg::ThemeMode::Light},
                 };
-                float themeBtnX = infoX + labelW + 8.0f;
+                float themeBtnX = infoX + labelW + S(8.0f);
                 for (std::size_t i = 0; i < 3; ++i) {
                     const bool active = g_pendingTheme == kThemeChoices[i].mode;
                     components::button(ui, std::format("settings.theme.{}", i))
-                        .position(themeBtnX, nextY - 1.0f)
-                        .size(76.0f, 24.0f)
+                        .position(themeBtnX, nextY - S(1.0f))
+                        .size(S(76.0f), S(24.0f))
                         .text(kThemeChoices[i].label)
-                        .fontSize(12.0f)
+                        .fontSize(S(12.0f))
                         .theme(theme.components, active)
                         .onClick([mode = kThemeChoices[i].mode] {
                             // 选择即预览；「保存」才落盘。
@@ -1342,17 +1351,17 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                             }
                         })
                         .build();
-                    themeBtnX += 84.0f;
+                    themeBtnX += S(84.0f);
                 }
-                nextY += 32.0f;
+                nextY += S(32.0f);
 
                 // ---- 下载引擎：tinyhttps / aria2-next ----
                 components::text(ui, "settings.engine.label")
                     .position(infoX, nextY)
-                    .size(labelW, 22.0f)
+                    .size(labelW, S(22.0f))
                     .text("下载引擎")
-                    .fontSize(12.0f)
-                    .lineHeight(22.0f)
+                    .fontSize(S(12.0f))
+                    .lineHeight(S(22.0f))
                     .color(theme.metaText)
                     .build();
 
@@ -1361,38 +1370,38 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                     {"tinyhttps", cfg::EngineChoice::TinyHttps},
                     {"aria2-next", cfg::EngineChoice::Aria2Next},
                 };
-                float engineBtnX = infoX + labelW + 8.0f;
+                float engineBtnX = infoX + labelW + S(8.0f);
                 for (std::size_t i = 0; i < 2; ++i) {
                     const bool active = g_pendingEngine == kEngineChoices[i].choice;
                     components::button(ui, std::format("settings.engine.{}", i))
-                        .position(engineBtnX, nextY - 1.0f)
-                        .size(90.0f, 24.0f)
+                        .position(engineBtnX, nextY - S(1.0f))
+                        .size(S(90.0f), S(24.0f))
                         .text(kEngineChoices[i].label)
-                        .fontSize(12.0f)
+                        .fontSize(S(12.0f))
                         .theme(theme.components, active)
                         .onClick([choice = kEngineChoices[i].choice] {
                             g_pendingEngine = choice;  // 「保存」时生效
                         })
                         .build();
-                    engineBtnX += 98.0f;
+                    engineBtnX += S(98.0f);
                 }
-                nextY += 32.0f;
+                nextY += S(32.0f);
 
                 // ---- 下载路径：输入框 + 系统文件夹选择器 ----
                 components::text(ui, "settings.path.label")
                     .position(infoX, nextY)
-                    .size(labelW, 22.0f)
+                    .size(labelW, S(22.0f))
                     .text("下载路径")
-                    .fontSize(12.0f)
-                    .lineHeight(22.0f)
+                    .fontSize(S(12.0f))
+                    .lineHeight(S(22.0f))
                     .color(theme.metaText)
                     .build();
 
                 const float pathInputW = std::max(
-                    160.0f, contentWidth - 16.0f - labelW - 8.0f - 60.0f);
+                    S(160.0f), contentWidth - S(16.0f) - labelW - S(8.0f) - S(60.0f));
                 components::input(ui, "settings.path.input")
-                    .position(infoX + labelW, nextY - 2.0f)
-                    .size(pathInputW, 26.0f)
+                    .position(infoX + labelW, nextY - S(2.0f))
+                    .size(pathInputW, S(26.0f))
                     .placeholder("下载保存目录")
                     .value(g_downloadDirText)
                     .theme(theme.components)
@@ -1400,10 +1409,10 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                     .build();
 
                 components::button(ui, "settings.path.browse")
-                    .position(infoX + labelW + pathInputW + 8.0f, nextY - 2.0f)
-                    .size(60.0f, 26.0f)
+                    .position(infoX + labelW + pathInputW + S(8.0f), nextY - S(2.0f))
+                    .size(S(60.0f), S(26.0f))
                     .text("浏览…")
-                    .fontSize(12.0f)
+                    .fontSize(S(12.0f))
                     .theme(theme.components, false)
                     .onClick([] {
                         // 只填待提交值，点「保存」才写入配置。
@@ -1413,20 +1422,20 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                         }
                     })
                     .build();
-                nextY += 34.0f;
+                nextY += S(34.0f);
 
                 // ---- aria2 参数（仅 aria2-next 引擎相关）----
                 if (g_pendingEngine == cfg::EngineChoice::Aria2Next) {
-                    nextY += 2.0f;
+                    nextY += S(2.0f);
                     components::text(ui, "settings.aria2.header")
                         .position(infoX, nextY)
-                        .size(contentWidth - 16.0f, 18.0f)
+                        .size(contentWidth - S(16.0f), S(18.0f))
                         .text("aria2 参数")
-                        .fontSize(11.0f)
-                        .lineHeight(18.0f)
+                        .fontSize(S(11.0f))
+                        .lineHeight(S(18.0f))
                         .color(theme.statusText)
                         .build();
-                    nextY += 22.0f;
+                    nextY += S(22.0f);
 
                     auto drawParamField =
                         [&](const std::string& id, const char* label,
@@ -1434,45 +1443,45 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                             const std::function<void(const std::string&)>& onChange) {
                             components::text(ui, id + ".label")
                                 .position(x, y)
-                                .size(84.0f, 22.0f)
+                                .size(S(84.0f), S(22.0f))
                                 .text(label)
-                                .fontSize(11.0f)
-                                .lineHeight(22.0f)
+                                .fontSize(S(11.0f))
+                                .lineHeight(S(22.0f))
                                 .color(theme.metaText)
                                 .build();
                             components::input(ui, id + ".input")
-                                .position(x + 86.0f, y - 2.0f)
-                                .size(inputW, 26.0f)
+                                .position(x + S(86.0f), y - S(2.0f))
+                                .size(inputW, S(26.0f))
                                 .value(value)
                                 .theme(theme.components)
                                 .onChange(onChange)
                                 .build();
                         };
 
-                    const float col2X = infoX + 86.0f + 90.0f + 20.0f;  // 第二列
+                    const float col2X = infoX + S(86.0f) + S(90.0f) + S(20.0f);  // 第二列
                     drawParamField("settings.aria2.split", "分片数",
-                                   infoX, nextY, 90.0f, g_aria2SplitText,
+                                   infoX, nextY, S(90.0f), g_aria2SplitText,
                                    [](const std::string& v) { g_aria2SplitText = v; });
                     drawParamField("settings.aria2.conn", "每服务器连接",
-                                   col2X, nextY, 90.0f, g_aria2ConnText,
+                                   col2X, nextY, S(90.0f), g_aria2ConnText,
                                    [](const std::string& v) { g_aria2ConnText = v; });
-                    nextY += 28.0f;
+                    nextY += S(28.0f);
                     drawParamField("settings.aria2.minsplit", "最小分片",
-                                   infoX, nextY, 90.0f, g_aria2MinSplitText,
+                                   infoX, nextY, S(90.0f), g_aria2MinSplitText,
                                    [](const std::string& v) { g_aria2MinSplitText = v; });
                     drawParamField("settings.aria2.limit", "限速KB/s",
-                                   col2X, nextY, 90.0f, g_aria2LimitText,
+                                   col2X, nextY, S(90.0f), g_aria2LimitText,
                                    [](const std::string& v) { g_aria2LimitText = v; });
-                    nextY += 32.0f;
+                    nextY += S(32.0f);
                 }
 
                 // ---- 操作：恢复默认路径 / 保存全部设置 / 放弃修改 ----
                 const float actionRowY = nextY;
                 components::button(ui, "settings.path.reset")
                     .position(infoX + labelW, actionRowY)
-                    .size(76.0f, 26.0f)
+                    .size(S(76.0f), S(26.0f))
                     .text("恢复默认")
-                    .fontSize(12.0f)
+                    .fontSize(S(12.0f))
                     .theme(theme.components, false)
                     .onClick([] {
                         g_downloadDirText = cfg::defaultDownloadDir().string();
@@ -1480,10 +1489,10 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                     .build();
 
                 components::button(ui, "settings.save")
-                    .position(infoX + labelW + 8.0f + 76.0f, actionRowY)
-                    .size(76.0f, 26.0f)
+                    .position(infoX + labelW + S(8.0f) + S(76.0f), actionRowY)
+                    .size(S(76.0f), S(26.0f))
                     .text("保存")
-                    .fontSize(12.0f)
+                    .fontSize(S(12.0f))
                     .theme(theme.components, true)
                     .onClick([] {
                         const std::string t = trimText(g_downloadDirText);
@@ -1540,10 +1549,10 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                     .build();
 
                 components::button(ui, "settings.discard")
-                    .position(infoX + labelW + 8.0f + 76.0f + 8.0f + 76.0f, actionRowY)
-                    .size(76.0f, 26.0f)
+                    .position(infoX + labelW + S(8.0f) + S(76.0f) + S(8.0f) + S(76.0f), actionRowY)
+                    .size(S(76.0f), S(26.0f))
                     .text("放弃")
-                    .fontSize(12.0f)
+                    .fontSize(S(12.0f))
                     .theme(theme.components, false)
                     .onClick([] {
                         // 回滚到已保存值。
@@ -1565,8 +1574,8 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
 
                 // ---- 关于弹窗：软件信息（所有页面可见）----
                 if (g_aboutOpen) {
-                    const float dlgW = 300.0f;
-                    const float dlgH = 306.0f;
+                    const float dlgW = S(300.0f);
+                    const float dlgH = S(306.0f);
                     const float dlgX = (screen.width - dlgW) * 0.5f;
                     const float dlgY = (screen.height - dlgH) * 0.5f;
 
@@ -1587,18 +1596,18 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                                 .position(0, 0)
                                 .size(dlgW, dlgH)
                                 .color(theme.components.surface)
-                                .radius(10.0f)
+                                .radius(S(10.0f))
                                 .border(1.0f,
                                         components::theme::withOpacity(
                                             theme.components.border, 0.6f))
                                 .build();
 
                             components::text(ui, "about.title")
-                                .position(16.0f, 14.0f)
-                                .size(dlgW - 32.0f, 22.0f)
+                                .position(S(16.0f), S(14.0f))
+                                .size(dlgW - S(32.0f), S(22.0f))
                                 .text("关于 TinyNext")
-                                .fontSize(15.0f)
-                                .lineHeight(22.0f)
+                                .fontSize(S(15.0f))
+                                .lineHeight(S(22.0f))
                                 .color(theme.titleText)
                                 .build();
 
@@ -1611,34 +1620,34 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                                 {"网络库", "tinyhttps 0.2.9"},
                                 {"构建工具", "mcpp（C++23）"},
                             };
-                            float rowY = 40.0f;
+                            float rowY = S(40.0f);
                             for (const auto& row : kAboutRows) {
                                 components::text(ui, std::format("about.k{}.label", row.label))
-                                    .position(16.0f, rowY)
-                                    .size(90.0f, 22.0f)
+                                    .position(S(16.0f), rowY)
+                                    .size(S(90.0f), S(22.0f))
                                     .text(row.label)
-                                    .fontSize(11.0f)
-                                    .lineHeight(22.0f)
+                                    .fontSize(S(11.0f))
+                                    .lineHeight(S(22.0f))
                                     .color(theme.metaText)
                                     .build();
                                 components::text(ui, std::format("about.k{}.value", row.label))
-                                    .position(108.0f, rowY)
-                                    .size(dlgW - 124.0f, 22.0f)
+                                    .position(S(108.0f), rowY)
+                                    .size(dlgW - S(124.0f), S(22.0f))
                                     .text(row.value)
-                                    .fontSize(11.0f)
-                                    .lineHeight(22.0f)
+                                    .fontSize(S(11.0f))
+                                    .lineHeight(S(22.0f))
                                     .color(theme.nameText)
                                     .build();
-                                rowY += 22.0f;
+                                rowY += S(22.0f);
                             }
 
                             // ---- 项目主页 ----
                             components::text(ui, "about.links.header")
-                                .position(16.0f, rowY + 4.0f)
-                                .size(dlgW - 32.0f, 16.0f)
+                                .position(S(16.0f), rowY + S(4.0f))
+                                .size(dlgW - S(32.0f), S(16.0f))
                                 .text("项目主页")
-                                .fontSize(11.0f)
-                                .lineHeight(16.0f)
+                                .fontSize(S(11.0f))
+                                .lineHeight(S(16.0f))
                                 .color(theme.statusText)
                                 .build();
 
@@ -1648,24 +1657,24 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                                 {"mcpp 构建工具", "https://github.com/mcpp-community/mcpp"},
                                 {"EUI-NEO 界面框架", "https://github.com/sudoevolve/EUI-NEO"},
                             };
-                            float linkY = rowY + 22.0f;
+                            float linkY = rowY + S(22.0f);
                             for (const auto& link : kLinks) {
                                 components::button(ui, std::format("about.link.{}", link.label))
-                                    .position(16.0f, linkY)
-                                    .size(180.0f, 24.0f)
+                                    .position(S(16.0f), linkY)
+                                    .size(S(180.0f), S(24.0f))
                                     .text(link.label)
-                                    .fontSize(11.0f)
+                                    .fontSize(S(11.0f))
                                     .theme(theme.components, false)
                                     .onClick([url = std::string(link.url)] { openUrl(url); })
                                     .build();
-                                linkY += 26.0f;
+                                linkY += S(26.0f);
                             }
 
                             components::button(ui, "about.close")
-                                .position((dlgW - 76.0f) * 0.5f, dlgH - 30.0f)
-                                .size(76.0f, 24.0f)
+                                .position((dlgW - S(76.0f)) * 0.5f, dlgH - S(30.0f))
+                                .size(S(76.0f), S(24.0f))
                                 .text("关闭")
-                                .fontSize(12.0f)
+                                .fontSize(S(12.0f))
                                 .theme(theme.components, true)
                                 .onClick([] { g_aboutOpen = false; })
                                 .build();

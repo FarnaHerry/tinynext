@@ -21,6 +21,15 @@ mcpp run            # 启动 GUI 窗口
 - **添加下载弹窗**：右上角 **➕** 打开，输入链接后「提交」/「取消」。
 - **翻页行**：◀ 第 X / Y 页 ▶，右侧选择每页条数（5/10/20/50/100）。
 
+## UI 缩放
+
+EUI-NEO **没有**全局缩放开关（`components::button` 自带的 `.scale()` 只作用于组件
+按钮），因此 TinyNext 在 `src/app.cpp` 里用一个统一系数 **`kUI`**（默认 `1.4f`）+
+辅助函数 `S(x) = x * kUI`，把所有尺寸 / 字号 / 间距和窗口尺寸整体放大。想整体
+改大改小，只调 `kUI` 一个数即可。布局在 EUI 的逻辑像素空间（= 窗口屏幕像素），
+所以**窗口与内容必须一起放大**，高 DPI 屏上整体才会真正变大（本机 2560×1600
+@150% 下，1.4 倍后窗口约 1288×868）。
+
 ## 使用
 
 1. 点击右上角 **➕** 打开「添加下载」弹窗，粘贴 **HTTPS** 链接（`http://` 会自动升级为 `https://`，其他协议会被拒绝——tinyhttps 只支持 HTTPS），点「提交」或按回车开始。
@@ -132,3 +141,7 @@ UI 只面向抽象 `dl::DownloadEngine` 接口（`src/download_engine.cppm`）�
    `-Wl,-subsystem:windows` + `-Wl,-entry:mainCRTStartup`（GUI 子系统的默认
    入口是 WinMainCRTStartup，而入口代码是 `main()`，必须显式指回
    mainCRTStartup），现在直接启动 GUI 窗口、无控制台。
+7. **EUI-NEO 无全局缩放开关**：只有自动 DPI 感知（`highDpi=true`，逻辑坐标 =
+   窗口屏幕像素，渲染按 `dpiScale` 换算保证高 DPI 清晰）和组件 button 的
+   `.scale()`（只作用于单个按钮）。整体放大 UI 需要自己引入系数（见上文
+   「UI 缩放」），并同时放大窗口尺寸，否则高 DPI 屏上控件仍然偏小。
