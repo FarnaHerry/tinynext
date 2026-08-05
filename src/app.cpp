@@ -38,7 +38,7 @@ const DslAppConfig& dslAppConfig() {
         .title("TinyNext 下载器")
         .pageId("tinynext")
         .clearColor({0.075f, 0.085f, 0.105f, 1.0f})
-        .windowSize(static_cast<int>(S(920.0f)), static_cast<int>(S(620.0f)))
+        .windowSize(static_cast<int>(S(1120.0f)), static_cast<int>(S(720.0f)))
         .fps(90.0)
         .showDebugStatsInTitle(false)
         .textFont("JingNanJunJunTi-JinNanJunJunTi-Bold-2.ttf")

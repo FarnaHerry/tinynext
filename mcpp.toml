@@ -1,7 +1,7 @@
 [package]
 name        = "tinynext"
 version     = "0.1.0"
-description = "A GUI downloader: EUI-NEO frontend + tinyhttps download engine"
+description = "A GUI downloader: EUI-NEO frontend + aria2-next download engine"
 license     = "MIT"
 
 # No src/main.cpp exists: with the `app-main` feature, main() comes from
@@ -27,11 +27,11 @@ default = "llvm@22.1.8"
 [target.'cfg(windows)'.build]
 ldflags = ["-Wl,-subsystem:windows", "-Wl,-entry:mainCRTStartup"]
 
-[dependencies]
-tinyhttps = "0.2.9"
-
+# 注意：不能用 0.5.5 —— 它在本项目 C++23 构建下编译不过（image_source.cpp /
+# platform.cpp 用 u8string() 返回 char8_t 赋给 std::string 报错），需先给 eui-neo
+# 打补丁（vendoring）才能升。0.5.3 是实际验证过的版本。
 [dependencies.compat]
-eui-neo = { version = "0.5.5", features = ["app-main"] }
+eui-neo = { version = "0.5.3", features = ["app-main"] }
 
 [dependencies.nlohmann]
 json = "3.12.0"

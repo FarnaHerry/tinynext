@@ -3,9 +3,8 @@
 // Spawns the bundled aria2-next.exe (engines/) as a local JSON-RPC daemon and
 // drives it with addUri/pause/unpause/remove/tellStatus. Multi-connection
 // sharding (-x 16 -s 16), resume (.aria2 control files) and all the aria2
-// protocol support come for free. Unlike TinyHttpsEngine there are no worker
-// threads: every operation runs on the UI thread via RPC, so the engine is
-// single-threaded by construction.
+// protocol support come for free. There are no worker threads: every operation
+// runs on the UI thread via RPC, so the engine is single-threaded by construction.
 export module tinynext.aria2_engine;
 
 import std;
@@ -34,13 +33,16 @@ public:
     void resume(std::uint64_t id) override;
     void pauseAll() override;
     void resumeAll() override;
+    void retry(std::uint64_t id) override;
     std::vector<TaskView> snapshot() const override;
     bool busy() const override;
+    bool engineActive() const override;
     void shutdown() override;
 
 private:
     struct Task;
     bool ensureDaemon() const;      // spawn + wait until RPC answers
+    void recoverSession() const;    // 重启后重建会话任务（tellActive/Waiting/Stopped）
     void refreshStates() const;     // poll tellStatus for live tasks (~5 Hz)
     std::shared_ptr<Task> findTask(std::uint64_t id) const;
     std::filesystem::path makeUniqueDest(const std::filesystem::path& dest) const;

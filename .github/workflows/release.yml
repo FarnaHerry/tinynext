@@ -7,9 +7,8 @@
 #     engines/checksums.sha256 before packaging.
 #   * Packaging: Windows → make-dist.ps1 (zip), unix → make-dist.sh (tar.gz).
 #
-# NOTE: the Linux / macOS jobs were not locally verifiable (only Windows has
-# been built); the first runs are effectively the platform verification for
-# the POSIX code paths. Expect them to need fixes — iterate on the failing job.
+# NOTE: local dev is on Linux; the Windows / macOS jobs are verified by CI
+# itself. Expect POSIX-specific fixes to surface on the failing job.
 #
 # NOTE: Intel macOS (macos-x86_64) is NOT built here — the official mcpp
 # install.sh only ships linux-x86_64 / linux-aarch64 / macosx-arm64 binaries.
@@ -84,6 +83,17 @@ jobs:
           path: ${{ runner.os == 'Windows' && '~/.xlings' || '~/.mcpp' }}
           key: mcpp-${{ runner.os }}-${{ hashFiles('mcpp.lock', 'mcpp.toml') }}
 
+      - name: Refresh package index (defensive)
+        shell: bash
+        run: |
+          # mcpp/xlings 的包索引可能滞后（曾因索引缺 eui-neo 某版本导致拉包失败）。
+          # 索引刷新失败不致命——若本地已有完整索引，mcpp build 仍能继续。
+          if command -v xlings >/dev/null 2>&1; then
+            xlings update || echo "xlings update failed — continuing with existing index"
+          else
+            echo "xlings not found — skipping index refresh"
+          fi
+
       - name: Build release
         run: mcpp build --release
 
@@ -143,6 +153,6 @@ jobs:
             - **Linux x64**: `tinynext-v*-linux-x86_64.tar.gz`（需 glibc ≥2.39 且桌面环境有 Mesa/GLX；内含 `run.sh` 启动脚本）
             - **macOS Apple Silicon**: `tinynext-v*-macos-arm64.tar.gz`
 
-            内置下载引擎 `tinyhttps`（零依赖）+ 可选 `aria2-next`（分片多连接，已随包附带）。
-            在设置页可切换引擎、修改下载路径、主题与 aria2 参数。
+            下载引擎 `aria2-next`（分片多连接、断点续传、磁力/BT，已随包附带）。
+            设置页可修改下载路径、主题与 aria2 参数（并发/代理/重试/限速等）。
           files: artifacts/*

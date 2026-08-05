@@ -1,9 +1,8 @@
 // download_engine.cppm — engine-agnostic downloader interface.
 //
-// State/TaskView and the abstract DownloadEngine live here so both the
-// in-process tinyhttps engine (dl::TinyHttpsEngine) and a future aria2-next
-// process engine can share one surface. The UI consumes DownloadEngine only;
-// the concrete engine is chosen by a factory (settings "下载引擎").
+// State/TaskView and the abstract DownloadEngine live here so the UI and the
+// aria2-next process engine (dl::Aria2Engine) share one surface. The UI
+// consumes DownloadEngine only.
 export module tinynext.download_engine;
 
 import std;
@@ -30,12 +29,17 @@ export struct TaskView {
     std::string error;            // empty unless Failed
     double speedBps;              // bytes/second, last measured
     int connections = 1;          // active network connections; 1 = single-connection engine
+    int priority = 0;             // 0 = 未设置；>0 时用于展示/排序（与 StartOptions 同尺度）
 };
 
 // Per-task start options. connections == 0 means "use the engine default from
-// config"; engines that don't support multi-connection ignore it.
+// config"; engines that don't support a field just ignore it.
 export struct StartOptions {
-    int connections = 0;
+    int connections = 0;                  // 0 = 引擎按配置默认
+    int priority = 0;                     // 0 = 默认；>0 时作为该任务优先级（1..100）
+    std::string outputName;               // 重命名；空 = 取 URL 文件名
+    std::filesystem::path dirOverride;    // 覆盖下载目录；空 = 配置目录（相对按配置目录解析）
+    std::int64_t limitBps = 0;            // 每任务限速 bytes/s；0 = 全局配置
 };
 
 // Abstract download engine contract. Implementations are owned by the app
@@ -65,11 +69,20 @@ public:
     virtual void pauseAll() = 0;
     virtual void resumeAll() = 0;
 
+    // Re-download a Failed/Cancelled task using its original URL and destination
+    // path. Engines that support resume (aria2 control files) continue from the
+    // partial file; others restart from scratch.
+    virtual void retry(std::uint64_t id) = 0;
+
     // Copy of all tasks, newest first.
     virtual std::vector<TaskView> snapshot() const = 0;
 
     // True while any task is queued or running.
     virtual bool busy() const = 0;
+
+    // True when the engine has spawned its runtime (e.g. the aria2 daemon), so
+    // daemon-level settings saved now only take effect after a restart.
+    virtual bool engineActive() const { return false; }
 
     // Cancel everything and release engine resources.
     virtual void shutdown() = 0;

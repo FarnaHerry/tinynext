@@ -2,22 +2,23 @@
 //
 // Spawns the bundled engines/aria2-next.exe (resolved next to the app exe,
 // falling back to the working directory) with --enable-rpc, then drives it via
-// plain-HTTP JSON-RPC on 127.0.0.1:<random-port>. tinyhttps's send() only
-// speaks HTTPS, so the tiny RPC POST is written directly on
-// mcpplibs::tinyhttps::Socket. No worker threads: every operation is a
-// synchronous RPC on the UI thread.
+// plain-HTTP JSON-RPC on 127.0.0.1:<random-port>. The tiny RPC POST is written
+// directly on a small local socket (LocalSocket below; no external HTTP dep).
+// No worker threads: every operation is a synchronous RPC on the UI thread.
 
 module;
 
 #ifdef _WIN32
 // windows.h is used for CreateProcess/TerminateProcess/HANDLE. LEAN_AND_MEAN
-// keeps it from pulling winsock.h (tinyhttps uses winsock2 internally).
+// keeps winsock.h out (winsock2.h is included explicitly for LocalSocket).
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #else
 // POSIX (macOS + Linux). Each header must be included explicitly: glibc pulls
@@ -27,6 +28,12 @@ module;
 #include <sys/wait.h>    // waitpid, WNOHANG
 #include <signal.h>      // kill, SIGTERM, SIGKILL
 #include <spawn.h>       // posix_spawn
+#include <sys/socket.h>  // socket/connect/send/recv
+#include <netinet/in.h>  // sockaddr_in
+#include <arpa/inet.h>   // inet_pton
+#include <fcntl.h>       // fcntl, O_NONBLOCK
+#include <sys/select.h>  // fd_set, select
+#include <cerrno>        // errno, EINPROGRESS, EAGAIN
 #include <unistd.h>
 #ifdef __APPLE__
 #include <mach-o/dyld.h> // _NSGetExecutablePath
@@ -39,7 +46,6 @@ extern char** environ;
 module tinynext.aria2_engine;
 
 import std;
-import mcpplibs.tinyhttps;
 import nlohmann.json;
 import tinynext.config;
 
@@ -47,9 +53,141 @@ namespace dl {
 
 namespace {
 
+// ---- 极简跨平台 TCP socket（替代 tinyhttps::Socket，仅用于本地 JSON-RPC）----
+#ifdef _WIN32
+using LocalFd = SOCKET;
+constexpr LocalFd kInvalidFd = INVALID_SOCKET;
+#else
+using LocalFd = int;
+constexpr LocalFd kInvalidFd = -1;
+#endif
+
+class LocalSocket {
+public:
+    LocalSocket() = default;
+    ~LocalSocket() { close(); }
+    LocalSocket(const LocalSocket&) = delete;
+    LocalSocket& operator=(const LocalSocket&) = delete;
+
+    bool connect(const char* host, int port, int timeoutMs) {
+        close();
+        fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (fd_ == kInvalidFd) return false;
+
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(static_cast<std::uint16_t>(port));
+        // host 在本项目里恒为字面 IP（127.0.0.1），不需要 getaddrinfo。
+        if (::inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
+            close();
+            return false;
+        }
+
+        // 非阻塞 connect + select 实现超时（避免 connect 卡死 UI 线程）。
+        setNonBlocking(true);
+        const int rc = ::connect(fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+        if (rc != 0) {
+#ifdef _WIN32
+            const bool inProgress = WSAGetLastError() == WSAEWOULDBLOCK;
+#else
+            const bool inProgress = errno == EINPROGRESS || errno == EAGAIN;
+#endif
+            if (!inProgress || !waitWritable(timeoutMs)) {
+                close();
+                return false;
+            }
+        }
+        setNonBlocking(false);
+        return true;
+    }
+
+    int write(const char* data, int len) {
+        if (fd_ == kInvalidFd) return -1;
+#ifdef _WIN32
+        return ::send(fd_, data, len, 0);
+#else
+        return static_cast<int>(::send(fd_, data, len, 0));
+#endif
+    }
+
+    int read(char* buf, int size) {
+        if (fd_ == kInvalidFd) return -1;
+#ifdef _WIN32
+        return ::recv(fd_, buf, size, 0);
+#else
+        return static_cast<int>(::recv(fd_, buf, size, 0));
+#endif
+    }
+
+    bool waitReadable(int timeoutMs) {
+        return waitOn(timeoutMs, false);
+    }
+
+    void close() {
+        if (fd_ != kInvalidFd) {
+#ifdef _WIN32
+            ::closesocket(fd_);
+#else
+            ::close(fd_);
+#endif
+            fd_ = kInvalidFd;
+        }
+    }
+
+    static bool platformInit() {
+#ifdef _WIN32
+        WSADATA wsa{};
+        return WSAStartup(MAKEWORD(2, 2), &wsa) == 0;
+#else
+        return true;
+#endif
+    }
+    static void platformCleanup() {
+#ifdef _WIN32
+        WSACleanup();
+#endif
+    }
+
+private:
+    void setNonBlocking(bool enable) {
+#ifdef _WIN32
+        u_long mode = enable ? 1 : 0;
+        ioctlsocket(fd_, FIONBIO, &mode);
+#else
+        const int flags = fcntl(fd_, F_GETFL, 0);
+        if (flags < 0) return;
+        fcntl(fd_, F_SETFL, enable ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK));
+#endif
+    }
+
+    bool waitOn(int timeoutMs, bool wantWritable) {
+        if (fd_ == kInvalidFd) return false;
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(fd_, &fds);
+        timeval tv{};
+        tv.tv_sec = timeoutMs / 1000;
+        tv.tv_usec = (timeoutMs % 1000) * 1000;
+#ifdef _WIN32
+        const int rc = wantWritable ? select(0, nullptr, &fds, nullptr, &tv)
+                                    : select(0, &fds, nullptr, nullptr, &tv);
+#else
+        const int rc = wantWritable ? select(fd_ + 1, nullptr, &fds, nullptr, &tv)
+                                    : select(fd_ + 1, &fds, nullptr, nullptr, &tv);
+#endif
+        return rc > 0;
+    }
+
+    bool waitWritable(int timeoutMs) {
+        return waitOn(timeoutMs, true);
+    }
+
+    LocalFd fd_ = kInvalidFd;
+};
+
 // ---- minimal HTTP/JSON-RPC client for the local daemon ----
 
-bool writeAll(mcpplibs::tinyhttps::Socket& sock, const char* data, int len) {
+bool writeAll(LocalSocket& sock, const char* data, int len) {
     int sent = 0;
     while (sent < len) {
         const int n = sock.write(data + sent, len - sent);
@@ -60,11 +198,11 @@ bool writeAll(mcpplibs::tinyhttps::Socket& sock, const char* data, int len) {
 }
 
 // Read one HTTP response (Connection: close) from the socket; returns the body.
-std::string readHttpResponse(mcpplibs::tinyhttps::Socket& sock) {
+std::string readHttpResponse(LocalSocket& sock) {
     std::string header;
     header.reserve(512);
     while (header.find("\r\n\r\n") == std::string::npos) {
-        if (!sock.wait_readable(5000)) return {};
+        if (!sock.waitReadable(5000)) return {};
         char c;
         const int n = sock.read(&c, 1);
         if (n <= 0) return {};
@@ -100,7 +238,7 @@ std::string readHttpResponse(mcpplibs::tinyhttps::Socket& sock) {
     const std::size_t bodyStart = header.find("\r\n\r\n") + 4;
     std::string body = header.substr(bodyStart);
     while (contentLength < 0 || static_cast<std::int64_t>(body.size()) < contentLength) {
-        if (!sock.wait_readable(5000)) break;
+        if (!sock.waitReadable(5000)) break;
         char buf[8192];
         const int n = sock.read(buf, sizeof(buf));
         if (n <= 0) break;
@@ -113,7 +251,7 @@ std::string readHttpResponse(mcpplibs::tinyhttps::Socket& sock) {
 }
 
 std::string httpPost(int port, const std::string& body) {
-    mcpplibs::tinyhttps::Socket sock;
+    LocalSocket sock;
     if (!sock.connect("127.0.0.1", port, 3000)) return {};
     const std::string request =
         "POST /jsonrpc HTTP/1.1\r\n"
@@ -165,12 +303,49 @@ int pickFreePort() {
     std::uniform_int_distribution<int> dist(20000, 50000);
     for (int attempt = 0; attempt < 16; ++attempt) {
         const int candidate = dist(rng);
-        mcpplibs::tinyhttps::Socket probe;
+        LocalSocket probe;
         if (!probe.connect("127.0.0.1", candidate, 300)) {
             return candidate;  // nothing listening → free
         }
     }
     return 16800;
+}
+
+// daemon 级参数（除分片/连接数外的全部 --xxx 选项）：仅非空/非默认才传，
+// 避免多余 flag。会话恢复（--save-session / --input-file）与磁力 BT 相关
+// flag 也在这里统一生成。
+std::vector<std::pair<std::string, std::string>> daemonExtraOpts(
+    const cfg::Aria2Config& a2) {
+    std::vector<std::pair<std::string, std::string>> opts;
+    auto add = [&](const char* name, const std::string& value) {
+        opts.emplace_back(name, value);
+    };
+    if (!a2.proxy.empty()) add("all-proxy", a2.proxy);
+    if (!a2.noProxy.empty()) add("no-proxy", a2.noProxy);
+    if (a2.maxTries > 0) add("max-tries", std::to_string(a2.maxTries));
+    if (a2.retryWait > 0) add("retry-wait", std::to_string(a2.retryWait));
+    add("max-concurrent-downloads", std::to_string(a2.maxConcurrentDownloads));
+    if (a2.removeControlFile) add("remove-control-file", "true");
+    if (!a2.onDownloadComplete.empty()) {
+        add("on-download-complete", a2.onDownloadComplete);
+    }
+    if (!a2.userAgent.empty()) add("user-agent", a2.userAgent);
+    if (!a2.referer.empty()) add("referer", a2.referer);
+    if (!a2.diskCache.empty()) add("disk-cache", a2.diskCache);
+    // 会话恢复：shutdown 前用 aria2.saveSession 持久化未完成任务，下次启动用
+    // --input-file 载入续传。首次运行会话文件不存在，跳过 --input-file。
+    const std::filesystem::path sessionPath =
+        std::filesystem::current_path() / "tinynext.session";
+    add("save-session", sessionPath.string());
+    std::error_code ec;
+    if (std::filesystem::exists(sessionPath, ec)) {
+        add("input-file", sessionPath.string());
+    }
+    // 磁力/BT：保存元数据为 .torrent + 显式开启 DHT / PEX。
+    add("bt-save-metadata", "true");
+    add("enable-dht", "true");
+    add("enable-peer-exchange", "true");
+    return opts;
 }
 
 std::string engineExePath() {
@@ -249,16 +424,21 @@ struct Aria2Engine::Task {
     std::string error;
     double speedBps = 0.0;
     int connections = 1;          // numConnections from tellStatus
+    StartOptions opts;            // 该任务的起始选项（retry 时复用）
 };
 
 Aria2Engine::Aria2Engine() {
-    // Winsock for the local RPC socket (tinyhttps never calls WSAStartup itself).
-    mcpplibs::tinyhttps::Socket::platform_init();
+    // Winsock for the local RPC socket (Windows only; POSIX no-op).
+    LocalSocket::platformInit();
 }
 
 Aria2Engine::~Aria2Engine() {
     shutdown();
-    mcpplibs::tinyhttps::Socket::platform_cleanup();
+    LocalSocket::platformCleanup();
+}
+
+bool Aria2Engine::engineActive() const {
+    return daemonSpawned_;
 }
 
 bool Aria2Engine::ensureDaemon() const {
@@ -270,18 +450,31 @@ bool Aria2Engine::ensureDaemon() const {
     const int port = pickFreePort();
     const std::string secret = randomHex(16);
 
-#ifdef _WIN32
     const cfg::Aria2Config a2 = cfg::aria2Config();
+    const auto extra = daemonExtraOpts(a2);
+
+#ifdef _WIN32
     const std::wstring wExe = std::filesystem::path(exe).wstring();
-    std::wstring cmdLine =
-        L"\"" + wExe + L"\" --enable-rpc --rpc-listen-all=false "
-        L"--rpc-listen-port=" + std::to_wstring(port) + L" "
-        L"--rpc-secret=" + std::wstring(secret.begin(), secret.end()) + L" "
-        L"--max-connection-per-server=" + std::to_wstring(a2.maxConnectionPerServer) + L" "
-        L"--split=" + std::to_wstring(a2.split) + L" "
-        L"--min-split-size=" + std::wstring(a2.minSplitSize.begin(), a2.minSplitSize.end()) + L" "
-        L"--console-log-level=warn --allow-overwrite=false "
-        L"--auto-file-renaming=false";
+    // 值含空格时用引号包起来（aria2 的 cmdline 解析按 MSVCRT 规则分词）。
+    const auto winValue = [](const std::string& v) -> std::wstring {
+        std::wstring w(v.begin(), v.end());
+        if (v.find_first_of(" \t") != std::string::npos) {
+            return L"\"" + w + L"\"";
+        }
+        return w;
+    };
+    std::wstring cmdLine = L"\"" + wExe + L"\" --enable-rpc --rpc-listen-all=false "
+                           L"--rpc-listen-port=" + std::to_wstring(port) + L" "
+                           L"--rpc-secret=" + winValue(secret) + L" "
+                           L"--max-connection-per-server=" +
+                               std::to_wstring(a2.maxConnectionPerServer) + L" "
+                           L"--split=" + std::to_wstring(a2.split) + L" "
+                           L"--min-split-size=" + winValue(a2.minSplitSize) + L" "
+                           L"--console-log-level=warn --allow-overwrite=false "
+                           L"--auto-file-renaming=false";
+    for (const auto& [name, value] : extra) {
+        cmdLine += L" --" + std::wstring(name.begin(), name.end()) + L"=" + winValue(value);
+    }
 
     STARTUPINFOW si{};
     si.cb = sizeof(si);
@@ -293,7 +486,6 @@ bool Aria2Engine::ensureDaemon() const {
     CloseHandle(pi.hThread);
     processHandle_ = pi.hProcess;
 #else
-    const cfg::Aria2Config a2 = cfg::aria2Config();
     std::vector<std::string> args = {
         exe, "--enable-rpc", "--rpc-listen-all=false",
         "--rpc-listen-port=" + std::to_string(port),
@@ -303,6 +495,9 @@ bool Aria2Engine::ensureDaemon() const {
         "--min-split-size=" + a2.minSplitSize,
         "--console-log-level=warn", "--allow-overwrite=false",
         "--auto-file-renaming=false"};
+    for (const auto& [name, value] : extra) {
+        args.push_back("--" + name + "=" + value);
+    }
     std::vector<char*> argv;
     argv.reserve(args.size() + 1);
     for (auto& a : args) argv.push_back(a.data());
@@ -328,6 +523,8 @@ bool Aria2Engine::ensureDaemon() const {
         try {
             rpcCall(port_, secret_, "aria2.getVersion", nlohmann::json::array());
             daemonSpawned_ = true;
+            // 首次拉起 daemon 后，重建上次会话（--save-session）里的未完成任务。
+            recoverSession();
             return true;
         } catch (...) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -350,26 +547,56 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
     auto task = std::make_shared<Task>();
     task->id = nextId_++;
     task->url = url;
-    task->destPath = makeUniqueDest(destPath);
+    task->opts = options;
 
     const cfg::Aria2Config a2 = cfg::aria2Config();
     // 每任务连接数覆盖：>0 时同时覆盖 split 和 max-connection-per-server。
     const int connections = options.connections > 0
         ? std::clamp(options.connections, 1, 64)
         : a2.split;
+
+    // 目录：dirOverride 优先（相对路径按配置下载目录解析），否则用 destPath 的父目录。
+    std::filesystem::path dir = options.dirOverride.empty()
+        ? destPath.parent_path()
+        : options.dirOverride;
+    if (dir.is_relative()) dir = cfg::downloadDir() / dir;
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+
     nlohmann::json optionsJ = nlohmann::json::object();
-    optionsJ["dir"] = task->destPath.parent_path().string();
-    optionsJ["out"] = task->destPath.filename().string();
+    optionsJ["dir"] = dir.string();
     optionsJ["split"] = std::to_string(connections);
     optionsJ["max-connection-per-server"] = std::to_string(connections);
     optionsJ["min-split-size"] = a2.minSplitSize;
     optionsJ["continue"] = "true";
-    if (a2.maxDownloadLimit > 0) {
-        optionsJ["max-download-limit"] = std::to_string(a2.maxDownloadLimit);
+
+    // 每任务限速覆盖全局。
+    const std::int64_t limit = options.limitBps > 0 ? options.limitBps : a2.maxDownloadLimit;
+    if (limit > 0) {
+        optionsJ["max-download-limit"] = std::to_string(limit);
+    }
+    // 优先级（>0 才传）。
+    if (options.priority > 0) {
+        optionsJ["priority"] = std::to_string(options.priority);
     }
 
-    // The `options` name below conflicts with the StartOptions parameter, so
-    // the RPC params use the local `optionsJ` object.
+    // 磁力/BT：内容名由种子决定，只设 dir 不设 out；destPath 用占位，等
+    // refreshStates() 从 files[0].path 更新为真实路径。HTTP(S) 才设 out。
+    // HTTP(S) 新下载仍要走 makeUniqueDest：避免重复添加时撞上已存在的完整文件
+    // （aria2 有 --allow-overwrite=false，撞上会直接失败）——自动加 " (1)"。
+    // retry() 是例外，它故意复用原路径从 .aria2 续传。
+    const bool magnet = url.starts_with("magnet:");
+    if (!magnet) {
+        const std::string outName = options.outputName.empty()
+            ? destPath.filename().string()
+            : options.outputName;
+        const std::filesystem::path uniqueDest = makeUniqueDest(dir / outName);
+        optionsJ["out"] = uniqueDest.filename().string();
+        task->destPath = uniqueDest;
+    } else {
+        task->destPath = dir / ("magnet-" + std::to_string(task->id));
+    }
+
     nlohmann::json params = nlohmann::json::array();
     params.push_back(nlohmann::json::array({url}));
     params.push_back(optionsJ);
@@ -468,6 +695,144 @@ void Aria2Engine::resumeAll() {
     } catch (...) {}
 }
 
+void Aria2Engine::retry(std::uint64_t id) {
+    auto task = findTask(id);
+    if (!task) return;
+    if (task->state != State::Failed && task->state != State::Cancelled) return;
+    if (!ensureDaemon()) {
+        task->state = State::Failed;
+        task->error = "引擎不可用";
+        return;
+    }
+
+    // 复用原任务的 URL 与 destPath 重新 addUri；continue=true 时 aria2 会从
+    // 同目录的 .aria2 控制文件续传（真正的断点续传）。
+    const cfg::Aria2Config a2 = cfg::aria2Config();
+    const int connections = task->opts.connections > 0
+        ? std::clamp(task->opts.connections, 1, 64)
+        : a2.split;
+    nlohmann::json optionsJ = nlohmann::json::object();
+    optionsJ["dir"] = task->destPath.parent_path().string();
+    optionsJ["split"] = std::to_string(connections);
+    optionsJ["max-connection-per-server"] = std::to_string(connections);
+    optionsJ["min-split-size"] = a2.minSplitSize;
+    optionsJ["continue"] = "true";
+    const std::int64_t limit =
+        task->opts.limitBps > 0 ? task->opts.limitBps : a2.maxDownloadLimit;
+    if (limit > 0) {
+        optionsJ["max-download-limit"] = std::to_string(limit);
+    }
+    if (task->opts.priority > 0) {
+        optionsJ["priority"] = std::to_string(task->opts.priority);
+    }
+    // 磁力/BT 不设 out（内容名由种子决定）。
+    if (!task->url.starts_with("magnet:")) {
+        optionsJ["out"] = task->destPath.filename().string();
+    }
+
+    nlohmann::json params = nlohmann::json::array();
+    params.push_back(nlohmann::json::array({task->url}));
+    params.push_back(optionsJ);
+    try {
+        const nlohmann::json result = rpcCall(port_, secret_, "aria2.addUri", params);
+        task->gid = result.get<std::string>();
+        task->state = State::Queued;
+        task->error.clear();
+        task->speedBps = 0.0;
+    } catch (const std::exception& e) {
+        task->state = State::Failed;
+        task->error = e.what();
+    }
+}
+
+// 重启后重建任务表：daemon 用 --input-file 载入了 --save-session 的未完成任务，
+// 这里通过 tellActive/tellWaiting/tellStopped 把它们同步成本地 Task。
+void Aria2Engine::recoverSession() const {
+    if (!daemonSpawned_) return;
+    std::vector<std::shared_ptr<Task>> recovered;
+
+    const auto strI64 = [](const nlohmann::json& st, const char* key) -> std::int64_t {
+        const std::string v = st.value(key, "0");
+        try { return std::stoll(v); } catch (...) { return 0; }
+    };
+    const auto strDbl = [](const nlohmann::json& st, const char* key) -> double {
+        try { return std::stod(st.value(key, "0")); } catch (...) { return 0.0; }
+    };
+    const auto strConn = [](const nlohmann::json& st) -> int {
+        const std::string v = st.value("connections", st.value("numConnections", "1"));
+        try { return std::max(1, std::stoi(v)); } catch (...) { return 1; }
+    };
+
+    const auto addFrom = [&](const nlohmann::json& st) {
+        if (!st.is_object()) return;
+        auto task = std::make_shared<Task>();
+        task->id = nextId_++;
+        task->gid = st.value("gid", "");
+        if (st.contains("files") && st["files"].is_array() && !st["files"].empty()) {
+            const auto& file = st["files"][0];
+            task->destPath = std::filesystem::path(file.value("path", ""));
+            if (file.contains("uris") && file["uris"].is_array() && !file["uris"].empty()) {
+                task->url = file["uris"][0].value("uri", "");
+            }
+        }
+        // 磁力任务没有可用 uri 时用 infoHash 拼回显。
+        if (task->url.empty() && st.contains("bittorrent") && st["bittorrent"].is_object()) {
+            const std::string ih = st["bittorrent"].value("infoHash", "");
+            if (!ih.empty()) task->url = "magnet:?xt=urn:btih:" + ih;
+        }
+        task->totalBytes = strI64(st, "totalLength");
+        task->downloadedBytes = strI64(st, "completedLength");
+        task->speedBps = strDbl(st, "downloadSpeed");
+        task->connections = strConn(st);
+        const std::string status = st.value("status", "");
+        if (status == "active") {
+            task->state = State::Downloading;
+        } else if (status == "waiting") {
+            task->state = State::Queued;
+        } else if (status == "paused") {
+            task->state = State::Paused;
+        } else if (status == "complete") {
+            task->state = State::Done;
+        } else if (status == "error") {
+            task->state = State::Failed;
+            task->error = st.value("errorMessage", "download error");
+        } else {
+            task->state = State::Cancelled;
+        }
+        recovered.push_back(std::move(task));
+    };
+
+    try {
+        for (const auto& st : rpcCall(port_, secret_, "aria2.tellActive",
+                                      nlohmann::json::array())) {
+            addFrom(st);
+        }
+        for (const auto& st : rpcCall(port_, secret_, "aria2.tellWaiting",
+                                      nlohmann::json::array({0, 1000}))) {
+            addFrom(st);
+        }
+        for (const auto& st : rpcCall(port_, secret_, "aria2.tellStopped",
+                                      nlohmann::json::array({0, 1000}))) {
+            if (!st.is_object()) continue;
+            const std::string status = st.value("status", "");
+            if (status == "error" || status == "removed") {
+                // 失败/已移除的任务不再重挂，从 daemon 清掉避免下次会话又载入。
+                try {
+                    rpcCall(port_, secret_, "aria2.remove",
+                            nlohmann::json::array({st.value("gid", "")}));
+                } catch (...) {}
+            }
+            // complete 的任务不重建（已完成无需展示/续传）。
+        }
+    } catch (...) {
+        // 会话枚举失败不致命：本地任务仍可用，下次再试。
+    }
+
+    if (!recovered.empty()) {
+        tasks_.insert(tasks_.end(), recovered.begin(), recovered.end());
+    }
+}
+
 void Aria2Engine::refreshStates() const {
     if (!daemonSpawned_) return;
     for (const auto& task : tasks_) {
@@ -486,6 +851,12 @@ void Aria2Engine::refreshStates() const {
             task->downloadedBytes = strI64("completedLength");
             try { task->speedBps = std::stod(st.value("downloadSpeed", "0")); }
             catch (...) { task->speedBps = 0.0; }
+            // 磁力/BT 任务拿到元数据后，files[0].path 才是真实下载路径（更新占位）。
+            if (st.contains("files") && st["files"].is_array() &&
+                !st["files"].empty()) {
+                const std::string p = st["files"][0].value("path", "");
+                if (!p.empty()) task->destPath = std::filesystem::path(p);
+            }
             // aria2-next reports the field as "connections"; original aria2 uses
             // "numConnections". Accept both so the engine works with either.
             const std::string connField =
@@ -529,7 +900,8 @@ std::vector<TaskView> Aria2Engine::snapshot() const {
         const Task& task = **it;
         out.push_back(TaskView{task.id, task.url, task.destPath, task.state,
                                task.totalBytes, task.downloadedBytes,
-                               task.error, task.speedBps, task.connections});
+                               task.error, task.speedBps, task.connections,
+                               task.opts.priority});
     }
     return out;
 }
@@ -546,6 +918,10 @@ bool Aria2Engine::busy() const {
 
 void Aria2Engine::shutdown() {
     if (daemonSpawned_) {
+        // 先持久化未完成任务（--save-session）；forceShutdown 会跳过会话保存。
+        try {
+            rpcCall(port_, secret_, "aria2.saveSession", nlohmann::json::array());
+        } catch (...) {}
         try {
             rpcCall(port_, secret_, "aria2.forceShutdown", nlohmann::json::array());
         } catch (...) {}

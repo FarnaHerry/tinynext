@@ -11,19 +11,14 @@ export module tinynext.ui.state;
 
 import std;
 import tinynext.config;
-import tinynext.download_manager;
 import tinynext.aria2_engine;
 import tinynext.download_engine;
 import tinynext.ui.utils;
 
 // ---- download engine ----
-// Download engine factory: the UI talks to the abstract interface only; the
-// concrete engine is chosen from config ("engine": tinyhttps | aria2next).
+// 纯 aria2-next 引擎（TinyHttpsEngine 已移除）：UI 只面向抽象接口 dl::DownloadEngine。
 export std::unique_ptr<dl::DownloadEngine> createEngine() {
-    if (cfg::engine() == cfg::EngineChoice::Aria2Next) {
-        return std::make_unique<dl::Aria2Engine>();
-    }
-    return std::make_unique<dl::TinyHttpsEngine>();
+    return std::make_unique<dl::Aria2Engine>();
 }
 
 export std::unique_ptr<dl::DownloadEngine> g_manager = createEngine();
@@ -52,17 +47,35 @@ export void showStatus(std::string message) {
 export cfg::ThemeMode g_themeMode = cfg::themeMode();
 export bool g_dark = cfg::effectiveDark();
 export float g_systemThemeTimer = 0.0f;  // System 模式下的 OS 主题轮询计时
-// 设置页待提交的编辑值：主题/引擎/路径只在点「保存」时写入配置并生效，
+// 设置页待提交的编辑值：主题/路径只在点「保存」时写入配置并生效，
 // 点「放弃」回滚到已保存值。主题在选择时即时预览（g_dark），但不落盘。
 export cfg::ThemeMode g_pendingTheme = g_themeMode;
-export cfg::EngineChoice g_pendingEngine = cfg::engine();
 // aria2 参数待提交值（设置页输入框的文本形式）。
 export std::string g_aria2SplitText = std::to_string(cfg::aria2Config().split);
 export std::string g_aria2ConnText = std::to_string(cfg::aria2Config().maxConnectionPerServer);
 export std::string g_aria2MinSplitText = cfg::aria2Config().minSplitSize;
-export std::string g_aria2LimitText = std::to_string(cfg::aria2Config().maxDownloadLimit);
+export std::string g_aria2LimitText =
+    std::to_string(cfg::aria2Config().maxDownloadLimit / 1024);  // KB/s
+// daemon 级参数待提交值。
+export std::string g_proxyText = cfg::aria2Config().proxy;
+export std::string g_noProxyText = cfg::aria2Config().noProxy;
+export std::string g_maxTriesText = std::to_string(cfg::aria2Config().maxTries);
+export std::string g_retryWaitText = std::to_string(cfg::aria2Config().retryWait);
+export std::string g_maxConcurrentText =
+    std::to_string(cfg::aria2Config().maxConcurrentDownloads);
+export bool g_removeControlFile = cfg::aria2Config().removeControlFile;
+export std::string g_onCompleteText = cfg::aria2Config().onDownloadComplete;
+export std::string g_userAgentText = cfg::aria2Config().userAgent;
+export std::string g_refererText = cfg::aria2Config().referer;
+export std::string g_diskCacheText = cfg::aria2Config().diskCache;
 // 添加下载弹窗的每任务连接数（默认 = 配置 split 值；空/0 = 配置默认）。
 export std::string g_addConnectionsText = std::to_string(cfg::aria2Config().split);
+// 添加下载弹窗的每任务高级选项：优先级（0=默认，选择器索引）、重命名、限速、目录。
+export int g_addPriority = 0;
+export bool g_addPriorityOpen = false;
+export std::string g_addRenameText;
+export std::string g_addLimitText;
+export std::string g_addDirText;
 
 // ---- list filter / pagination / sort ----
 
@@ -77,7 +90,7 @@ export bool g_pageSizeOpen = false;  // 分页大小下拉是否展开
 export constexpr int kPageSizes[] = {5, 10, 20, 50, 100};
 
 // 下载列表排序。切换排序回到第 1 页。
-export enum class SortMode { Newest, State, Name, Size, Progress };
+export enum class SortMode { Newest, State, Name, Size, Progress, Priority };
 export SortMode g_sort = SortMode::Newest;
 export bool g_sortOpen = false;  // 排序下拉是否展开
 
@@ -108,9 +121,20 @@ export int pageSizeIndex() {
 
 // ---- add-download flow ----
 
-// 校验并启动一个下载；返回是否成功。connections > 0 时作为该任务的每任务
-// 连接数传给引擎（0 = 引擎按配置默认）。对话框 / CLI / 单实例 inbox 共用。
-export bool startDownloadFromUrl(std::string url, int connections) {
+// 优先级选择器索引 → aria2 priority 数值（0=默认）。aria2 的 priority 范围
+// 1..100、数值方向待随包二进制验证；若相反只需改这个函数的返回值。
+export int priorityValueFromPicker(int index) {
+    switch (index) {
+        case 1: return 3;   // 高
+        case 2: return 2;   // 中
+        case 3: return 1;   // 低
+        default: return 0;  // 默认
+    }
+}
+
+// 校验并启动一个下载；返回是否成功。完整的每任务选项在 opts 里（连接数/优先级/
+// 重命名/限速/目录）。对话框 / CLI / 单实例 inbox 共用。
+export bool startDownloadFromUrl(std::string url, const dl::StartOptions& opts) {
     const std::size_t first = url.find_first_not_of(" \t\r\n");
     const std::size_t last = url.find_last_not_of(" \t\r\n");
     url = first == std::string::npos ? "" : url.substr(first, last - first + 1);
@@ -118,39 +142,61 @@ export bool startDownloadFromUrl(std::string url, int connections) {
         showStatus("请输入下载地址");
         return false;
     }
-    if (!url.starts_with("https://")) {
-        if (url.starts_with("http://")) {
-            // tinyhttps only speaks HTTPS; best-effort upgrade.
-            url = "https://" + url.substr(7);
-        } else {
-            showStatus("仅支持 HTTPS 下载链接");
-            return false;
-        }
-    }
 
-    const std::filesystem::path dest =
-        cfg::downloadDir() / fileNameFromUrl(url);
-    dl::StartOptions opts;
-    opts.connections = connections;
+    const bool magnet = url.starts_with("magnet:");
+    // aria2 原生支持 http/https/magnet；http 不再强制升级为 https（那是 tinyhttps 的限制）。
+    if (!url.starts_with("http://") && !url.starts_with("https://") && !magnet) {
+        showStatus("仅支持 http(s) 链接或 magnet: 磁力链接");
+        return false;
+    }
+    // 下载目录：opts.dirOverride 覆盖（相对路径按配置目录解析）。
+    std::filesystem::path dir = opts.dirOverride.empty()
+        ? cfg::downloadDir()
+        : opts.dirOverride;
+    if (dir.is_relative()) dir = cfg::downloadDir() / dir;
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+
+    // 文件名：优先重命名；磁力没有 URL 文件名，用占位名（拿到元数据后引擎会更新）。
+    std::string name = opts.outputName.empty()
+        ? (magnet ? "magnet" : fileNameFromUrl(url))
+        : opts.outputName;
+    if (name.empty()) name = "magnet";
+
+    const std::filesystem::path dest = dir / name;
     const std::uint64_t id = g_manager->start(url, dest, opts);
     if (id == 0) {
         showStatus("下载启动失败：引擎不可用");
         return false;
     }
-    showStatus(std::format("已开始下载 #{} — {}", id, dest.filename().string()));
+    showStatus(std::format("已开始下载 #{} — {}", id, name));
     return true;
 }
 
-// “添加下载”弹窗提交：URL + 每任务连接数（空/0 = 配置默认）。
+// 兼容重载：仅 URL + 连接数（CLI / inbox 用），其余选项取默认。
+export bool startDownloadFromUrl(std::string url, int connections) {
+    dl::StartOptions opts;
+    opts.connections = connections;
+    return startDownloadFromUrl(std::move(url), opts);
+}
+
+// “添加下载”弹窗提交：URL + 每任务高级选项（连接数/优先级/重命名/限速/目录）。
 export bool addDownload() {
+    dl::StartOptions opts;
     std::string t = g_addConnectionsText;
-    int connections = 0;
     if (!t.empty()) {
         try {
-            connections = std::clamp(std::stoi(trimText(t)), 0, 64);
+            opts.connections = std::clamp(std::stoi(trimText(t)), 0, 64);
         } catch (...) {
-            connections = 0;
+            opts.connections = 0;
         }
     }
-    return startDownloadFromUrl(g_urlText, connections);
+    opts.priority = priorityValueFromPicker(g_addPriority);
+    opts.outputName = trimText(g_addRenameText);
+    opts.dirOverride = trimText(g_addDirText);
+    if (!trimText(g_addLimitText).empty()) {
+        opts.limitBps = static_cast<std::int64_t>(
+            parseIntClamped(g_addLimitText, 0, 1000000, 0)) * 1024;
+    }
+    return startDownloadFromUrl(g_urlText, opts);
 }

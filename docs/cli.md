@@ -6,7 +6,7 @@ TinyNext 是单实例 GUI 下载器，但也可以从命令行发起下载。CLI
 ## 用法
 
 ```bash
-# 添加一个下载（HTTPS）
+# 添加一个下载（HTTP(S)）
 tinynext https://example.com/file.zip
 
 # 一次添加多个
@@ -30,7 +30,7 @@ tinynext agent
   2. Windows 上尝试 `SetForegroundWindow` 把已有窗口切到前台；
   3. 立即退出（`exit 0`，不闪窗口）。
 - 主实例每 ~0.5s 轮询 inbox，把新 URL 逐个加入下载列表（URL 校验与「添加下载」
-  弹窗一致：仅 HTTPS，`http://` 自动升级）。
+  弹窗一致：http(s) 链接或 magnet: 磁力链接，http 不做升级）。
 
 ## 实现位置
 
@@ -47,4 +47,4 @@ tinynext agent
 ## 排查
 
 - 转发没生效？检查 `%TEMP%\tinynext.inbox`（Windows）是否出现了 URL。
-- 加了 URL 但没下载？URL 必须 `https://`；文件名取自 URL 最后一段。
+- 加了 URL 但没下载？URL 必须以 `http://` 或 `https://` 开头；文件名取自 URL 最后一段。

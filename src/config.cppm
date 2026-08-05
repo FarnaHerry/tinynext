@@ -231,26 +231,8 @@ export bool effectiveDark() {
 }
 
 // ---- download engine ----
-
-export enum class EngineChoice { TinyHttps, Aria2Next };
-
-export EngineChoice engine() {
-    const auto j = loadConfig();
-    if (j.contains("engine") && j["engine"].is_string()) {
-        const std::string v = j["engine"].get<std::string>();
-        if (v == "aria2next") return EngineChoice::Aria2Next;
-    }
-    return EngineChoice::TinyHttps;  // default: zero-external-dependency engine
-}
-
-export void setEngine(EngineChoice choice) {
-    auto j = loadConfig();
-    switch (choice) {
-        case EngineChoice::TinyHttps:  j["engine"] = "tinyhttps";  break;
-        case EngineChoice::Aria2Next:  j["engine"] = "aria2next";  break;
-    }
-    saveConfig(j);
-}
+// 纯 aria2-next：TinyHttpsEngine 已移除（2026-08），不再有引擎切换配置。
+// 旧配置里的 "engine" 键直接忽略。
 
 // ---- aria2 tuning (used by Aria2Engine) ----
 
@@ -259,6 +241,17 @@ export struct Aria2Config {
     int maxConnectionPerServer = 64;    // --max-connection-per-server
     std::string minSplitSize = "1M";    // --min-split-size (aria2 最小 1M)
     std::int64_t maxDownloadLimit = 0;  // 每任务限速 bytes/s；0 = 不限
+    // ---- daemon 级参数（--all-proxy 等，daemon 启动时生效）----
+    std::string proxy = "";             // --all-proxy；HTTP/HTTPS（aria2 不支持 SOCKS5）
+    std::string noProxy = "";           // --no-proxy；逗号分隔的主机
+    int maxTries = 5;                   // --max-tries；0 = 无限重试
+    int retryWait = 0;                  // --retry-wait（秒）
+    int maxConcurrentDownloads = 5;     // --max-concurrent-downloads
+    bool removeControlFile = false;     // --remove-control-file；完成后移除 .aria2
+    std::string onDownloadComplete = "";// --on-download-complete；完成后命令，空=不执行
+    std::string userAgent = "";         // --user-agent；空 = aria2 默认
+    std::string referer = "";           // --referer；空 = 无
+    std::string diskCache = "";         // --disk-cache；空 = aria2 默认 16M
 };
 
 export Aria2Config aria2Config() {
@@ -280,9 +273,45 @@ export Aria2Config aria2Config() {
             a["max-download-limit"].is_number_integer()) {
             c.maxDownloadLimit = a["max-download-limit"].get<std::int64_t>();
         }
+        if (a.contains("proxy") && a["proxy"].is_string()) {
+            c.proxy = a["proxy"].get<std::string>();
+        }
+        if (a.contains("no_proxy") && a["no_proxy"].is_string()) {
+            c.noProxy = a["no_proxy"].get<std::string>();
+        }
+        if (a.contains("max_tries") && a["max_tries"].is_number_integer()) {
+            c.maxTries = a["max_tries"].get<int>();
+        }
+        if (a.contains("retry_wait") && a["retry_wait"].is_number_integer()) {
+            c.retryWait = a["retry_wait"].get<int>();
+        }
+        if (a.contains("max_concurrent_downloads") &&
+            a["max_concurrent_downloads"].is_number_integer()) {
+            c.maxConcurrentDownloads = a["max_concurrent_downloads"].get<int>();
+        }
+        if (a.contains("remove_control_file") &&
+            a["remove_control_file"].is_boolean()) {
+            c.removeControlFile = a["remove_control_file"].get<bool>();
+        }
+        if (a.contains("on_download_complete") &&
+            a["on_download_complete"].is_string()) {
+            c.onDownloadComplete = a["on_download_complete"].get<std::string>();
+        }
+        if (a.contains("user_agent") && a["user_agent"].is_string()) {
+            c.userAgent = a["user_agent"].get<std::string>();
+        }
+        if (a.contains("referer") && a["referer"].is_string()) {
+            c.referer = a["referer"].get<std::string>();
+        }
+        if (a.contains("disk_cache") && a["disk_cache"].is_string()) {
+            c.diskCache = a["disk_cache"].get<std::string>();
+        }
     }
     c.split = std::clamp(c.split, 1, 64);
     c.maxConnectionPerServer = std::clamp(c.maxConnectionPerServer, 1, 64);
+    c.maxTries = std::clamp(c.maxTries, 0, 100);
+    c.retryWait = std::clamp(c.retryWait, 0, 600);
+    c.maxConcurrentDownloads = std::clamp(c.maxConcurrentDownloads, 1, 64);
     if (c.maxDownloadLimit < 0) c.maxDownloadLimit = 0;
     return c;
 }
@@ -294,6 +323,16 @@ export void setAria2Config(const Aria2Config& c) {
     a["max-connection-per-server"] = std::clamp(c.maxConnectionPerServer, 1, 64);
     a["min-split-size"] = c.minSplitSize.empty() ? "1M" : c.minSplitSize;
     a["max-download-limit"] = c.maxDownloadLimit < 0 ? 0 : c.maxDownloadLimit;
+    a["proxy"] = c.proxy;
+    a["no_proxy"] = c.noProxy;
+    a["max_tries"] = std::clamp(c.maxTries, 0, 100);
+    a["retry_wait"] = std::clamp(c.retryWait, 0, 600);
+    a["max_concurrent_downloads"] = std::clamp(c.maxConcurrentDownloads, 1, 64);
+    a["remove_control_file"] = c.removeControlFile;
+    a["on_download_complete"] = c.onDownloadComplete;
+    a["user_agent"] = c.userAgent;
+    a["referer"] = c.referer;
+    a["disk_cache"] = c.diskCache;
     j["aria2"] = a;
     saveConfig(j);
 }

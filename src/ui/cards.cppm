@@ -88,6 +88,22 @@ export std::string cardInfoText(const dl::TaskView& task) {
         push(std::format("{} / {}", formatBytes(task.downloadedBytes),
                          formatBytes(task.totalBytes)));
     }
+    // ETA：剩余字节 / 当前速度（需知道总量且有速度）。
+    if (task.totalBytes > 0 && task.speedBps > 0.0) {
+        const std::int64_t remaining = task.totalBytes - task.downloadedBytes;
+        if (remaining > 0) {
+            const std::int64_t seconds =
+                static_cast<std::int64_t>(remaining / task.speedBps);
+            if (seconds < 60) {
+                push(std::format("剩余 {}s", seconds));
+            } else if (seconds < 3600) {
+                push(std::format("剩余 {}m {:02d}s", seconds / 60, seconds % 60));
+            } else {
+                push(std::format("剩余 {}h {:02d}m", seconds / 3600,
+                                 (seconds % 3600) / 60));
+            }
+        }
+    }
     return parts.empty() ? "下载中" : parts;
 }
 
@@ -167,11 +183,14 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
             const bool showCancel = task.state == dl::State::Queued ||
                                     task.state == dl::State::Downloading ||
                                     task.state == dl::State::Paused;
+            const bool showRetry = task.state == dl::State::Failed ||
+                                   task.state == dl::State::Cancelled;
             const bool showOpen = task.state == dl::State::Done;
             const bool showOpenFolder = task.state == dl::State::Done;
 
             const int actionCount = 2 + (showPause || showResume ? 1 : 0) +
                                     (showCancel ? 1 : 0) +
+                                    (showRetry ? 1 : 0) +
                                     (showOpen ? 1 : 0) + (showOpenFolder ? 1 : 0);
             const float iconsW = actionCount * kCardIconW +
                                  (actionCount > 0 ? (actionCount - 1) * kCardIconGap : 0.0f);
@@ -207,6 +226,10 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
             if (showCancel) {
                 place("cancel", 0xF00D, false,  // fa-times
                       [id = task.id] { g_manager->cancel(id); });
+            }
+            if (showRetry) {
+                place("retry", 0xF01E, true,  // fa-redo
+                      [id = task.id] { g_manager->retry(id); });
             }
             if (showResume) {
                 place("resume", 0xF04B, true,  // fa-play

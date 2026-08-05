@@ -9,7 +9,7 @@ module;
 
 #ifdef _WIN32
 // Windows API for the named mutex / command-line parsing. LEAN_AND_MEAN keeps
-// winsock.h out (tinyhttps uses winsock2 internally).
+// winsock.h out (the app uses winsock2 directly for the aria2 RPC socket).
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -117,15 +117,15 @@ export bool runAgentHelpIfRequested() {
     constexpr const char* kHelp = R"(TinyNext — a single-instance GUI downloader with a small CLI.
 
 USAGE
-  tinynext <https-url> [more-urls...]   Add download(s). The GUI auto-starts if needed.
-  tinynext agent                        Print this usage guide (what you are reading now).
+  tinynext <http(s)-url> [more-urls...]   Add download(s). The GUI auto-starts if needed.
+  tinynext agent                          Print this usage guide (what you are reading now).
 
 RULES
   - Only arguments starting with http:// or https:// are treated as downloads; ignore the rest.
   - Single-instance: if TinyNext is already running, the URLs are forwarded to the running
     instance and this process exits immediately — a new window is NOT opened. The running
     instance adds the tasks itself.
-  - Only HTTPS downloads are supported; http:// URLs are auto-upgraded to https://.
+  - HTTP, HTTPS and magnet: links are supported; http is used as-is (not upgraded).
   - Files land in the configured download directory (default: the system Downloads folder).
   - The filename is taken from the last path segment of the URL.
 
@@ -134,7 +134,7 @@ EXAMPLES
   tinynext https://a.example.com/x.bin https://b.example.com/y.tar.gz
 
 TROUBLESHOOTING
-  - A download did not start: make sure the URL starts with https://.
+  - A download did not start: make sure the URL starts with http:// or https://.
   - Forwarding is done via a file at <temp>/tinynext.inbox — check it to confirm the URL was queued.
 )";
 

@@ -38,7 +38,7 @@ if [ -x "$root/engines/aria2-next" ]; then
     cp "$root/engines/aria2-next" "$dist/engines/aria2-next"
     chmod +x "$dist/engines/aria2-next"
 else
-    echo "WARN: engines/aria2-next missing — release has only the built-in engine" >&2
+    echo "WARN: engines/aria2-next missing — aria2-next is the only engine, downloads will not work" >&2
 fi
 
 if [ "$os" = "linux" ]; then

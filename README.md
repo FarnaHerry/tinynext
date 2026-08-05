@@ -1,8 +1,8 @@
 # TinyNext 下载器
 
-一个用 C++23 编写的**跨平台** GUI 下载器：**EUI-NEO** 前端 + 可切换下载引擎
-（**tinyhttps** 内置 / **aria2-next** 外部进程，支持分片多连接），支持
-Windows / Linux / macOS，全部通过 mcpp 包管理。
+一个用 C++23 编写的**跨平台** GUI 下载器：**EUI-NEO** 前端 + **aria2-next**
+外部进程引擎（分片多连接、断点续传、磁力/BT），支持 Windows / Linux / macOS，
+全部通过 mcpp 包管理。
 
 ## 构建与运行
 
@@ -28,7 +28,7 @@ mcpp run            # 启动 GUI 窗口
 - **左侧图标栏**：纯图标导航（下载列表 / 设置），底部按钮切换深浅主题；左上角是应用 logo（项目名缩写）。
 - **下载状态子侧边栏**：下载页内容区左侧的 **所有 / 下载中 / 已完成** 筛选。
 - **任务卡片**：每个任务一张卡片，纵向排布文件名+状态标签、进度条、信息（百分比/速度/大小）+ 操作图标。
-- **添加下载弹窗**：右上角 **➕** 打开，输入链接后「提交」/「取消」；弹窗里可设置**该任务的连接数**（默认取配置值，0/留空=用配置默认，仅 aria2-next 生效）。
+- **添加下载弹窗**：右上角 **➕** 打开，输入链接后「提交」/「取消」；弹窗里可设置**该任务的连接数**（打开时自动填配置的默认值）、**优先级**、**重命名**、**限速**、**下载目录**（打开时自动填配置的默认目录）。
 - **顶部工具栏**（下载页右上）：**全部暂停 / 全部继续**、**排序**（最新在前 / 状态优先 / 文件名 / 大小 / 进度）、**➕ 添加下载**。
 - **翻页行**：◀ 第 X / Y 页 ▶，右侧选择每页条数（5/10/20/50/100）。
 
@@ -39,47 +39,55 @@ EUI-NEO **没有**全局缩放开关（`components::button` 自带的 `.scale()`
 辅助函数 `S(x) = x * kUI`，把所有尺寸 / 字号 / 间距和窗口尺寸整体放大。想整体
 改大改小，只调 `kUI` 一个数即可。布局在 EUI 的逻辑像素空间（= 窗口屏幕像素），
 所以**窗口与内容必须一起放大**，高 DPI 屏上整体才会真正变大（本机 2560×1600
-@150% 下，1.4 倍后窗口约 1288×868）。
+@150% 下，1.4 倍后窗口约 1568×1008）。
 
 ## 使用
 
-1. 点击右上角 **➕** 打开「添加下载」弹窗，粘贴 **HTTPS** 链接（`http://` 会自动升级为 `https://`，其他协议会被拒绝——tinyhttps 只支持 HTTPS），点「提交」或按回车开始。
-2. 卡片操作全部用图标，无文字：
+1. 点击右上角 **➕** 打开「添加下载」弹窗，粘贴 **HTTP(S)** 链接或 **magnet:** 磁力链接，点「提交」或按回车开始。
+2. 弹窗里可为该任务设置：**连接数**（打开时自动填配置的默认值，可改）、**优先级**（默认/高/中/低，排队调度用）、**重命名**（留空=URL 文件名）、**限速KB/s**（0=全局）、**下载目录**（打开时自动填配置的默认目录，可改；磁力链接建议确认，因为种子内容名不由 URL 决定）。
+3. 卡片操作全部用图标，无文字：
    - **复制链接**、**删除**：所有任务都有；
    - 下载中：**暂停** / **取消**；已暂停：**继续** / **取消**；
+   - 失败 / 已取消：**重新下载**（aria2 从 `.aria2` 控制文件断点续传）；
    - 已完成：**打开** / **打开所在文件夹**。
-3. 同名文件自动加 ` (1)`、` (2)` 后缀，不会互相覆盖。
+4. 同名文件自动加 ` (1)`、` (2)` 后缀，不会互相覆盖。
 
-## 暂停/继续（实现说明）
+## 暂停/继续与断点续传
 
-暂停是**线程内阻塞**实现的，不是断点续传：
+暂停 / 继续走 aria2 RPC（`aria2.pause` / `aria2.unpause`）：是**真正的中断**，
+不占连接，可随时继续，进度不倒退。
 
-- worker 在 tinyhttps 每次读块的边界（`isCancelled` 回调）处按条件变量停车，暂停时**连接保持打开、不读字节**，继续时原地恢复。
-- 因此暂停是即时的、恢复是无损的；下载进度不会倒退。
-- **局限**：暂停期间连接仍占着；若服务器空闲超时（多数 60~75s）断开了连接，继续后读取会失败、任务进入「失败」。长时间暂停有风险，短暂停完全正常。
-- 若关闭程序时仍有暂停任务，会自动取消并立即回收（shutdown 不会挂起）。
-- tinyhttps 不支持 HTTP Range/分片，真正跨进程的断点续传需要扩展它（后续可做）。
+- **重新下载**：失败 / 已取消的卡片 ↻ 按钮用原 URL + 原路径重新入队，aria2 从同
+  目录的 `.aria2` 控制文件续传（真正的断点续传）。
+- **重启恢复**：aria2 daemon 启动带 `--save-session` / `--input-file`，退出时先
+  `aria2.saveSession` 持久化未完成任务；下次启动自动载入并续传，任务列表由
+  `tellActive` / `tellWaiting` / `tellStopped` 枚举重建。
+- 设置页「完成后移除控制文件」开启后，下载完成即删 `.aria2`；未完成（含取消）则
+  保留，供重新下载续传。
 
 ## 设置（⚙ 设置页）
 
 - **主题**：跟随系统 / 深色 / 浅色（跟随系统时 ~2s 轮询 OS 主题，自动切换）。
-- **下载引擎**：`tinyhttps`（内置，零依赖）/ `aria2-next`（外部进程，分片多连接）。
-  切换后点「保存」立即生效（有进行中任务时需重启）。
 - **下载路径**：默认系统下载目录（Windows `%USERPROFILE%\Downloads` / macOS
   `$HOME/Downloads` / Linux `XDG_DOWNLOAD_DIR`），可「浏览」用系统选择器或手输。
 - **aria2 参数**（仅 aria2-next）：分片数、每服务器连接（默认 64，上限 64）、
-  最小分片（≥1M）、每任务限速（KB/s，0=不限）。新下载立即生效。
+  最小分片（≥1M）、每任务限速（KB/s，0=不限）、**最大同时下载数**（队列并发上限，
+  默认 5，范围 1~64）、**代理地址**（HTTP/HTTPS，aria2 不支持 SOCKS5）、**不使用
+  代理列表**、**失败重试次数 / 重试等待秒**、**完成后移除控制文件**、**完成后命令**、
+  **User-Agent / Referer / 磁盘缓存**。设置项过多，设置页正文可滚动。
+  新下载立即生效；daemon 级参数在 aria2 daemon 已启动时需重启才生效。
 - 所有设置点「保存」落盘到 `tinynext.conf`（JSON），「放弃」回滚；左侧栏底部 ⓘ
   打开「关于」弹窗（含项目 GitHub 链接）。
 
 ## 下载引擎
 
-UI 只面向抽象 `dl::DownloadEngine` 接口（`src/download_engine.cppm`），两个实现：
+UI 只面向抽象 `dl::DownloadEngine` 接口（`src/download_engine.cppm`），唯一实现是
+`dl::Aria2Engine`（TinyHttpsEngine 已移除）：
 
-| 引擎 | 特点 |
-|------|------|
-| `TinyHttpsEngine` | 内置 tinyhttps，单连接顺序下载，零外部依赖，暂停是线程内停车 |
-| `Aria2Engine` | spawn `engines/aria2-next` 守护进程，JSON-RPC 驱动，`-x 64 -s 64` 分片多连接 + 断点续传（`.aria2` 控制文件） |
+- spawn `engines/aria2-next` 守护进程，JSON-RPC 驱动，`-x 64 -s 64` 分片多连接。
+- 断点续传（`.aria2` 控制文件）、磁力/BT、重试、限速、代理等能力来自 aria2 本身。
+- 本地 JSON-RPC 用自写的极简跨平台 socket（`aria2_engine.cpp` 里的 `LocalSocket`），
+  无外部 HTTP/网络依赖。
 
 ## 跨平台与 aria2-next 引擎二进制
 
@@ -96,12 +104,13 @@ UI 只面向抽象 `dl::DownloadEngine` 接口（`src/download_engine.cppm`）�
 
 Windows 发行打包用 `.\make-dist.ps1`：它自动把 `engines/` 里的 aria2 二进制和
 `checksums.sha256` 一起打进 `dist\` 与 `tinynext-v<版本>-win64.zip`（版本号从
-`mcpp.toml` 读取）。`engines/` 缺失时脚本会警告但继续打包（仅内置引擎可用）。
+`mcpp.toml` 读取）。aria2 是**唯一**下载引擎，`engines/` 缺失时脚本会警告但继续
+打包（运行时下载不可用）。
 
 平台验证步骤：
 1. 各平台 `mcpp build`。Windows 自动加 GUI 子系统标志；Linux 用 `run.sh` 启动
    （规避 mcpp 私有 glibc 与系统 Mesa 的 GLIBC 版本冲突）；macOS 直接 `mcpp run`。
-2. 设置页切到 **aria2-next** → 保存 → 添加一个大文件（≥128MB 才能用满 64 连接）。
+2. 添加一个大文件（≥128MB 才能用满 64 连接）。
 3. 文件夹选择器依赖：Linux 需 `zenity`（无则回退 `kdialog`，都没有则手输路径）；
    macOS 用 `osascript`；Windows 系统自带。
 4. 主题跟随系统：Windows 读注册表、macOS 读 `AppleInterfaceStyle`、Linux 读 gtk
@@ -143,9 +152,8 @@ Linux 包内含 `run.sh` 启动脚本（走系统 loader + 系统 Mesa，原理�
 | 组件 | 包 | 版本 |
 |------|-----|------|
 | 工具链 | LLVM/Clang（`mcpp.toml` 的 `[toolchain]` 固定） | 22.1.8 |
-| UI 框架 | `compat:eui-neo` | 0.5.5（feature: `app-main`） |
-| 下载引擎（内置） | `mcpplibs:tinyhttps` | 0.2.9 |
-| 下载引擎（可选） | `aria2-next`（外部进程） | 2.5.5 |
+| UI 框架 | `compat:eui-neo` | 0.5.3（feature: `app-main`；0.5.5 与 C++23 构建不兼容，见 roadmap） |
+| 下载引擎 | `aria2-next`（外部进程） | 2.5.5 |
 | 配置 JSON | `nlohmann:json` | 3.12.0 |
 
 ### 架构
@@ -155,8 +163,7 @@ Linux 包内含 `run.sh` 启动脚本（走系统 loader + 系统 Mesa，原理�
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | `tinynext.download_engine` | `src/download_engine.cppm` | 引擎抽象接口 `dl::DownloadEngine` / `TaskView` |
-| `tinynext.download_manager` | `src/download_manager.cppm/.cpp` | tinyhttps 引擎（每任务独立线程） |
-| `tinynext.aria2_engine` | `src/aria2_engine.cppm/.cpp` | aria2-next 进程引擎（JSON-RPC） |
+| `tinynext.aria2_engine` | `src/aria2_engine.cppm/.cpp` | aria2-next 进程引擎（JSON-RPC + 本地 socket） |
 | `tinynext.config` | `src/config.cppm` | JSON 配置 / 主题 / 下载目录 / aria2 参数 |
 | `tinynext.cli` | `src/cli.cppm` | 单实例锁 + 命令行 URL + inbox 转发 + CliBoot 引导 |
 | `tinynext.ui.utils` | `src/ui/utils.cppm` | `kUI`/`S()` 缩放 + 格式化/解析辅助 |
@@ -186,16 +193,14 @@ Linux 包内含 `run.sh` 启动脚本（走系统 loader + 系统 Mesa，原理�
 2. **`app-main` 与测试互斥**：该特性会把 `glfw_app_main.o` 急切地链入，
    与任何定义 `main()` 的测试 TU 冲突（`multiple definition of 'main'`）。
    本项目因此删除了 `tests/`。
-3. **Winsock 必须手动初始化**：tinyhttps 的 `Socket::platform_init()`（内部调用
-   `WSAStartup`）只在它自己的测试里调用，库本身不调用。消费方不初始化的话，
-   所有连接都以 "Connection failed" 失败（已验证）。`DownloadManager`
-   构造函数/析构函数负责 `platform_init()` / `platform_cleanup()`。
-4. **`import std;` 后禁止再 `#include` 标准头**：`download_manager.hpp` 被
-   `import std;` 的 TU 包含，因此头文件内不能 `#include <mutex>` 等，否则
-   "redefinition of 'defer_lock'" 报错（std 模块已声明这些实体）。
-5. **安全提示**：tinyhttps 默认 `verifySsl=true` 但 mbedTLS 用 `VERIFY_OPTIONAL`
-   握手，证书校验并非强制。如需严格校验，需自行提供 CA bundle
-   （`SSL_CERT_FILE`）或改进库。
+3. **Winsock 必须手动初始化**：Windows 上本地 JSON-RPC socket 需要 `WSAStartup`。
+   `aria2_engine.cpp` 里自写的 `LocalSocket::platformInit()`（POSIX 是 no-op）在
+   `Aria2Engine` 构造 / 析构里负责 `WSAStartup` / `WSACleanup`，不要漏。
+4. **`import std;` 后禁止再 `#include` 标准头**：被 `import std;` 的 TU 包含的
+   头文件内不能 `#include <mutex>` 等标准头，否则 "redefinition of 'defer_lock'"
+   报错（std 模块已声明这些实体）。
+5. **RPC 仅限本机**：aria2 daemon 用 `--rpc-listen-all=false` 只监听 127.0.0.1，
+   `--rpc-secret` 随机生成，本地 RPC 不会被外部访问。
 6. **双击不弹终端**：Windows 默认把 exe 链接成控制台子系统，双击会附带一个
    黑窗口。已在 `mcpp.toml` 的 `[target.'cfg(windows)'.build]` 里加了
    `-Wl,-subsystem:windows` + `-Wl,-entry:mainCRTStartup`（GUI 子系统的默认
@@ -210,5 +215,5 @@ Linux 包内含 `run.sh` 启动脚本（走系统 loader + 系统 Mesa，原理�
 
 本项目源码采用 **MIT** 协议（见 `LICENSE`）。
 
-注意：可选下载引擎 **aria2-next**（`engines/` 下的二进制，GPLv2）是随发行包
+注意：下载引擎 **aria2-next**（`engines/` 下的二进制，GPLv2）是随发行包
 **单独分发**的第三方程序，不改变本项目 MIT 许可的状态；其自身仍受 GPLv2 约束。

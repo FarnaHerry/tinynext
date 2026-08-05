@@ -1,7 +1,7 @@
 # AGENTS.md — 给 AI 助手的项目指南
 
-TinyNext 是一个 **C++23 模块化 GUI 下载器**：EUI-NEO 前端 + 可切换下载引擎
-（内置 tinyhttps / 外部 aria2-next），单实例，带命令行传参。跨平台
+TinyNext 是一个 **C++23 模块化 GUI 下载器**：EUI-NEO 前端 + **aria2-next** 外部
+进程引擎（唯一引擎，TinyHttpsEngine 已移除），单实例，带命令行传参。跨平台
 （Windows / Linux / macOS），用 **mcpp** 构建。
 
 ## 构建 / 运行
@@ -13,6 +13,7 @@ mcpp run            # 启动 GUI（Linux 用 run.sh）
 ```
 
 - 工具链在 `mcpp.toml` 里固定为 `llvm@22.1.8`，不要改。
+- eui-neo 锁在 **0.5.3**（0.5.5 与 C++23 构建不兼容，见 `docs/roadmap.md`），不要升。
 - Windows 发行打包：`.\make-dist.ps1`；Linux/macOS：`bash make-dist.sh <os> <arch>`。
 - CI：`.github/workflows/release.yml`，push `v*` 标签自动三平台构建 + 发布。
 
@@ -36,8 +37,7 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | `tinynext.download_engine` | `src/download_engine.cppm` | 引擎接口 `dl::DownloadEngine` |
-| `tinynext.download_manager` | `src/download_manager.cppm/.cpp` | tinyhttps 引擎 |
-| `tinynext.aria2_engine` | `src/aria2_engine.cppm/.cpp` | aria2-next 引擎（JSON-RPC） |
+| `tinynext.aria2_engine` | `src/aria2_engine.cppm/.cpp` | aria2-next 引擎（JSON-RPC + 本地 socket） |
 | `tinynext.config` | `src/config.cppm` | 配置 / 主题 / 下载目录 |
 | `tinynext.cli` | `src/cli.cppm` | 单实例 + 命令行 URL + inbox |
 | `tinynext.ui.*` | `src/ui/*.cppm` | utils / theme / state / platform / widgets / cards / pages |
@@ -53,8 +53,18 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
    冲突。给 UI 模块加 include 时用 `"eui_ui.h"`。
 4. **共享状态**：所有可变 UI 全局在 `tinynext.ui.state` 模块（导出，直接读写）。
    引擎对象是 `state::g_manager`（`unique_ptr<dl::DownloadEngine>`）。
-5. **每任务连接数**：`dl::StartOptions{connections}`，aria2 生效，tinyhttps 忽略。
-6. **缩放**：所有尺寸经 `utils::S(x)`（`kUI=1.4`）放大，不要写裸像素。
-7. **aria2 引擎**：进程名 Windows 是 `aria2-next.exe`，unix 是 `aria2-next`；
-   字段名用 `connections`（不是 `numConnections`）。
-8. **提交**：本地 commit 后由用户自行 push（不要代 push）。
+5. **每任务选项**：`dl::StartOptions{connections, priority, outputName, dirOverride, limitBps}`，
+   `Aria2Engine` 全部生效（priority/limit 需 >0）。优先级选择器索引 → 数值的映射在
+   `state::priorityValueFromPicker`（一处常量，方向待随包二进制验证）。
+6. **磁力**：`startDownloadFromUrl` 接受 `magnet:` 前缀；magnet 任务不设 `out`，
+   destPath 由 `refreshStates` 从 `files[0].path` 更新为真实路径。
+7. **重新下载**：Failed/Cancelled 卡片 ↻ 调 `engine->retry(id)`（`DownloadEngine` 接口）。
+   aria2 复用原 URL+路径 + `continue=true` 从 `.aria2` 续传。
+8. **会话恢复**：aria2 daemon 启动带 `--save-session`/`--input-file`（
+   `aria2_engine.cpp::daemonExtraOpts`），`shutdown()` 先 `aria2.saveSession` 再
+   forceShutdown；重启后 `recoverSession()` 用 `tellActive/tellWaiting/tellStopped`
+   重建任务表。
+9. **缩放**：所有尺寸经 `utils::S(x)`（`kUI=1.4`）放大，不要写裸像素。
+10. **aria2 引擎**：进程名 Windows 是 `aria2-next.exe`，unix 是 `aria2-next`；
+    字段名用 `connections`（不是 `numConnections`）。
+11. **提交**：本地 commit 后由用户自行 push（不要代 push）。

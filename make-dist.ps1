@@ -46,16 +46,16 @@ Copy-Item $exe (Join-Path $dist $exeName)
 Copy-Item (Join-Path $root "assets") (Join-Path $dist "assets") -Recurse
 
 # aria2-next engine binary (resolved at runtime as exeDir/engines/aria2-next.exe).
-# Without it the package only has the built-in tinyhttps engine. The engines dir
-# is gitignored and may be absent on some machines, so copy if present, warn if
-# missing (do not abort packaging).
+# aria2-next is the ONLY download engine; without it downloads will not work. The
+# engines dir is gitignored and may be absent on some machines, so copy if present,
+# warn if missing (do not abort packaging).
 $enginesDir = Join-Path $root "engines"
 if (Test-Path $enginesDir) {
     Copy-Item $enginesDir (Join-Path $dist "engines") -Recurse
     $engineFiles = (Get-ChildItem $enginesDir | ForEach-Object Name) -join ", "
     Write-Host "  engines: $engineFiles"
 } else {
-    Write-Warning "  engines/ missing - aria2-next engine NOT packaged (built-in tinyhttps only)"
+    Write-Warning "  engines/ missing - aria2-next engine NOT packaged (downloads will not work)"
 }
 
 Write-Host "== 4/4 compress =="
