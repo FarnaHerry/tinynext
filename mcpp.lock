@@ -3,9 +3,9 @@ version = 2
 
 [package."compat.eui-neo"]
 namespace = "compat"
-version = "0.5.3"
-source  = "index+compat@0.5.3"
-hash    = "fnv1a:f2a2a2598c3d385b"
+version = "0.5.5"
+source  = "index+compat@0.5.5"
+hash    = "fnv1a:f2a2a8598c3d428d"
 
 [package."nlohmann.json"]
 namespace = "nlohmann"

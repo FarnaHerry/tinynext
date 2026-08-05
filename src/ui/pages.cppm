@@ -717,7 +717,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
             static const AboutRow kAboutRows[] = {
                 {"应用名称", "TinyNext 下载器"},
                 {"版本", "0.1.0"},
-                {"界面框架", "EUI-NEO 0.5.3"},
+                {"界面框架", "EUI-NEO 0.5.5"},
                 {"下载引擎", "tinyhttps / aria2-next"},
                 {"网络库", "tinyhttps 0.2.9"},
                 {"构建工具", "mcpp（C++23）"},
