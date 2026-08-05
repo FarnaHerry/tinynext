@@ -15,6 +15,12 @@
 - **断点续传**：失败 / 已取消卡片 ↻「重新下载」→ aria2 从同目录 `.aria2` 控制文件续传（`retry()` 复用原 URL+路径）。
 - **重启会话恢复**：daemon 启动带 `--save-session` / `--input-file`，退出前 `aria2.saveSession`；重启后 `recoverSession()` 用 `tellActive/tellWaiting/tellStopped` 重建任务表。
 - **下载完成 / 失败系统通知**：任务从进行中迁移到 Done/Failed 时弹系统通知（Windows PowerShell 气泡 / macOS osascript / Linux notify-send→kdialog，best-effort）。
+- **WebSocket 事件推送**（新增 `compat:websocket` / IXWebSocket 依赖）：aria2 的
+  `onDownloadStart/Complete/Error/Pause/Stop/BtDownloadComplete` 推送**即时**驱动状态
+  迁移与完成/失败通知；进度轮询从 ~5Hz 降到 **1s**（对齐 Motrix/AriaNg）。引擎加
+  `tasksMutex_` 让 WS 后台线程安全更新任务。核实：aria2-next **无**
+  `--enable-rpc-websocket` flag（HTTP 层检测 `Connection: upgrade` 自动升级）、也**无**
+  进度推送事件，故保留轮询补进度；WS 掉线自动回退轮询。
 - 卡片显示 **ETA 剩余时间**；排序新增「优先级」。
 
 ### 配置与每任务选项

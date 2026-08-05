@@ -7,6 +7,12 @@ version = "0.5.3"
 source  = "index+compat@0.5.3"
 hash    = "fnv1a:0fc96acf41b0ab90"
 
+[package."compat.websocket"]
+namespace = "compat"
+version = "12.0.1"
+source  = "index+compat@12.0.1"
+hash    = "fnv1a:3b8966bd88d09282"
+
 [package."nlohmann.json"]
 namespace = "nlohmann"
 version = "3.12.0"

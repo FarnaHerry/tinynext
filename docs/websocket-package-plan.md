@@ -65,12 +65,19 @@ pkgs/w/compat.websocket.lua
 把 `compat.websocket.lua` 配方 PR 到 mcpp 索引仓库（mcpplibs / xim），
 写法参考 `pkgs/e/compat.eui-neo.lua`（含 CN mirror 惯例：GLOBAL+gitcode 双 url）。
 
-## TinyNext 接入（包落地后）
+## TinyNext 接入（已完成，2026-08）
 
-- `aria2_engine.cpp`：daemon 加 `--enable-rpc-websocket=true`；用
-  `ws://127.0.0.1:<port>/jsonrpc` 建立 WS 连接，靠 aria2 推送事件
-  （`aria2.onDownloadProgress` / `onDownloadComplete` / `onDownloadPause` 等）
-  替代 ~5Hz 轮询 `tellStatus`。
-- **主要工作量在并发改造**：推送异步到达 → 需加监听线程 + 给 `tasks_` 加锁
-  （或把事件搬运回 UI 线程）。当前引擎刻意单线程无锁，接入时重构成多线程模型。
-- 若包一直未落地：**维持现状（tellStatus 轮询），不做 WS**。
+**实际核实修正**：aria2-next **没有 `--enable-rpc-websocket` flag**（HTTP 层检测
+`Connection: upgrade` 自动升级），daemon 参数无需改动；且**没有 `onDownloadProgress`
+推送事件**，只有 start/pause/stop/complete/error/btComplete 六个（参数只带 gid），
+所以进度仍需轮询。
+
+**采用的混合方案**：WS 连接只收推送事件（状态迁移/完成通知即时），请求-响应继续走
+现有 HTTP `rpcCall`（已验证、可回退）。
+
+- `aria2_engine.cpp`：新增 `WsNotifier`（包装 `ix::WebSocket`，连
+  `ws://127.0.0.1:<port>/jsonrpc`），`ensureDaemon` 就绪后启动；`handleWsEvent` 按
+  gid 更新任务状态（complete/error 置 `needsFinalize`，下一轮 poll 补一次 tellStatus
+  拿最终字节 / 磁力真实路径 / errorMessage）。
+- **并发改造**：推送在 IXWebSocket 后台线程到达 → 给 `tasks_` 加 `tasksMutex_`
+  （单一互斥量）；锁纪律见 roadmap。进度轮询从 ~5Hz 降到 1s。

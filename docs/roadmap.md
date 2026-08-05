@@ -73,18 +73,34 @@ aria2-next 是唯一下载引擎。理由：aria2 已覆盖全部需求（分片
 
 ## 后续方案（未排期）
 
-### aria2 RPC WebSocket 推送（待 `compat:websocket` 包落地）
+### aria2 RPC WebSocket 事件推送（已实现，2026-08）
 
-**现状（2026-08 标记）**：`aria2_engine` 用 HTTP JSON-RPC + ~5Hz 轮询 `tellStatus`
-同步进度，够用；**包未落地前维持轮询，不做 WS**。
+**`compat:websocket` 包已落地**（IXWebSocket 包装，v12.0.1，client-only、零依赖），
+TinyNext 已接入，状态迁移 / 完成通知变即时。
 
-**规划**：当 mcpp 生态出现 WebSocket 包后，改用 aria2 的 `--enable-rpc-websocket`
-推送事件（`onDownloadProgress` 等）替代轮询，更实时省流量。
+**对 aria2-next 源码核实的关键事实**：
 
-- 包方案：**`compat:websocket` = 包装 IXWebSocket**（MIT），独立仓库维护，不在本仓库。
-  完整计划见 `docs/websocket-package-plan.md`（含配方结构、验证、提交、接入）。
-- 接入代价：推送异步到达，需给引擎加监听线程 + 给 `tasks_` 加锁（当前刻意单线程无锁）。
-- 优先级：低（轮询已满足需求）。
+- **aria2-next 没有 `--enable-rpc-websocket` flag**（prefs.h / OptionHandlerFactory.cc
+  均无）。WebSocket 是 HTTP 层检测 `Connection: upgrade` 后自动升级（HttpServer 的
+  `feedUpgradeResponse` 路径），daemon 参数**无需改动**，直接连
+  `ws://127.0.0.1:<port>/jsonrpc`（同一 RPC 端口）。
+- WS 推送事件只有 6 个：`onDownloadStart / onDownloadPause / onDownloadStop /
+  onDownloadComplete / onDownloadError / onBtDownloadComplete`，参数只带 gid，
+  **没有 `onDownloadProgress`**（本条目早先的 `onDownloadProgress` 是误解）。
+- WS 上 JSON-RPC 走同一套 `processJsonRpcRequest`，rpc-secret 仍作 params[0] 的 token。
+
+**接入方案（用户拍板：混合）**：WS 连接只收 6 个推送事件，请求-响应继续走现有 HTTP
+`rpcCall`（已验证、可回退）。状态迁移由事件即时驱动，进度轮询从 200ms 降到 1s
+（对齐 Motrix / AriaNg）。引擎加 `tasksMutex_`（单一互斥量，锁纪律：持锁方法
+snapshot/start/action/recoverSession/handleWsEvent 等，ensureDaemon/applyTellStatus
+不持锁；start/retry 先调 ensureDaemon 再取锁，避免非递归互斥量死锁）。WS 掉线自动
+回退轮询（状态迁移延迟 ≤1s）。
+
+**参考实现结论**：MotrixNext（Rust，与 aria2-next 同作者）**纯 HTTP 无 WS**；
+Motrix 经典版 `aria2` npm 包「WS 打开走 WS、否则 HTTP」。故混合 + HTTP 回退是稳妥路径。
+
+若日后要升级「全量 WS」（Motrix 经典模式）：WsNotifier 已具备连接层，把 `rpcCall`
+换成 WS 发送 + id 匹配 + 条件变量即可，锁纪律同步收紧（持锁期间不能等响应）。
 
 ### `tinynext --headless <url>` 脚本模式
 

@@ -34,6 +34,9 @@ ldflags = ["-Wl,-subsystem:windows", "-Wl,-entry:mainCRTStartup", "-lws2_32"]
 # 打补丁（vendoring）才能升。0.5.3 是实际验证过的版本。
 [dependencies.compat]
 eui-neo = { version = "0.5.3", features = ["app-main"] }
+# 包装 IXWebSocket（client-only、零依赖）：aria2 RPC 的 WebSocket 事件推送
+# （onDownloadStart/Complete/Error/...），让状态迁移/完成通知即时，进度轮询降到 1s。
+websocket = "12.0.1"
 
 [dependencies.nlohmann]
 json = "3.12.0"

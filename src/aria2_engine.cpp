@@ -43,6 +43,11 @@ module;
 extern char** environ;
 #endif
 
+// IXWebSocket (compat.websocket)：WebSocket 客户端，用于收 aria2 的 RPC 推送事件
+// （aria2.onDownloadStart/Complete/Error/...）。必须放在全局模块片段（普通 C++11 header）。
+#include <ixwebsocket/IXWebSocket.h>
+#include <ixwebsocket/IXNetSystem.h>  // ix::initNetSystem（IXWebSocket.h 不会间接包含它）
+
 module tinynext.aria2_engine;
 
 import std;
@@ -413,6 +418,55 @@ void terminateProcess(void* handle) {
 
 } // namespace
 
+// WebSocket 事件监听（compat.websocket / IXWebSocket）：只连 aria2 的 RPC WS 端点
+// 收推送事件（aria2.onDownloadStart/Complete/Error/...），不发请求（请求仍走 HTTP
+// rpcCall）。IXWebSocket 的 start() 起后台线程，onMessage 回调在该线程执行，因此
+// 事件回调里取 tasksMutex_ 更新任务状态（短暂持锁）。stop() 会 join 线程，保证
+// 之后不再有回调执行。
+struct WsNotifier {
+    using EventFn = std::function<void(const std::string& method, const std::string& gid)>;
+
+    ix::WebSocket ws;
+    EventFn onEvent;
+    std::atomic<bool> connected{false};
+
+    WsNotifier(int port, EventFn fn) : onEvent(std::move(fn)) {
+        ws.setUrl("ws://127.0.0.1:" + std::to_string(port) + "/jsonrpc");
+        ws.setOnMessageCallback([this](const ix::WebSocketMessagePtr& msg) {
+            switch (msg->type) {
+                case ix::WebSocketMessageType::Open:
+                    connected = true;
+                    break;
+                case ix::WebSocketMessageType::Close:
+                case ix::WebSocketMessageType::Error:
+                    connected = false;
+                    break;
+                case ix::WebSocketMessageType::Message:
+                    // 推送帧形如：
+                    // {"jsonrpc":"2.0","method":"aria2.onDownloadComplete",
+                    //  "params":["<gid>"]}
+                    if (msg->str.empty() || msg->str[0] != '{') break;
+                    try {
+                        const nlohmann::json j = nlohmann::json::parse(msg->str);
+                        if (!j.is_object()) break;
+                        const std::string method = j.value("method", "");
+                        if (method.rfind("aria2.on", 0) == 0 && j.contains("params") &&
+                            j["params"].is_array() && !j["params"].empty()) {
+                            onEvent(method, j["params"][0].get<std::string>());
+                        }
+                    } catch (...) {}
+                    break;
+                default:
+                    break;
+            }
+        });
+    }
+
+    void start() { ws.start(); }
+    void stop() { ws.stop(); }
+    bool isConnected() const { return connected.load(); }
+};
+
 struct Aria2Engine::Task {
     std::uint64_t id;
     std::string gid;
@@ -425,11 +479,16 @@ struct Aria2Engine::Task {
     double speedBps = 0.0;
     int connections = 1;          // numConnections from tellStatus
     StartOptions opts;            // 该任务的起始选项（retry 时复用）
+    bool needsFinalize = false;   // WS 事件置位：下一轮 poll 补一次 tellStatus 拿最终字节/错误
 };
 
 Aria2Engine::Aria2Engine() {
     // Winsock for the local RPC socket (Windows only; POSIX no-op).
     LocalSocket::platformInit();
+    // IXWebSocket 需要（Windows 上内部 WSAStartup；重复调用安全）。不调
+    // ix::uninitNetSystem()：避免与 ~Aria2Engine 里 LocalSocket::platformCleanup
+    // 的 WSACleanup 冲突（进程退出时 OS 会回收，无需显式清理）。
+    ix::initNetSystem();
 }
 
 Aria2Engine::~Aria2Engine() {
@@ -525,6 +584,13 @@ bool Aria2Engine::ensureDaemon() const {
             daemonSpawned_ = true;
             // 首次拉起 daemon 后，重建上次会话（--save-session）里的未完成任务。
             recoverSession();
+            // 启动 WebSocket 事件监听（仅收推送，请求仍走 HTTP）。连接失败不影响
+            // 功能——refreshStates 轮询兜底（状态迁移延迟 ≤1s）。
+            ws_ = std::make_unique<WsNotifier>(port_, [this](const std::string& method,
+                                                             const std::string& gid) {
+                handleWsEvent(method, gid);
+            });
+            ws_->start();
             return true;
         } catch (...) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -605,12 +671,15 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
         const nlohmann::json result = rpcCall(port_, secret_, "aria2.addUri", params);
         task->gid = result.get<std::string>();
     } catch (const std::exception& e) {
+        // task 尚未进入 tasks_，WS 线程看不到它，只需在 push 时持锁。
+        std::lock_guard<std::mutex> lock(tasksMutex_);
         task->state = State::Failed;
         task->error = e.what();
         tasks_.push_back(task);
         return task->id;
     }
 
+    std::lock_guard<std::mutex> lock(tasksMutex_);
     tasks_.push_back(task);
     return task->id;
 }
@@ -623,6 +692,7 @@ std::shared_ptr<Aria2Engine::Task> Aria2Engine::findTask(std::uint64_t id) const
 }
 
 void Aria2Engine::cancel(std::uint64_t id) {
+    std::lock_guard<std::mutex> lock(tasksMutex_);
     auto task = findTask(id);
     if (!task || !daemonSpawned_) return;
     try {
@@ -637,6 +707,7 @@ void Aria2Engine::cancel(std::uint64_t id) {
 }
 
 void Aria2Engine::remove(std::uint64_t id) {
+    std::lock_guard<std::mutex> lock(tasksMutex_);
     auto task = findTask(id);
     if (!task) return;
     if (daemonSpawned_) {
@@ -648,6 +719,7 @@ void Aria2Engine::remove(std::uint64_t id) {
 }
 
 void Aria2Engine::pause(std::uint64_t id) {
+    std::lock_guard<std::mutex> lock(tasksMutex_);
     auto task = findTask(id);
     if (!task || !daemonSpawned_) return;
     if (task->state != State::Queued && task->state != State::Downloading) return;
@@ -659,6 +731,7 @@ void Aria2Engine::pause(std::uint64_t id) {
 }
 
 void Aria2Engine::resume(std::uint64_t id) {
+    std::lock_guard<std::mutex> lock(tasksMutex_);
     auto task = findTask(id);
     if (!task || !daemonSpawned_) return;
     if (task->state != State::Paused) return;
@@ -670,6 +743,7 @@ void Aria2Engine::resume(std::uint64_t id) {
 
 void Aria2Engine::pauseAll() {
     if (!daemonSpawned_) return;
+    std::lock_guard<std::mutex> lock(tasksMutex_);
     // 全部挂起：aria2.pauseAll 会把所有活动/等待任务置为 paused；本地状态同步
     // 更新。已有 paused 的调用 pauseAll 后仍为 paused，本地判断不变。
     try {
@@ -685,6 +759,7 @@ void Aria2Engine::pauseAll() {
 
 void Aria2Engine::resumeAll() {
     if (!daemonSpawned_) return;
+    std::lock_guard<std::mutex> lock(tasksMutex_);
     try {
         rpcCall(port_, secret_, "aria2.unpauseAll", nlohmann::json::array());
         for (const auto& task : tasks_) {
@@ -696,14 +771,30 @@ void Aria2Engine::resumeAll() {
 }
 
 void Aria2Engine::retry(std::uint64_t id) {
-    auto task = findTask(id);
-    if (!task) return;
-    if (task->state != State::Failed && task->state != State::Cancelled) return;
+    // 状态检查在锁内（WS 线程可能改状态）。ensureDaemon() 内部会调 recoverSession()
+    // （那里取锁），所以必须在本方法取锁之前调用，避免非递归互斥量死锁。
+    bool allowed = false;
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        const auto task = findTask(id);
+        allowed = task &&
+                  (task->state == State::Failed || task->state == State::Cancelled);
+    }
+    if (!allowed) return;
+
     if (!ensureDaemon()) {
-        task->state = State::Failed;
-        task->error = "引擎不可用";
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        const auto task = findTask(id);
+        if (task) {
+            task->state = State::Failed;
+            task->error = "引擎不可用";
+        }
         return;
     }
+
+    std::lock_guard<std::mutex> lock(tasksMutex_);
+    const auto task = findTask(id);
+    if (!task) return;
 
     // 复用原任务的 URL 与 destPath 重新 addUri；continue=true 时 aria2 会从
     // 同目录的 .aria2 控制文件续传（真正的断点续传）。
@@ -749,6 +840,8 @@ void Aria2Engine::retry(std::uint64_t id) {
 // 这里通过 tellActive/tellWaiting/tellStopped 把它们同步成本地 Task。
 void Aria2Engine::recoverSession() const {
     if (!daemonSpawned_) return;
+    // 本方法只从 ensureDaemon() 调用（那里未持锁），所以在开头取锁。
+    std::lock_guard<std::mutex> lock(tasksMutex_);
     std::vector<std::shared_ptr<Task>> recovered;
 
     const auto strI64 = [](const nlohmann::json& st, const char* key) -> std::int64_t {
@@ -833,55 +926,76 @@ void Aria2Engine::recoverSession() const {
     }
 }
 
+// 用一条 tellStatus 的 JSON 刷新任务字段（含 status→State 映射）。调用方须持锁。
+// 也被 needsFinalize 路径复用：WS 事件把完成/失败任务置位后，这里补一次 tellStatus
+// 拿到最终字节、磁力真实路径和 errorMessage。
+void Aria2Engine::applyTellStatus(const std::shared_ptr<Task>& task,
+                                  const nlohmann::json& st) const {
+    const std::string status = st.value("status", "active");
+
+    auto strI64 = [&](const char* key) -> std::int64_t {
+        const std::string v = st.value(key, "0");
+        try { return std::stoll(v); } catch (...) { return 0; }
+    };
+    task->totalBytes = strI64("totalLength");
+    task->downloadedBytes = strI64("completedLength");
+    try { task->speedBps = std::stod(st.value("downloadSpeed", "0")); }
+    catch (...) { task->speedBps = 0.0; }
+    // 磁力/BT 任务拿到元数据后，files[0].path 才是真实下载路径（更新占位）。
+    if (st.contains("files") && st["files"].is_array() &&
+        !st["files"].empty()) {
+        const std::string p = st["files"][0].value("path", "");
+        if (!p.empty()) task->destPath = std::filesystem::path(p);
+    }
+    // aria2-next reports the field as "connections"; original aria2 uses
+    // "numConnections". Accept both so the engine works with either.
+    const std::string connField =
+        st.value("connections", st.value("numConnections", "1"));
+    try { task->connections = std::max(1, std::stoi(connField)); }
+    catch (...) { task->connections = 1; }
+
+    if (status == "complete") {
+        task->state = State::Done;
+        task->speedBps = 0.0;
+    } else if (status == "error") {
+        task->state = State::Failed;
+        task->error = st.value("errorMessage", "download error");
+        task->speedBps = 0.0;
+    } else if (status == "removed") {
+        task->state = State::Cancelled;
+        task->speedBps = 0.0;
+    } else if (status == "waiting") {
+        task->state = State::Queued;
+    } else if (status == "paused") {
+        task->state = State::Paused;
+        task->speedBps = 0.0;
+    } else {  // "active"
+        task->state = State::Downloading;
+    }
+}
+
+// 轮询活动任务进度 + 补全 needsFinalize 任务。调用方（snapshot）须已持锁。
+// 状态迁移主要由 WS 事件接管（即时），这里的 tellStatus 负责进度字节/速度/连接数，
+// 以及事件只带 gid 时的最终态补全。
 void Aria2Engine::refreshStates() const {
     if (!daemonSpawned_) return;
+    // 收集需要轮询/补全的任务（活动状态 + needsFinalize），RPC 期间锁保持（WS
+    // 事件回调只是短暂等待，无死锁）。
+    std::vector<std::pair<std::shared_ptr<Task>, std::string>> targets;
+    targets.reserve(tasks_.size());
     for (const auto& task : tasks_) {
         const State s = task->state;
-        if (s != State::Queued && s != State::Downloading && s != State::Paused) continue;
+        if (s == State::Queued || s == State::Downloading || s == State::Paused ||
+            task->needsFinalize) {
+            targets.emplace_back(task, task->gid);
+        }
+    }
+    for (const auto& [task, gid] : targets) {
         try {
             const nlohmann::json st =
-                rpcCall(port_, secret_, "aria2.tellStatus", nlohmann::json::array({task->gid}));
-            const std::string status = st.value("status", "active");
-
-            auto strI64 = [&](const char* key) -> std::int64_t {
-                const std::string v = st.value(key, "0");
-                try { return std::stoll(v); } catch (...) { return 0; }
-            };
-            task->totalBytes = strI64("totalLength");
-            task->downloadedBytes = strI64("completedLength");
-            try { task->speedBps = std::stod(st.value("downloadSpeed", "0")); }
-            catch (...) { task->speedBps = 0.0; }
-            // 磁力/BT 任务拿到元数据后，files[0].path 才是真实下载路径（更新占位）。
-            if (st.contains("files") && st["files"].is_array() &&
-                !st["files"].empty()) {
-                const std::string p = st["files"][0].value("path", "");
-                if (!p.empty()) task->destPath = std::filesystem::path(p);
-            }
-            // aria2-next reports the field as "connections"; original aria2 uses
-            // "numConnections". Accept both so the engine works with either.
-            const std::string connField =
-                st.value("connections", st.value("numConnections", "1"));
-            try { task->connections = std::max(1, std::stoi(connField)); }
-            catch (...) { task->connections = 1; }
-
-            if (status == "complete") {
-                task->state = State::Done;
-                task->speedBps = 0.0;
-            } else if (status == "error") {
-                task->state = State::Failed;
-                task->error = st.value("errorMessage", "download error");
-                task->speedBps = 0.0;
-            } else if (status == "removed") {
-                task->state = State::Cancelled;
-                task->speedBps = 0.0;
-            } else if (status == "waiting") {
-                task->state = State::Queued;
-            } else if (status == "paused") {
-                task->state = State::Paused;
-                task->speedBps = 0.0;
-            } else {  // "active"
-                task->state = State::Downloading;
-            }
+                rpcCall(port_, secret_, "aria2.tellStatus", nlohmann::json::array({gid}));
+            applyTellStatus(task, st);
+            task->needsFinalize = false;
         } catch (...) {
             // Transient RPC failure — leave state as-is, retry next poll.
         }
@@ -889,8 +1003,10 @@ void Aria2Engine::refreshStates() const {
 }
 
 std::vector<TaskView> Aria2Engine::snapshot() const {
+    // 状态迁移由 WS 事件接管（即时），进度字节/速度只需 ~1s 刷新（对齐 Motrix/AriaNg）。
+    std::lock_guard<std::mutex> lock(tasksMutex_);
     const auto now = std::chrono::steady_clock::now();
-    if (now - lastPoll_ >= std::chrono::milliseconds(200)) {
+    if (now - lastPoll_ >= std::chrono::seconds(1)) {
         lastPoll_ = now;
         refreshStates();
     }
@@ -907,6 +1023,7 @@ std::vector<TaskView> Aria2Engine::snapshot() const {
 }
 
 bool Aria2Engine::busy() const {
+    std::lock_guard<std::mutex> lock(tasksMutex_);
     for (const auto& task : tasks_) {
         const State s = task->state;
         if (s == State::Queued || s == State::Downloading || s == State::Paused) {
@@ -914,6 +1031,36 @@ bool Aria2Engine::busy() const {
         }
     }
     return false;
+}
+
+// WebSocket 推送事件（IXWebSocket 后台线程）→ 任务状态即时迁移。事件只带 gid，
+// 因此除状态外还需要 needsFinalize 让下一轮 poll 补一次 tellStatus（最终字节 /
+// 磁力真实路径 / errorMessage）。
+void Aria2Engine::handleWsEvent(const std::string& method, const std::string& gid) const {
+    if (gid.empty()) return;
+    std::lock_guard<std::mutex> lock(tasksMutex_);
+    for (const auto& task : tasks_) {
+        if (task->gid != gid) continue;
+        if (method == "aria2.onDownloadStart") {
+            task->state = State::Downloading;
+        } else if (method == "aria2.onDownloadPause") {
+            task->state = State::Paused;
+            task->speedBps = 0.0;
+        } else if (method == "aria2.onDownloadComplete" ||
+                   method == "aria2.onBtDownloadComplete") {
+            task->state = State::Done;
+            task->speedBps = 0.0;
+            task->needsFinalize = true;
+        } else if (method == "aria2.onDownloadError") {
+            task->state = State::Failed;
+            task->speedBps = 0.0;
+            task->needsFinalize = true;
+        } else if (method == "aria2.onDownloadStop") {
+            // 停下的真实状态（complete/error/removed/paused）交给下次 tellStatus 定夺。
+            task->needsFinalize = true;
+        }
+        break;
+    }
 }
 
 void Aria2Engine::shutdown() {
@@ -933,6 +1080,13 @@ void Aria2Engine::shutdown() {
         port_ = 0;
         secret_.clear();
     }
+    // 先停掉 WS 监听（stop 会 join IXWebSocket 的线程，此后不再有回调），再清任务，
+    // 保证没有任何回调访问已清空的任务。顺序不可颠倒。
+    if (ws_) {
+        ws_->stop();
+        ws_.reset();
+    }
+    std::lock_guard<std::mutex> lock(tasksMutex_);
     tasks_.clear();
 }
 
