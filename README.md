@@ -83,6 +83,10 @@ UI 只面向抽象 `dl::DownloadEngine` 接口（`src/download_engine.cppm`）�
 
 下载页：https://github.com/AnInsomniacy/aria2-next/releases
 
+Windows 发行打包用 `.\make-dist.ps1`：它自动把 `engines/` 里的 aria2 二进制和
+`checksums.sha256` 一起打进 `dist\` 与 `tinynext-v<版本>-win64.zip`（版本号从
+`mcpp.toml` 读取）。`engines/` 缺失时脚本会警告但继续打包（仅内置引擎可用）。
+
 平台验证步骤：
 1. 各平台 `mcpp build`。Windows 自动加 GUI 子系统标志；Linux 用 `run.sh` 启动
    （规避 mcpp 私有 glibc 与系统 Mesa 的 GLIBC 版本冲突）；macOS 直接 `mcpp run`。
