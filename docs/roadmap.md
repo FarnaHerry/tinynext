@@ -73,6 +73,19 @@ aria2-next 是唯一下载引擎。理由：aria2 已覆盖全部需求（分片
 
 ## 后续方案（未排期）
 
+### aria2 RPC WebSocket 推送（待 `compat:websocket` 包落地）
+
+**现状（2026-08 标记）**：`aria2_engine` 用 HTTP JSON-RPC + ~5Hz 轮询 `tellStatus`
+同步进度，够用；**包未落地前维持轮询，不做 WS**。
+
+**规划**：当 mcpp 生态出现 WebSocket 包后，改用 aria2 的 `--enable-rpc-websocket`
+推送事件（`onDownloadProgress` 等）替代轮询，更实时省流量。
+
+- 包方案：**`compat:websocket` = 包装 IXWebSocket**（MIT），独立仓库维护，不在本仓库。
+  完整计划见 `docs/websocket-package-plan.md`（含配方结构、验证、提交、接入）。
+- 接入代价：推送异步到达，需给引擎加监听线程 + 给 `tasks_` 加锁（当前刻意单线程无锁）。
+- 优先级：低（轮询已满足需求）。
+
 ### `tinynext --headless <url>` 脚本模式
 
 不开窗、按 TinyNext 自身配置（下载目录 / 连接数 / 引擎）下载完退出，`exit 0/1`。
