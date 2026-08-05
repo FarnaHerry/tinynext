@@ -13,6 +13,13 @@ license     = "Apache-2.0"
 kind = "bin"
 main = "src/app.cpp"
 
+# Pin the LLVM/Clang toolchain. Without this, fresh machines (CI) fall back to
+# mcpp's default llvm@20.1.7 while local dev uses whatever is set globally
+# (here llvm@22.1.8) — builds would not be reproducible. Pin the version that
+# local development uses.
+[toolchain]
+default = "llvm@22.1.8"
+
 # Make the exe a Windows GUI-subsystem app (no console window on launch).
 # /entry:mainCRTStartup keeps calling main() — glfw_app_main.cpp defines
 # main(), and the GUI subsystem's default entry (WinMainCRTStartup) would

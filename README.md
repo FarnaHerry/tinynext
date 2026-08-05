@@ -131,6 +131,7 @@ Linux 包内含 `run.sh` 启动脚本（走系统 loader + 系统 Mesa，原理�
 
 | 组件 | 包 | 版本 |
 |------|-----|------|
+| 工具链 | LLVM/Clang（`mcpp.toml` 的 `[toolchain]` 固定） | 22.1.8 |
 | UI 框架 | `compat:eui-neo` | 0.5.3（feature: `app-main`） |
 | 下载引擎（内置） | `mcpplibs:tinyhttps` | 0.2.9 |
 | 下载引擎（可选） | `aria2-next`（外部进程） | 2.5.5 |
