@@ -24,7 +24,9 @@ public:
 
     // Enqueue a download. Each task gets its own worker thread and its own
     // HttpClient (the library is not thread-safe). Returns the task id.
-    std::uint64_t start(const std::string& url, const std::filesystem::path& destPath) override;
+    // tinyhttps is single-connection, so StartOptions.connections is ignored.
+    std::uint64_t start(const std::string& url, const std::filesystem::path& destPath,
+                        const StartOptions& options = {}) override;
 
     // Request cancellation of a task. The worker stops at the next block
     // boundary; the task ends up in the Cancelled state.
@@ -44,6 +46,10 @@ public:
     // Resume a paused task. The worker continues from where it parked and the
     // task returns to the Downloading state. No-op unless the task is Paused.
     void resume(std::uint64_t id) override;
+
+    // Pause / resume every active task in one shot.
+    void pauseAll() override;
+    void resumeAll() override;
 
     // Copy of all tasks, newest first.
     std::vector<TaskView> snapshot() const override;

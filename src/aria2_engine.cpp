@@ -343,7 +343,8 @@ bool Aria2Engine::ensureDaemon() const {
     return false;
 }
 
-std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::path& destPath) {
+std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::path& destPath,
+                                 const StartOptions& options) {
     if (!ensureDaemon()) return 0;
 
     auto task = std::make_shared<Task>();
@@ -352,20 +353,26 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
     task->destPath = makeUniqueDest(destPath);
 
     const cfg::Aria2Config a2 = cfg::aria2Config();
-    nlohmann::json options = nlohmann::json::object();
-    options["dir"] = task->destPath.parent_path().string();
-    options["out"] = task->destPath.filename().string();
-    options["split"] = std::to_string(a2.split);
-    options["max-connection-per-server"] = std::to_string(a2.maxConnectionPerServer);
-    options["min-split-size"] = a2.minSplitSize;
-    options["continue"] = "true";
+    // 每任务连接数覆盖：>0 时同时覆盖 split 和 max-connection-per-server。
+    const int connections = options.connections > 0
+        ? std::clamp(options.connections, 1, 64)
+        : a2.split;
+    nlohmann::json optionsJ = nlohmann::json::object();
+    optionsJ["dir"] = task->destPath.parent_path().string();
+    optionsJ["out"] = task->destPath.filename().string();
+    optionsJ["split"] = std::to_string(connections);
+    optionsJ["max-connection-per-server"] = std::to_string(connections);
+    optionsJ["min-split-size"] = a2.minSplitSize;
+    optionsJ["continue"] = "true";
     if (a2.maxDownloadLimit > 0) {
-        options["max-download-limit"] = std::to_string(a2.maxDownloadLimit);
+        optionsJ["max-download-limit"] = std::to_string(a2.maxDownloadLimit);
     }
 
+    // The `options` name below conflicts with the StartOptions parameter, so
+    // the RPC params use the local `optionsJ` object.
     nlohmann::json params = nlohmann::json::array();
     params.push_back(nlohmann::json::array({url}));
-    params.push_back(options);
+    params.push_back(optionsJ);
 
     try {
         const nlohmann::json result = rpcCall(port_, secret_, "aria2.addUri", params);
@@ -431,6 +438,33 @@ void Aria2Engine::resume(std::uint64_t id) {
     try {
         rpcCall(port_, secret_, "aria2.unpause", nlohmann::json::array({task->gid}));
         task->state = State::Downloading;
+    } catch (...) {}
+}
+
+void Aria2Engine::pauseAll() {
+    if (!daemonSpawned_) return;
+    // 全部挂起：aria2.pauseAll 会把所有活动/等待任务置为 paused；本地状态同步
+    // 更新。已有 paused 的调用 pauseAll 后仍为 paused，本地判断不变。
+    try {
+        rpcCall(port_, secret_, "aria2.pauseAll", nlohmann::json::array());
+        for (const auto& task : tasks_) {
+            if (task->state == State::Queued || task->state == State::Downloading) {
+                task->state = State::Paused;
+                task->speedBps = 0.0;
+            }
+        }
+    } catch (...) {}
+}
+
+void Aria2Engine::resumeAll() {
+    if (!daemonSpawned_) return;
+    try {
+        rpcCall(port_, secret_, "aria2.unpauseAll", nlohmann::json::array());
+        for (const auto& task : tasks_) {
+            if (task->state == State::Paused) {
+                task->state = State::Downloading;
+            }
+        }
     } catch (...) {}
 }
 

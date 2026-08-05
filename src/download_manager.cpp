@@ -65,7 +65,8 @@ void TinyHttpsEngine::shutdown() {
 }
 
 std::uint64_t TinyHttpsEngine::start(const std::string& url,
-                                     const std::filesystem::path& destPath) {
+                                     const std::filesystem::path& destPath,
+                                     const StartOptions&) {
     auto task = std::make_shared<Task>();
     {
         std::lock_guard lock(mutex_);
@@ -137,6 +138,28 @@ void TinyHttpsEngine::resume(std::uint64_t id) {
             task->state = State::Downloading;
             task->pauseCv.notify_all();
             break;
+        }
+    }
+}
+
+void TinyHttpsEngine::pauseAll() {
+    std::lock_guard lock(mutex_);
+    for (const auto& task : tasks_) {
+        if (task->state == State::Queued || task->state == State::Downloading) {
+            task->paused.store(true);
+            task->state = State::Paused;
+            task->speedBps = 0.0;
+        }
+    }
+}
+
+void TinyHttpsEngine::resumeAll() {
+    std::lock_guard lock(mutex_);
+    for (const auto& task : tasks_) {
+        if (task->state == State::Paused) {
+            task->paused.store(false);
+            task->state = State::Downloading;
+            task->pauseCv.notify_all();
         }
     }
 }

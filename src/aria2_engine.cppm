@@ -24,11 +24,16 @@ public:
 
     // Enqueue a download. Spawns the daemon on first use. Returns the task id,
     // or 0 if the daemon could not be started / the task failed to enqueue.
-    std::uint64_t start(const std::string& url, const std::filesystem::path& destPath) override;
+    // StartOptions.connections overrides the config split/max-connection for
+    // this task when > 0.
+    std::uint64_t start(const std::string& url, const std::filesystem::path& destPath,
+                        const StartOptions& options = {}) override;
     void cancel(std::uint64_t id) override;
     void remove(std::uint64_t id) override;
     void pause(std::uint64_t id) override;
     void resume(std::uint64_t id) override;
+    void pauseAll() override;
+    void resumeAll() override;
     std::vector<TaskView> snapshot() const override;
     bool busy() const override;
     void shutdown() override;

@@ -21,6 +21,7 @@ import std;
 import tinynext.download_manager;
 import tinynext.aria2_engine;
 import tinynext.config;
+import tinynext.cli;
 
 namespace {
 
@@ -40,6 +41,20 @@ struct DpiAwarenessBoot {
 };
 DpiAwarenessBoot g_dpiBoot;
 #endif  // _WIN32 (DPI boot)
+
+// 单实例检测：启动即尝试获取进程锁。若已有实例在跑，把命令行传的 URL 转发给
+// 它（inbox + 聚焦窗口）并退出；否则本进程为主实例，CLI URL 由首次 compose
+// 添加到下载列表。静态初始化在 main() 之前运行，第二实例不会闪窗口。
+// 注意：必须声明在 g_manager 之前 —— 主实例的 CLI URL 添加依赖 g_manager。
+struct CliBoot {
+    CliBoot() {
+        if (!cli::acquireSingleInstance()) {
+            cli::forwardToRunningInstance(cli::commandLineUrls());
+            std::exit(0);
+        }
+    }
+};
+CliBoot g_cliBoot;
 
 // GLFW native access (Windows only, for the folder picker's parent HWND);
 // declared at namespace scope — linkage specifications are ill-formed inside
@@ -226,6 +241,9 @@ std::string g_aria2ConnText = std::to_string(cfg::aria2Config().maxConnectionPer
 std::string g_aria2MinSplitText = cfg::aria2Config().minSplitSize;
 std::string g_aria2LimitText = std::to_string(cfg::aria2Config().maxDownloadLimit);
 
+// 添加下载弹窗的每任务连接数（默认 = 配置 split 值；空/0 = 配置默认）。
+std::string g_addConnectionsText = std::to_string(cfg::aria2Config().split);
+
 // -------------------------------------------------- list filter / pagination --
 
 enum class Filter { All, Active, Done };
@@ -237,6 +255,15 @@ int g_page = 1;
 int g_pageSize = 5;
 bool g_pageSizeOpen = false;  // 分页大小下拉是否展开
 constexpr int kPageSizes[] = {5, 10, 20, 50, 100};
+
+// 下载列表排序。切换排序回到第 1 页。
+enum class SortMode { Newest, State, Name, Size, Progress };
+SortMode g_sort = SortMode::Newest;
+bool g_sortOpen = false;  // 排序下拉是否展开
+
+// 单实例：CLI 启动参数是否已添加过；inbox 轮询计时。
+bool g_cliHandled = false;
+float g_inboxTimer = 0.0f;
 
 // "下载中" = 排队/进行/暂停；"已完成" = 完成/失败/已取消。
 bool stateMatches(Filter filter, dl::State state) {
@@ -426,9 +453,9 @@ void openUrl(const std::string& url) {
 
 // ----------------------------------------------------------- UI callbacks --
 
-// 校验并启动一个下载；返回是否成功（供“添加下载”弹窗决定是否关闭）。
-bool addDownload() {
-    std::string url = g_urlText;
+// 校验并启动一个下载；返回是否成功。connections > 0 时作为该任务的每任务
+// 连接数传给引擎（0 = 引擎按配置默认）。对话框 / CLI / 单实例 inbox 共用。
+bool startDownloadFromUrl(std::string url, int connections) {
     const std::size_t first = url.find_first_not_of(" \t\r\n");
     const std::size_t last = url.find_last_not_of(" \t\r\n");
     url = first == std::string::npos ? "" : url.substr(first, last - first + 1);
@@ -448,13 +475,29 @@ bool addDownload() {
 
     const std::filesystem::path dest =
         cfg::downloadDir() / fileNameFromUrl(url);
-    const std::uint64_t id = g_manager->start(url, dest);
+    dl::StartOptions opts;
+    opts.connections = connections;
+    const std::uint64_t id = g_manager->start(url, dest, opts);
     if (id == 0) {
         showStatus("下载启动失败：引擎不可用");
         return false;
     }
     showStatus(std::format("已开始下载 #{} — {}", id, dest.filename().string()));
     return true;
+}
+
+// “添加下载”弹窗提交：URL + 每任务连接数（空/0 = 配置默认）。
+bool addDownload() {
+    std::string t = g_addConnectionsText;
+    int connections = 0;
+    if (!t.empty()) {
+        try {
+            connections = std::clamp(std::stoi(trimText(t)), 0, 64);
+        } catch (...) {
+            connections = 0;
+        }
+    }
+    return startDownloadFromUrl(g_urlText, connections);
 }
 
 // --------------------------------------------------------------- rendering --
@@ -692,25 +735,27 @@ void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth) {
 enum class Page { Downloads, Settings };
 Page g_page_view = Page::Downloads;  // 默认打开下载列表
 
-// 前向声明：分页大小选择器在 compose() 之后定义。
-void buildPageSizePicker(eui::Ui& ui, const std::string& id, float width, float height,
-                         const AppTheme& theme);
+// 前向声明：通用列表选择器在 compose() 之后定义。
+enum class PickerField { Text, Icon };
+void buildListPicker(eui::Ui& ui, const std::string& id, float width, float height,
+                     const AppTheme& theme, bool& open, const char* const* labels,
+                     int count, int selected, bool opensUp, PickerField field,
+                     const std::function<void(int)>& onPick);
 
-// --------------------------------------------------------- 上拉分页大小选择 --
+// ----------------------------------------------------- 通用上下拉列表选择器 --
 //
 // eui 的 components::dropdown 只会向下弹出，放在底部翻页行时弹层会超出窗口下缘。
-// 这里按官方 SKILL 的“小 builder 复用”模式，做一个向上弹出的选择器：字段 +
-// 向上展开的 popup，样式取自当前主题 tokens，与全局配色保持一致。
+// 这里做一个通用选择器：字段（文字显示当前项，或纯图标 fa-sort）+ 向上/向下
+// 展开的 popup，样式取自当前主题 tokens。分页大小（向上）与排序（向下）共用。
 
-void buildPageSizePicker(eui::Ui& ui, const std::string& id, float width, float height,
-                         const AppTheme& theme) {
-    static const char* kLabels[] = {"5 条/页", "10 条/页", "20 条/页", "50 条/页", "100 条/页"};
-    constexpr int kCount = 5;
+void buildListPicker(eui::Ui& ui, const std::string& id, float width, float height,
+                     const AppTheme& theme, bool& open, const char* const* labels,
+                     int count, int selected, bool opensUp, PickerField field,
+                     const std::function<void(int)>& onPick) {
     const float itemHeight = S(22.0f);
     const float popupPad = S(3.0f);
     const float popupGap = S(3.0f);
-    const float popupHeight = itemHeight * kCount + popupPad * 2.0f;
-    const int selected = pageSizeIndex();
+    const float popupHeight = itemHeight * count + popupPad * 2.0f;
     const auto& tokens = theme.components;
     const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
 
@@ -718,41 +763,52 @@ void buildPageSizePicker(eui::Ui& ui, const std::string& id, float width, float 
         .size(width, height)
         .zIndex(30)
         .content([&] {
-            // ---- 字段（点击切换展开/收起）----
-            ui.rect(id + ".field")
-                .size(width, height)
-                .color(tokens.surface)
-                .radius(S(8.0f))
-                .border(1.0f, components::theme::withOpacity(tokens.border, 0.78f))
-                .transition(transition)
-                .onClick([] { g_pageSizeOpen = !g_pageSizeOpen; })
-                .build();
+            // ---- 字段（点击切换展开/收起）：文字显示当前项，或纯图标 ----
+            if (field == PickerField::Icon) {
+                components::button(ui, id + ".btn")
+                    .size(width, height)
+                    .icon(0xF0DC)  // fa-sort
+                    .text("")
+                    .iconSize(S(13.0f))
+                    .theme(theme.components, false)
+                    .onClick([&open] { open = !open; })
+                    .build();
+            } else {
+                ui.rect(id + ".field")
+                    .size(width, height)
+                    .color(tokens.surface)
+                    .radius(S(8.0f))
+                    .border(1.0f, components::theme::withOpacity(tokens.border, 0.78f))
+                    .transition(transition)
+                    .onClick([&open] { open = !open; })
+                    .build();
 
-            ui.text(id + ".label")
-                .x(S(9.0f))
-                .size(width - S(30.0f), height)
-                .text(kLabels[selected])
-                .fontSize(S(11.0f))
-                .lineHeight(height)
-                .color(tokens.text)
-                .verticalAlign(core::VerticalAlign::Center)
-                .build();
+                ui.text(id + ".label")
+                    .x(S(9.0f))
+                    .size(width - S(30.0f), height)
+                    .text(labels[selected])
+                    .fontSize(S(11.0f))
+                    .lineHeight(height)
+                    .color(tokens.text)
+                    .verticalAlign(core::VerticalAlign::Center)
+                    .build();
 
-            ui.text(id + ".chevron")
-                .x(width - S(20.0f))
-                .size(S(14.0f), height)
-                .icon(g_pageSizeOpen ? 0xF077 : 0xF078)  // chevron-up / chevron-down
-                .fontSize(S(10.0f))
-                .lineHeight(height)
-                .color(tokens.primary)
-                .horizontalAlign(core::HorizontalAlign::Center)
-                .verticalAlign(core::VerticalAlign::Center)
-                .build();
+                ui.text(id + ".chevron")
+                    .x(width - S(20.0f))
+                    .size(S(14.0f), height)
+                    .icon(open ? 0xF077 : 0xF078)  // chevron-up / chevron-down
+                    .fontSize(S(10.0f))
+                    .lineHeight(height)
+                    .color(tokens.primary)
+                    .horizontalAlign(core::HorizontalAlign::Center)
+                    .verticalAlign(core::VerticalAlign::Center)
+                    .build();
+            }
 
-            // ---- 向上弹出的列表（在字段上方展开）----
-            if (g_pageSizeOpen) {
+            // ---- 弹出列表（向上或向下展开）----
+            if (open) {
                 ui.stack(id + ".popup")
-                    .y(-(popupHeight + popupGap))
+                    .y(opensUp ? -(popupHeight + popupGap) : height + popupGap)
                     .size(width, popupHeight)
                     .zIndex(31)
                     .content([&] {
@@ -763,7 +819,7 @@ void buildPageSizePicker(eui::Ui& ui, const std::string& id, float width, float 
                             .border(1.0f, components::theme::withOpacity(tokens.border, 0.78f))
                             .build();
 
-                        for (int i = 0; i < kCount; ++i) {
+                        for (int i = 0; i < count; ++i) {
                             const float itemY = popupPad + i * itemHeight;
                             ui.rect(id + ".item." + std::to_string(i))
                                 .x(popupPad)
@@ -772,10 +828,9 @@ void buildPageSizePicker(eui::Ui& ui, const std::string& id, float width, float 
                                 .states({0.0f, 0.0f, 0.0f, 0.0f}, tokens.surfaceHover,
                                         tokens.surfaceActive)
                                 .radius(S(5.0f))
-                                .onClick([i] {
-                                    g_pageSize = kPageSizes[i];
-                                    g_page = 1;
-                                    g_pageSizeOpen = false;
+                                .onClick([&open, i, onPick] {
+                                    open = false;
+                                    onPick(i);
                                 })
                                 .build();
 
@@ -783,7 +838,7 @@ void buildPageSizePicker(eui::Ui& ui, const std::string& id, float width, float 
                                 .x(popupPad + S(8.0f))
                                 .y(itemY)
                                 .size(width - popupPad * 2.0f - S(16.0f), itemHeight)
-                                .text(kLabels[i])
+                                .text(labels[i])
                                 .fontSize(S(11.0f))
                                 .lineHeight(itemHeight)
                                 .color(i == selected ? tokens.primary : tokens.text)
@@ -936,13 +991,58 @@ const DslAppConfig& dslAppConfig() {
 void compose(eui::Ui& ui, const eui::Screen& screen) {
     const AppTheme& theme = currentTheme();
 
-    // ---- 数据：筛选 + 分页切片（compose 每帧重跑，跟随下载线程实时刷新）----
+    // ---- 数据：筛选 + 排序 + 分页切片（compose 每帧重跑）----
     const auto tasks = g_manager->snapshot();
     std::vector<dl::TaskView> filtered;
     filtered.reserve(tasks.size());
     for (const auto& task : tasks) {
         if (stateMatches(g_filter, task.state)) {
             filtered.push_back(task);
+        }
+    }
+    // 排序（稳定排序；Newest 保持 snapshot 的"最新在前"顺序）。
+    switch (g_sort) {
+        case SortMode::Newest:
+            break;
+        case SortMode::State: {
+            auto rank = [](dl::State s) {
+                switch (s) {
+                    case dl::State::Downloading: return 0;
+                    case dl::State::Queued:      return 1;
+                    case dl::State::Paused:      return 2;
+                    default:                     return 3;
+                }
+            };
+            std::stable_sort(filtered.begin(), filtered.end(),
+                             [&](const auto& a, const auto& b) {
+                                 return rank(a.state) < rank(b.state);
+                             });
+            break;
+        }
+        case SortMode::Name:
+            std::stable_sort(filtered.begin(), filtered.end(),
+                             [](const auto& a, const auto& b) {
+                                 return fileNameFromUrl(a.url) <
+                                        fileNameFromUrl(b.url);
+                             });
+            break;
+        case SortMode::Size:
+            std::stable_sort(filtered.begin(), filtered.end(),
+                             [](const auto& a, const auto& b) {
+                                 return a.totalBytes > b.totalBytes;  // 大→小
+                             });
+            break;
+        case SortMode::Progress: {
+            auto pct = [](const dl::TaskView& t) {
+                return t.totalBytes > 0
+                           ? static_cast<double>(t.downloadedBytes) / t.totalBytes
+                           : 0.0;
+            };
+            std::stable_sort(filtered.begin(), filtered.end(),
+                             [&](const auto& a, const auto& b) {
+                                 return pct(a) > pct(b);
+                             });
+            break;
         }
     }
     const int totalCount = static_cast<int>(filtered.size());
@@ -976,6 +1076,21 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 if (g_systemThemeTimer >= 2.0f) {
                     g_systemThemeTimer = 0.0f;
                     g_dark = cfg::osDark();
+                }
+            }
+            // CLI 启动参数：主实例首次帧把命令行 URL 加进下载列表。
+            if (!g_cliHandled) {
+                g_cliHandled = true;
+                for (const auto& u : cli::commandLineUrls()) {
+                    startDownloadFromUrl(u, 0);
+                }
+            }
+            // 单实例 inbox：周期轮询其他实例转发的 URL（~0.5s）。
+            g_inboxTimer += deltaSeconds;
+            if (g_inboxTimer >= 0.5f) {
+                g_inboxTimer = 0.0f;
+                for (const auto& u : cli::drainInbox()) {
+                    startDownloadFromUrl(u, 0);
                 }
             }
         })
@@ -1113,10 +1228,66 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                     })
                     .build();
 
-                // ---- 添加下载：右上角一个 ➕ 图标，点击弹出对话框 ----
+                // ---- 顶部工具栏（右对齐）：全部暂停 / 全部继续 / 排序 / 添加 ----
+                const float toolW = S(28.0f);
+                const float toolGap = S(4.0f);
+                const float toolRight = contentX + contentWidth;
+                const float addX = toolRight - toolW;
+                const float sortX = addX - toolGap - toolW;
+                const float startAllX = sortX - toolGap - toolW;
+                const float pauseAllX = startAllX - toolGap - toolW;
+
+                // 排序选择器：图标按钮 + 向下弹出列表（buildListPicker 不设
+                // 位置，由外层 stack 绝对定位）。
+                static const char* kSortLabels[] = {"最新在前", "状态优先", "文件名", "大小", "进度"};
+                ui.stack("tool.sort.wrap")
+                    .position(sortX, inputY)
+                    .size(toolW, kInputHeight)
+                    .zIndex(30)
+                    .content([&] {
+                        buildListPicker(ui, "tool.sort", toolW, kInputHeight, theme,
+                                        g_sortOpen, kSortLabels, 5,
+                                        static_cast<int>(g_sort), false,
+                                        PickerField::Icon,
+                                        [](int i) {
+                                            g_sort = static_cast<SortMode>(i);
+                                            g_page = 1;
+                                        });
+                    })
+                    .build();
+
+                // 全部继续：恢复所有已暂停任务。
+                components::button(ui, "tool.startAll")
+                    .position(startAllX, inputY)
+                    .size(toolW, kInputHeight)
+                    .icon(0xF04B)  // fa-play
+                    .text("")
+                    .iconSize(S(13.0f))
+                    .theme(theme.components, false)
+                    .onClick([] {
+                        g_manager->resumeAll();
+                        showStatus("已全部继续");
+                    })
+                    .build();
+
+                // 全部暂停：暂停所有排队/进行中任务。
+                components::button(ui, "tool.pauseAll")
+                    .position(pauseAllX, inputY)
+                    .size(toolW, kInputHeight)
+                    .icon(0xF04C)  // fa-pause
+                    .text("")
+                    .iconSize(S(13.0f))
+                    .theme(theme.components, false)
+                    .onClick([] {
+                        g_manager->pauseAll();
+                        showStatus("已全部暂停");
+                    })
+                    .build();
+
+                // 添加下载：右上角 ➕ 图标，点击弹出对话框。
                 components::button(ui, "add.btn")
-                    .position(contentX + contentWidth - S(28.0f), inputY)
-                    .size(S(28.0f), kInputHeight)
+                    .position(addX, inputY)
+                    .size(toolW, kInputHeight)
                     .icon(0xF067)  // fa-plus
                     .text("")
                     .iconSize(S(13.0f))
@@ -1201,8 +1372,15 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                             .build();
 
                         // 分页大小（5/10/20/50/100 上拉选择器），跟在下一页后面。
-                        buildPageSizePicker(ui, "pager.pageSize", kSizeDropdownWidth,
-                                            kPagerHeight, theme);
+                        static const char* kPageLabels[] = {"5 条/页", "10 条/页", "20 条/页", "50 条/页", "100 条/页"};
+                        buildListPicker(ui, "pager.pageSize", kSizeDropdownWidth,
+                                        kPagerHeight, theme, g_pageSizeOpen,
+                                        kPageLabels, 5, pageSizeIndex(), true,
+                                        PickerField::Text,
+                                        [](int i) {
+                                            g_pageSize = kPageSizes[i];
+                                            g_page = 1;
+                                        });
                     })
                     .build();
 
@@ -1221,7 +1399,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 // ---- 添加下载弹窗（模态）：链接输入 + 提交/取消 ----
                 if (g_addOpen) {
                     const float dlgW = S(280.0f);
-                    const float dlgH = S(150.0f);
+                    const float dlgH = S(166.0f);
                     const float dlgX = (screen.width - dlgW) * 0.5f;
                     const float dlgY = (screen.height - dlgH) * 0.5f;
 
@@ -1269,8 +1447,27 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                                 .onEnter([] { if (addDownload()) g_addOpen = false; })
                                 .build();
 
+                            // 每任务连接数：默认=配置 split 值；填 0 或清空=配置默认。
+                            components::text(ui, "add.conn.label")
+                                .position(S(16.0f), S(76.0f))
+                                .size(S(70.0f), S(28.0f))
+                                .text("连接数")
+                                .fontSize(S(12.0f))
+                                .lineHeight(S(28.0f))
+                                .color(theme.metaText)
+                                .build();
+                            components::input(ui, "add.conn")
+                                .position(S(88.0f), S(74.0f))
+                                .size(dlgW - S(104.0f), S(28.0f))
+                                .placeholder("0=默认")
+                                .value(g_addConnectionsText)
+                                .theme(theme.components)
+                                .onChange([](const std::string& value) { g_addConnectionsText = value; })
+                                .onEnter([] { if (addDownload()) g_addOpen = false; })
+                                .build();
+
                             components::button(ui, "add.cancel")
-                                .position(dlgW - S(16.0f) - S(76.0f) - S(8.0f) - S(76.0f), S(108.0f))
+                                .position(dlgW - S(16.0f) - S(76.0f) - S(8.0f) - S(76.0f), S(124.0f))
                                 .size(S(76.0f), S(26.0f))
                                 .text("取消")
                                 .fontSize(S(12.0f))
@@ -1279,7 +1476,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                                 .build();
 
                             components::button(ui, "add.submit")
-                                .position(dlgW - S(16.0f) - S(76.0f), S(108.0f))
+                                .position(dlgW - S(16.0f) - S(76.0f), S(124.0f))
                                 .size(S(76.0f), S(26.0f))
                                 .text("提交")
                                 .fontSize(S(12.0f))

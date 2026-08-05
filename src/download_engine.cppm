@@ -32,6 +32,12 @@ export struct TaskView {
     int connections = 1;          // active network connections; 1 = single-connection engine
 };
 
+// Per-task start options. connections == 0 means "use the engine default from
+// config"; engines that don't support multi-connection ignore it.
+export struct StartOptions {
+    int connections = 0;
+};
+
 // Abstract download engine contract. Implementations are owned by the app
 // (std::unique_ptr) and must be created/destroyed on the UI thread.
 export class DownloadEngine {
@@ -40,7 +46,8 @@ public:
 
     // Enqueue a download to destPath. Returns a stable task id.
     virtual std::uint64_t start(const std::string& url,
-                                const std::filesystem::path& destPath) = 0;
+                                const std::filesystem::path& destPath,
+                                const StartOptions& options = {}) = 0;
 
     // Request cancellation; the task ends up in the Cancelled state.
     virtual void cancel(std::uint64_t id) = 0;
@@ -53,6 +60,10 @@ public:
 
     // Resume a paused task; no-op unless Paused.
     virtual void resume(std::uint64_t id) = 0;
+
+    // Pause / resume every active task (Queued / Downloading / Paused).
+    virtual void pauseAll() = 0;
+    virtual void resumeAll() = 0;
 
     // Copy of all tasks, newest first.
     virtual std::vector<TaskView> snapshot() const = 0;
