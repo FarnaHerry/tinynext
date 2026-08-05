@@ -2,7 +2,7 @@
 name        = "tinynext"
 version     = "0.1.0"
 description = "A GUI downloader: EUI-NEO frontend + tinyhttps download engine"
-license     = "Apache-2.0"
+license     = "MIT"
 
 # No src/main.cpp exists: with the `app-main` feature, main() comes from
 # compat.eui-neo's GLFW entry point (core/app/glfw_app_main.cpp), so mcpp
