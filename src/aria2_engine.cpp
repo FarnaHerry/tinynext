@@ -22,15 +22,18 @@ module;
 #else
 // POSIX (macOS + Linux). Each header must be included explicitly: glibc pulls
 // them in transitively so Linux "works by accident", but the macOS SDK does
-// not — pid_t/waitpid/kill/posix_spawn/environ all need their own header.
+// not — pid_t/waitpid/kill/posix_spawn all need their own header.
 #include <sys/types.h>   // pid_t
 #include <sys/wait.h>    // waitpid, WNOHANG
 #include <signal.h>      // kill, SIGTERM, SIGKILL
 #include <spawn.h>       // posix_spawn
-#include <unistd.h>      // environ
+#include <unistd.h>
 #ifdef __APPLE__
 #include <mach-o/dyld.h> // _NSGetExecutablePath
 #endif
+// macOS's <unistd.h> does not declare `environ` (glibc does); the symbol still
+// exists in the system libc, so declare it here for the posix_spawn call below.
+extern char** environ;
 #endif
 
 module tinynext.aria2_engine;
