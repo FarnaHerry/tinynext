@@ -1,0 +1,7 @@
+# Checksum file must stay LF: sha256sum -c reads filenames from it, and a CRLF
+# checkout (git's Windows default autocrlf=true) would append \r to every name,
+# so nothing matches and verification fails with "no file was verified".
+engines/checksums.sha256 text eol=lf
+
+# Shell scripts: keep LF so they run unmodified on unix runners.
+*.sh text eol=lf

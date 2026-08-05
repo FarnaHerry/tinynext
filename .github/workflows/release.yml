@@ -93,6 +93,11 @@ jobs:
           mkdir -p engines
           curl -fL -o "engines/${{ matrix.engine_asset }}" \
             "https://github.com/AnInsomniacy/aria2-next/releases/download/v2.5.5/${{ matrix.engine_asset }}"
+          # 防御性去掉 CR：Windows runner 检出 checksums.sha256 可能带 \r，
+          # 导致 sha256sum 把文件名当成带 \r 而匹配不到（".gitattributes" 已强制
+          # LF，这里再兜底一层；tr 跨 BSD/GNU 通用）。
+          tr -d '\r' < engines/checksums.sha256 > engines/checksums.tmp
+          mv engines/checksums.tmp engines/checksums.sha256
           (cd engines && sha256sum -c checksums.sha256 --ignore-missing) || {
             echo "aria2-next checksum mismatch — aborting" >&2; exit 1; }
           mv "engines/${{ matrix.engine_asset }}" "${{ matrix.engine_file }}"

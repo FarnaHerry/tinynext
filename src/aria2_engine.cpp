@@ -19,14 +19,18 @@ module;
 #define NOMINMAX
 #endif
 #include <windows.h>
-#endif
+#else
+// POSIX (macOS + Linux). Each header must be included explicitly: glibc pulls
+// them in transitively so Linux "works by accident", but the macOS SDK does
+// not — pid_t/waitpid/kill/posix_spawn/environ all need their own header.
+#include <sys/types.h>   // pid_t
+#include <sys/wait.h>    // waitpid, WNOHANG
+#include <signal.h>      // kill, SIGTERM, SIGKILL
+#include <spawn.h>       // posix_spawn
+#include <unistd.h>      // environ
 #ifdef __APPLE__
-#include <mach-o/dyld.h>  // _NSGetExecutablePath
-#elif !defined(_WIN32)
-#include <spawn.h>        // posix_spawn (Linux)
-#include <unistd.h>
-#include <signal.h>
-#include <sys/wait.h>
+#include <mach-o/dyld.h> // _NSGetExecutablePath
+#endif
 #endif
 
 module tinynext.aria2_engine;
