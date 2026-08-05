@@ -1,0 +1,81 @@
+// ui/theme.cppm — dark/light AppTheme + currentTheme().
+//
+// eui_neo.h is header-only (no module interface), so it is pulled into the
+// global module fragment. Only eui types (eui::Color, components::theme tokens)
+// cross this module's boundary — consumers must include eui_neo.h themselves.
+module;
+
+#include "eui_ui.h"
+
+export module tinynext.ui.theme;
+
+import std;
+import tinynext.ui.state;
+
+// 日间/夜间双主题。clearColor 在 eui 初始化时固化、无法运行时修改，所以
+// 主题由 compose 全权控制 —— 用一个全屏背景矩形盖住窗口底色。整个系统的
+// 所有颜色（背景、表面、主色、文本、状态色）都从 currentTheme() 取：
+//   - 控件统一走 `.theme(theme.components)`，一套 tokens 管按钮/输入框/
+//     进度条的内部配色（fill/文字/边框/hover/focus）；
+//   - 文本等裸颜色从 theme 字段取，深浅主题各自定义，保证对比度；
+//   - 后续新增任何控件，只要同样从 currentTheme() 取色，就自动与现有
+//     UI 保持一致。compose 每帧重跑，切换即时生效。
+export struct AppTheme {
+    bool dark;
+    eui::Color titleText;    // 大标题
+    eui::Color nameText;     // 文件名
+    eui::Color metaText;     // 百分比/速度等次要文本
+    eui::Color hintText;     // 空态提示
+    eui::Color statusText;   // 底部状态消息
+    eui::Color downloading;  // 状态色
+    eui::Color paused;
+    eui::Color done;
+    eui::Color failed;
+    eui::Color idle;
+    components::theme::ThemeColorTokens components;  // 传给组件的完整 tokens
+};
+
+// 主色不写死：夜间用亮蓝（暗底上醒目），日间用深蓝（浅底上对比好）。
+// 两套主题共享同一套 Token 结构，只是颜色值不同。
+export const AppTheme kDarkTheme = {
+    true,
+    {0.94f, 0.97f, 1.0f, 1.0f},
+    {0.88f, 0.92f, 1.0f, 1.0f},
+    {0.62f, 0.70f, 0.82f, 1.0f},
+    {0.42f, 0.47f, 0.55f, 1.0f},
+    {0.72f, 0.83f, 0.97f, 1.0f},
+    {0.58f, 0.72f, 0.95f, 1.0f},
+    {0.95f, 0.72f, 0.30f, 1.0f},
+    {0.35f, 0.80f, 0.45f, 1.0f},
+    {0.92f, 0.40f, 0.38f, 1.0f},
+    {0.55f, 0.58f, 0.62f, 1.0f},
+    [] {
+        auto tokens = components::theme::dark();
+        tokens.primary = {0.90f, 0.32f, 0.18f, 1.0f};  // 深色模式主色：橘红
+        return tokens;
+    }(),
+};
+
+export const AppTheme kLightTheme = {
+    false,
+    {0.16f, 0.20f, 0.30f, 1.0f},
+    {0.10f, 0.13f, 0.20f, 1.0f},
+    {0.42f, 0.48f, 0.58f, 1.0f},
+    {0.55f, 0.60f, 0.68f, 1.0f},
+    {0.18f, 0.38f, 0.62f, 1.0f},
+    {0.18f, 0.42f, 0.82f, 1.0f},
+    {0.72f, 0.48f, 0.05f, 1.0f},
+    {0.10f, 0.55f, 0.25f, 1.0f},
+    {0.78f, 0.20f, 0.14f, 1.0f},
+    {0.48f, 0.52f, 0.58f, 1.0f},
+    [] {
+        auto tokens = components::theme::light();
+        tokens.primary = {0.02f, 0.62f, 0.72f, 1.0f};  // 浅色模式主色：青色
+        return tokens;
+    }(),
+};
+
+// 当前生效主题：读 state 模块的 g_dark（System 模式实时跟随 OS）。
+export const AppTheme& currentTheme() {
+    return g_dark ? kDarkTheme : kLightTheme;
+}

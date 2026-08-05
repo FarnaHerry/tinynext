@@ -19,8 +19,9 @@ mcpp run            # 启动 GUI 窗口
   而是把命令行参数里的下载链接转发给已运行实例（Windows 上还会把已有窗口
   切到前台），由它自动添加任务。
 - **CLI**：`tinynext <https://...>` 启动即添加下载；如果应用未运行，会自动
-  打开应用并把链接加入下载列表。可一次传多个 URL。
+  打开应用并把链接加入下载列表。可一次传多个 URL。**详细用法见 `docs/cli.md`**。
 - 转发走临时目录的 `tinynext.inbox` 文件，主实例每 ~0.5s 轮询取走任务。
+- 给 AI 助手的项目指南见 `AGENTS.md`（含构建 / CLI 用法 / 模块约定）。
 
 ## 界面
 
@@ -149,18 +150,31 @@ Linux 包内含 `run.sh` 启动脚本（走系统 loader + 系统 Mesa，原理�
 
 ### 架构
 
+全模块化（`import std` + 各 `tinynext.*` 模块），按职责拆成多个模块：
+
+| 模块 | 文件 | 职责 |
+|------|------|------|
+| `tinynext.download_engine` | `src/download_engine.cppm` | 引擎抽象接口 `dl::DownloadEngine` / `TaskView` |
+| `tinynext.download_manager` | `src/download_manager.cppm/.cpp` | tinyhttps 引擎（每任务独立线程） |
+| `tinynext.aria2_engine` | `src/aria2_engine.cppm/.cpp` | aria2-next 进程引擎（JSON-RPC） |
+| `tinynext.config` | `src/config.cppm` | JSON 配置 / 主题 / 下载目录 / aria2 参数 |
+| `tinynext.cli` | `src/cli.cppm` | 单实例锁 + 命令行 URL + inbox 转发 + CliBoot 引导 |
+| `tinynext.ui.utils` | `src/ui/utils.cppm` | `kUI`/`S()` 缩放 + 格式化/解析辅助 |
+| `tinynext.ui.theme` | `src/ui/theme.cppm` | `AppTheme` 深浅主题 + `currentTheme()` |
+| `tinynext.ui.state` | `src/ui/state.cppm` | 共享可变全局 + 引擎 + 添加下载流程 |
+| `tinynext.ui.platform` | `src/ui/platform.cppm` | DPI boot + 文件夹选择 + 打开文件/URL |
+| `tinynext.ui.widgets` | `src/ui/widgets.cppm` | 列表选择器 + 侧栏/rail/卡片操作控件 |
+| `tinynext.ui.cards` | `src/ui/cards.cppm` | 下载任务卡片 |
+| `tinynext.ui.pages` | `src/ui/pages.cppm` | 下载页 / 设置页 / 关于弹窗 |
+| `src/app.cpp` | —（普通 TU） | 薄入口：`app::dslAppConfig()` + `app::compose()` 分发 |
+
 - `src/app.cpp` — EUI 应用入口。启用 `app-main` 特性后，`main()` 由包内的
   GLFW 入口（`core/app/glfw_app_main.cpp`）提供，本项目只定义
   `app::dslAppConfig()` 和 `app::compose()`（**因此任何 TU 都不能再定义 `main()`**）。
-- `src/download_manager.cppm` — 模块接口 `export module tinynext.download_manager;`。
-  下载管理器线程安全，每个任务独立 `std::thread` + 独立 `HttpClient`（该库非
-  线程安全），进度写入互斥保护区，UI 线程通过 `snapshot()` 每帧读取。
-- `src/download_manager.cpp` — 模块实现单元（`module tinynext.download_manager;`），
-  唯一 import 了 `mcpplibs.tinyhttps` 的 TU。
-
-模块化程度：`import std` + `import mcpplibs.tinyhttps` + `import tinynext.download_manager`
-全模块；**唯一的 `#include` 是 `<eui_neo.h>`**（EUI-NEO 是 header-only C++17 库，
-上游没有模块接口，`import eui;` 是 compat 计划里的独立工程）。
+- EUI-NEO 是 header-only C++17 库（无模块接口）。`src/app.cpp` 包含完整
+  `<eui_neo.h>`（提供 `dsl_app_impl.h` 里的 `app::update/render` 等机制实现）；
+  各 UI 模块只包含精简头 `src/ui/eui_ui.h`（去掉 `dsl_app_impl.h`）——该头内联
+  lambda 若同时出现在普通 TU 和模块全局片段会 mangled name 冲突。
 - `assets/` — EUI 默认中文字体（JingNanJunJunTi）+ 图标字体，运行时按
   `exeDir/assets/` 或 `assets/` 相对路径解析。
 

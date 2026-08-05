@@ -29,6 +29,7 @@ module;
 export module tinynext.cli;
 
 import std;
+import tinynext.ui.state;
 
 namespace cli {
 
@@ -168,6 +169,39 @@ export std::vector<std::string> drainInbox() {
     // 截断清空；两个实例并发追加时可能丢一条，但 CLI 场景可接受。
     std::ofstream(path, std::ios::trunc).close();
     return urls;
+}
+
+// ---- 应用级接线（依赖 tinynext.ui.state 的下载流程）----
+
+// 单实例引导：静态初始化（main 之前）尝试获取锁。第二实例转发 URL 并退出、
+// 不闪窗口；主实例正常继续，CLI URL 由 handleCliAndInbox 添加到下载列表。
+// 模块全局的动态初始化先于任何引用 TU 的静态初始化执行。
+struct CliBoot {
+    CliBoot() {
+        if (!acquireSingleInstance()) {
+            forwardToRunningInstance(commandLineUrls());
+            std::exit(0);
+        }
+    }
+};
+CliBoot g_cliBoot;
+
+// 每帧调用：主实例首次把自身 CLI URL 加进下载列表，之后周期性轮询 inbox
+// 取其他实例转发的 URL（~0.5s 一次文件读取）。
+export void handleCliAndInbox(float deltaSeconds) {
+    if (!g_cliHandled) {
+        g_cliHandled = true;
+        for (const auto& u : commandLineUrls()) {
+            startDownloadFromUrl(u, 0);
+        }
+    }
+    g_inboxTimer += deltaSeconds;
+    if (g_inboxTimer >= 0.5f) {
+        g_inboxTimer = 0.0f;
+        for (const auto& u : drainInbox()) {
+            startDownloadFromUrl(u, 0);
+        }
+    }
 }
 
 } // namespace cli
