@@ -4,3 +4,6 @@ downloads/
 compile_commands.json
 dist/
 *.zip
+tinynext.conf
+# bundled aria2-next engine binary (downloaded from releases; checksum in engines/)
+engines/*.exe

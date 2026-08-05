@@ -14,7 +14,7 @@ import mcpplibs.tinyhttps;
 
 namespace dl {
 
-struct DownloadManager::Task {
+struct TinyHttpsEngine::Task {
     std::uint64_t id;
     std::string url;
     std::filesystem::path destPath;
@@ -33,19 +33,19 @@ struct DownloadManager::Task {
     std::thread worker;
 };
 
-DownloadManager::DownloadManager() {
+TinyHttpsEngine::TinyHttpsEngine() {
     // Winsock must be started before any socket call; tinyhttps exposes
     // platform_init()/platform_cleanup() for exactly this but never invokes
     // them itself. The manager owns the network lifetime for the process.
     mcpplibs::tinyhttps::Socket::platform_init();
 }
 
-DownloadManager::~DownloadManager() {
+TinyHttpsEngine::~TinyHttpsEngine() {
     shutdown();
     mcpplibs::tinyhttps::Socket::platform_cleanup();
 }
 
-void DownloadManager::shutdown() {
+void TinyHttpsEngine::shutdown() {
     // Cancel everything, then join without holding the mutex (a worker's
     // progress callback needs it while we are waiting).
     std::vector<std::shared_ptr<Task>> tasks;
@@ -64,7 +64,7 @@ void DownloadManager::shutdown() {
     }
 }
 
-std::uint64_t DownloadManager::start(const std::string& url,
+std::uint64_t TinyHttpsEngine::start(const std::string& url,
                                      const std::filesystem::path& destPath) {
     auto task = std::make_shared<Task>();
     {
@@ -74,11 +74,11 @@ std::uint64_t DownloadManager::start(const std::string& url,
         task->destPath = makeUniqueDest(destPath);
         tasks_.push_back(task);
     }
-    task->worker = std::thread(&DownloadManager::runWorker, this, task);
+    task->worker = std::thread(&TinyHttpsEngine::runWorker, this, task);
     return task->id;
 }
 
-void DownloadManager::cancel(std::uint64_t id) {
+void TinyHttpsEngine::cancel(std::uint64_t id) {
     std::lock_guard lock(mutex_);
     for (const auto& task : tasks_) {
         if (task->id == id) {
@@ -94,7 +94,7 @@ void DownloadManager::cancel(std::uint64_t id) {
     }
 }
 
-void DownloadManager::remove(std::uint64_t id) {
+void TinyHttpsEngine::remove(std::uint64_t id) {
     // Cancel first (if running), then drop it from the list so the UI forgets
     // it immediately. Keep the shared_ptr so the worker's late state writes
     // stay safe, then join without holding the mutex.
@@ -116,7 +116,7 @@ void DownloadManager::remove(std::uint64_t id) {
     }
 }
 
-void DownloadManager::pause(std::uint64_t id) {
+void TinyHttpsEngine::pause(std::uint64_t id) {
     std::lock_guard lock(mutex_);
     for (const auto& task : tasks_) {
         if (task->id == id && (task->state == State::Queued ||
@@ -129,7 +129,7 @@ void DownloadManager::pause(std::uint64_t id) {
     }
 }
 
-void DownloadManager::resume(std::uint64_t id) {
+void TinyHttpsEngine::resume(std::uint64_t id) {
     std::lock_guard lock(mutex_);
     for (const auto& task : tasks_) {
         if (task->id == id && task->state == State::Paused) {
@@ -141,7 +141,7 @@ void DownloadManager::resume(std::uint64_t id) {
     }
 }
 
-std::vector<TaskView> DownloadManager::snapshot() const {
+std::vector<TaskView> TinyHttpsEngine::snapshot() const {
     std::lock_guard lock(mutex_);
     std::vector<TaskView> out;
     out.reserve(tasks_.size());
@@ -154,12 +154,13 @@ std::vector<TaskView> DownloadManager::snapshot() const {
                                task.totalBytes,
                                task.downloadedBytes,
                                task.error,
-                               task.speedBps});
+                               task.speedBps,
+                               1});
     }
     return out;
 }
 
-bool DownloadManager::busy() const {
+bool TinyHttpsEngine::busy() const {
     std::lock_guard lock(mutex_);
     for (const auto& task : tasks_) {
         if (task->state == State::Queued || task->state == State::Downloading ||
@@ -170,7 +171,7 @@ bool DownloadManager::busy() const {
     return false;
 }
 
-void DownloadManager::runWorker(std::shared_ptr<Task> task) {
+void TinyHttpsEngine::runWorker(std::shared_ptr<Task> task) {
     mcpplibs::tinyhttps::HttpClientConfig config;
     config.connectTimeoutMs = 15000;
     config.readTimeoutMs = 60000;
@@ -249,7 +250,7 @@ void DownloadManager::runWorker(std::shared_ptr<Task> task) {
     }
 }
 
-std::filesystem::path DownloadManager::makeUniqueDest(const std::filesystem::path& dest) const {
+std::filesystem::path TinyHttpsEngine::makeUniqueDest(const std::filesystem::path& dest) const {
     // A download is fast enough that its file can land on disk before the next
     // task's dedup runs, so checking the filesystem alone has a race: two
     // queued tasks could pick the same " (1)" name and then truncate each

@@ -5,11 +5,17 @@ version = 2
 namespace = "compat"
 version = "0.5.3"
 source  = "index+compat@0.5.3"
-hash    = "fnv1a:0fc96acf41b0ab90"
+hash    = "fnv1a:f2a2a2598c3d385b"
+
+[package."nlohmann.json"]
+namespace = "nlohmann"
+version = "3.12.0"
+source  = "index+nlohmann@3.12.0"
+hash    = "fnv1a:65af05f998b1b9d7"
 
 [package."tinyhttps"]
 namespace = "mcpplibs"
 version = "0.2.9"
 source  = "index+mcpplibs@0.2.9"
-hash    = "fnv1a:7dcd2b0fcf679705"
+hash    = "fnv1a:a01132893163f775"
 

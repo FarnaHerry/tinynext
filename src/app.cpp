@@ -7,14 +7,114 @@
 // application must define — app::dslAppConfig() and app::compose().
 
 #include <eui_neo.h>
+// shlobj.h for the native folder picker (BROWSEINFOW); eui_neo.h already
+// pulled in <windows.h>. <cstdio> for popen on the POSIX folder picker.
+#ifdef _WIN32
+#include <shlobj.h>
+#endif
+#include <cstdio>
 
 // eui_neo.h must stay above `import std;` (it pulls in the platform headers).
 // After the import, no standard header may be #included again in this TU —
 // the std module already declares them.
 import std;
 import tinynext.download_manager;
+import tinynext.aria2_engine;
+import tinynext.config;
 
 namespace {
+
+#ifdef _WIN32
+// High-DPI awareness must be declared before any window/GDI object exists.
+// glfw_app_main's main() does not set it (GLFW never does on Windows), so
+// without this the process is DPI-unaware and Windows bitmap-stretches the
+// window on scaled displays (blurry, wrong layout). A static initializer in
+// this TU runs at process load, i.e. before main()/glfwInit. SetProcessDpiAwarenessContext
+// is declared by windows.h (Win10 1607+); DPI_AWARENESS_CONTEXT is opaque.
+struct DpiAwarenessBoot {
+    DpiAwarenessBoot() {
+        // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = (DPI_AWARENESS_CONTEXT)-4.
+        SetProcessDpiAwarenessContext(reinterpret_cast<DPI_AWARENESS_CONTEXT>(
+            static_cast<std::intptr_t>(-4)));
+    }
+};
+DpiAwarenessBoot g_dpiBoot;
+#endif  // _WIN32 (DPI boot)
+
+// GLFW native access (Windows only, for the folder picker's parent HWND);
+// declared at namespace scope — linkage specifications are ill-formed inside
+// function bodies.
+#ifdef _WIN32
+extern "C" GLFWwindow* glfwGetCurrentContext();
+extern "C" HWND glfwGetWin32Window(GLFWwindow* window);
+#endif
+
+// Open the native folder picker; returns the chosen path or an empty path if
+// the user cancelled (caller keeps the manual input).
+//   Windows: SHBrowseForFolder (shell32/ole32 loaded dynamically).
+//   Linux:   zenity (kdialog fallback).
+//   macOS:   osascript 'choose folder'.
+std::filesystem::path pickDownloadFolder() {
+#ifdef _WIN32
+    using BrowseFn = LPITEMIDLIST(WINAPI*)(BROWSEINFOW*);
+    using GetPathFn = BOOL(WINAPI*)(LPCITEMIDLIST, LPWSTR);
+    using CoTaskMemFreeFn = void(WINAPI*)(void*);
+    static const BrowseFn browse = []() -> BrowseFn {
+        HMODULE m = LoadLibraryW(L"shell32.dll");
+        if (!m) return nullptr;
+        return reinterpret_cast<BrowseFn>(
+            reinterpret_cast<void*>(GetProcAddress(m, "SHBrowseForFolderW")));
+    }();
+    static const GetPathFn getPath = []() -> GetPathFn {
+        HMODULE m = LoadLibraryW(L"shell32.dll");
+        if (!m) return nullptr;
+        return reinterpret_cast<GetPathFn>(
+            reinterpret_cast<void*>(GetProcAddress(m, "SHGetPathFromIDListW")));
+    }();
+    static const CoTaskMemFreeFn coFree = []() -> CoTaskMemFreeFn {
+        HMODULE m = LoadLibraryW(L"ole32.dll");
+        if (!m) return nullptr;
+        return reinterpret_cast<CoTaskMemFreeFn>(
+            reinterpret_cast<void*>(GetProcAddress(m, "CoTaskMemFree")));
+    }();
+    if (!browse || !getPath || !coFree) return {};
+
+    HWND parent = nullptr;
+    if (GLFWwindow* ctx = glfwGetCurrentContext()) {
+        parent = glfwGetWin32Window(ctx);
+    }
+    BROWSEINFOW bi{};
+    bi.hwndOwner = parent;
+    bi.lpszTitle = L"选择下载目录";
+    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+    LPITEMIDLIST pidl = browse(&bi);
+    if (!pidl) return {};
+    std::filesystem::path result;
+    wchar_t buf[32768];
+    if (getPath(pidl, buf)) result = buf;
+    coFree(pidl);
+    return result;
+#else
+    // POSIX: shell out to a native picker (works best on a desktop session;
+    // headless/absent tools → empty path → manual input).
+    const char* cmd = nullptr;
+#ifdef __APPLE__
+    cmd = "osascript -e 'POSIX path of (choose folder)' 2>/dev/null";
+#else
+    cmd = "zenity --file-selection --directory 2>/dev/null "
+          "|| kdialog --getexistingdirectory 2>/dev/null";
+#endif
+    FILE* pipe = ::popen(cmd, "r");
+    if (!pipe) return {};
+    std::string out;
+    char buf[4096];
+    while (::fgets(buf, sizeof(buf), pipe)) out += buf;
+    ::pclose(pipe);
+    while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
+    if (out.empty()) return {};
+    return std::filesystem::path(out);
+#endif
+}
 
 // 所有布局尺寸都按“逻辑像素”设计。eui 的逻辑坐标空间 = 物理像素 / DPI 缩放：
 // 窗口为 920x620 物理像素时，逻辑空间是 460x310（本机 content scale = 2.0）。
@@ -102,13 +202,20 @@ const AppTheme kLightTheme = {
     }(),
 };
 
-// 初始主题默认夜间；`TINYNEXT_THEME=light` 可强制日间（供测试与偏好）。
-bool g_dark = [] {
-    if (const char* value = std::getenv("TINYNEXT_THEME")) {
-        return std::string_view(value) != "light";
-    }
-    return true;
-}();
+// 主题三态：跟随系统 / 深色 / 浅色，持久化在 tinynext.conf 的 theme_mode。
+// g_dark 是当前生效的深色布尔（System 模式时由 cfg::osDark() 实时跟随）。
+cfg::ThemeMode g_themeMode = cfg::themeMode();
+bool g_dark = cfg::effectiveDark();
+float g_systemThemeTimer = 0.0f;  // System 模式下的 OS 主题轮询计时
+// 设置页待提交的编辑值：主题/引擎/路径只在点「保存」时写入配置并生效，
+// 点「放弃」回滚到已保存值。主题在选择时即时预览（g_dark），但不落盘。
+cfg::ThemeMode g_pendingTheme = g_themeMode;
+cfg::EngineChoice g_pendingEngine = cfg::engine();
+// aria2 参数待提交值（设置页输入框的文本形式）。
+std::string g_aria2SplitText = std::to_string(cfg::aria2Config().split);
+std::string g_aria2ConnText = std::to_string(cfg::aria2Config().maxConnectionPerServer);
+std::string g_aria2MinSplitText = cfg::aria2Config().minSplitSize;
+std::string g_aria2LimitText = std::to_string(cfg::aria2Config().maxDownloadLimit);
 
 // -------------------------------------------------- list filter / pagination --
 
@@ -147,11 +254,25 @@ const AppTheme& currentTheme() {
     return g_dark ? kDarkTheme : kLightTheme;
 }
 
-dl::DownloadManager g_manager;
+// Download engine factory: the UI talks to the abstract interface only; the
+// concrete engine is chosen from config ("engine": tinyhttps | aria2next) at
+// startup. Changing it in settings takes effect after a restart (engines do
+// not share task state). tinynext.download_manager re-exports the interface.
+std::unique_ptr<dl::DownloadEngine> createEngine() {
+    if (cfg::engine() == cfg::EngineChoice::Aria2Next) {
+        return std::make_unique<dl::Aria2Engine>();
+    }
+    return std::make_unique<dl::TinyHttpsEngine>();
+}
+
+std::unique_ptr<dl::DownloadEngine> g_manager = createEngine();
 std::string g_urlText;
 std::string g_statusMessage;
 float g_statusTimer = 0.0f;
-bool g_addOpen = false;  // “添加下载”弹窗是否打开
+bool g_addOpen = false;   // “添加下载”弹窗是否打开
+bool g_aboutOpen = false; // “关于”弹窗是否打开
+// 设置页“下载路径”输入框内容；初始化为有效下载目录（持久化优先）。
+std::string g_downloadDirText = cfg::downloadDir().string();
 
 // ---------------------------------------------------------------- helpers --
 
@@ -216,6 +337,40 @@ void showStatus(std::string message) {
     g_statusTimer = 4.0f;
 }
 
+// 去首尾空白。
+std::string trimText(std::string s) {
+    const std::size_t f = s.find_first_not_of(" \t\r\n");
+    const std::size_t l = s.find_last_not_of(" \t\r\n");
+    return f == std::string::npos ? "" : s.substr(f, l - f + 1);
+}
+
+// 解析整数并夹取到 [lo, hi]；解析失败返回 fallback。
+int parseIntClamped(const std::string& s, int lo, int hi, int fallback) {
+    try {
+        return std::clamp(std::stoi(trimText(s)), lo, hi);
+    } catch (...) {
+        return fallback;
+    }
+}
+
+// 解析 "512K"/"1M"/"2G" 大小字符串为字节数；失败返回 0。
+std::int64_t parseSizeBytes(const std::string& input) {
+    const std::string s = trimText(input);
+    if (s.empty()) return 0;
+    std::int64_t mult = 1;
+    std::string num = s;
+    const char last = s.back();
+    if (last == 'K' || last == 'k') { mult = 1024; num.pop_back(); }
+    else if (last == 'M' || last == 'm') { mult = 1024 * 1024; num.pop_back(); }
+    else if (last == 'G' || last == 'g') { mult = 1024LL * 1024 * 1024; num.pop_back(); }
+    try {
+        const double v = std::stod(num);
+        return v <= 0 ? 0 : static_cast<std::int64_t>(v * static_cast<double>(mult));
+    } catch (...) {
+        return 0;
+    }
+}
+
 // 用系统默认程序打开文件 / 打开所在文件夹（后台执行，避免阻塞 UI 线程）。
 void openFile(const std::filesystem::path& path) {
 #ifdef _WIN32
@@ -230,6 +385,33 @@ void openContainingFolder(const std::filesystem::path& path) {
     std::system(("explorer /select,\"" + path.string() + "\"").c_str());
 #else
     std::system(("xdg-open \"" + path.parent_path().string() + "\" >/dev/null 2>&1 &").c_str());
+#endif
+}
+
+// 用系统默认浏览器打开 URL（跨平台，不阻塞 UI 线程）。
+void openUrl(const std::string& url) {
+#ifdef _WIN32
+    // ShellExecuteW 立即返回、不 spawn shell —— 之前用 std::system("start ...")
+    // 会在 UI 线程同步等待 cmd/浏览器启动，导致点击链接后卡几秒。
+    using ShellExecuteFn = HINSTANCE(WINAPI*)(HWND, LPCWSTR, LPCWSTR,
+                                              LPCWSTR, LPCWSTR, INT);
+    static const ShellExecuteFn shellExec = []() -> ShellExecuteFn {
+        HMODULE m = LoadLibraryW(L"shell32.dll");
+        if (!m) return nullptr;
+        return reinterpret_cast<ShellExecuteFn>(
+            reinterpret_cast<void*>(GetProcAddress(m, "ShellExecuteW")));
+    }();
+    if (shellExec) {
+        const std::wstring wurl(url.begin(), url.end());
+        shellExec(nullptr, L"open", wurl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        return;
+    }
+    std::system(("start \"\" \"" + url + "\"").c_str());
+#elif defined(__APPLE__)
+    // open 命令立即返回，shell 开销很小，可接受。
+    std::system(("open \"" + url + "\"").c_str());
+#else
+    std::system(("xdg-open \"" + url + "\" >/dev/null 2>&1 &").c_str());
 #endif
 }
 
@@ -256,8 +438,12 @@ bool addDownload() {
     }
 
     const std::filesystem::path dest =
-        std::filesystem::path("downloads") / fileNameFromUrl(url);
-    const std::uint64_t id = g_manager.start(url, dest);
+        cfg::downloadDir() / fileNameFromUrl(url);
+    const std::uint64_t id = g_manager->start(url, dest);
+    if (id == 0) {
+        showStatus("下载启动失败：引擎不可用");
+        return false;
+    }
     showStatus(std::format("已开始下载 #{} — {}", id, dest.filename().string()));
     return true;
 }
@@ -330,6 +516,9 @@ std::string cardInfoText(const dl::TaskView& task) {
     const std::string speed = formatSpeed(task.speedBps);
     if (!speed.empty()) {
         push(speed);
+    }
+    if (task.connections > 0) {
+        push(std::format("{} 连接", task.connections));
     }
     if (task.totalBytes > 0) {
         push(std::format("{} / {}", formatBytes(task.downloadedBytes),
@@ -468,18 +657,18 @@ void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth) {
             }
             if (showCancel) {
                 place("cancel", 0xF00D, false,  // fa-times
-                      [id = task.id] { g_manager.cancel(id); });
+                      [id = task.id] { g_manager->cancel(id); });
             }
             if (showResume) {
                 place("resume", 0xF04B, true,  // fa-play
-                      [id = task.id] { g_manager.resume(id); });
+                      [id = task.id] { g_manager->resume(id); });
             }
             if (showPause) {
                 place("pause", 0xF04C, true,  // fa-pause
-                      [id = task.id] { g_manager.pause(id); });
+                      [id = task.id] { g_manager->pause(id); });
             }
             place("delete", 0xF1F8, false,  // fa-trash
-                  [id = task.id] { g_manager.remove(id); });
+                  [id = task.id] { g_manager->remove(id); });
             place("copy", 0xF0C5, false,  // fa-copy
                   [url = task.url] {
                       core::window::setClipboardText(url);
@@ -739,7 +928,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
     const AppTheme& theme = currentTheme();
 
     // ---- 数据：筛选 + 分页切片（compose 每帧重跑，跟随下载线程实时刷新）----
-    const auto tasks = g_manager.snapshot();
+    const auto tasks = g_manager->snapshot();
     std::vector<dl::TaskView> filtered;
     filtered.reserve(tasks.size());
     for (const auto& task : tasks) {
@@ -770,6 +959,15 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
         .onFrame([](float deltaSeconds) {
             if (g_statusTimer > 0.0f) {
                 g_statusTimer -= deltaSeconds;
+            }
+            // Follow-system mode: re-read the OS theme every ~2s so a system
+            // dark/light switch is picked up live (registry read is cheap).
+            if (g_themeMode == cfg::ThemeMode::System) {
+                g_systemThemeTimer += deltaSeconds;
+                if (g_systemThemeTimer >= 2.0f) {
+                    g_systemThemeTimer = 0.0f;
+                    g_dark = cfg::osDark();
+                }
             }
         })
         .content([&] {
@@ -823,6 +1021,17 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                                  g_page_view == Page::Settings, theme,
                                  [] { g_page_view = Page::Settings; });
 
+                    // 关于：主题切换上方，信息图标（circle-info），打开软件信息弹窗。
+                    components::button(ui, "rail.info")
+                        .position((kRailWidth - 22.0f) * 0.5f, screen.height - 54.0f)
+                        .size(22.0f, 22.0f)
+                        .icon(0xF05A)  // circle-info
+                        .text("")
+                        .iconSize(11.0f)
+                        .theme(theme.components, false)
+                        .onClick([] { g_aboutOpen = true; })
+                        .build();
+
                     // 主题切换：底部，仅图标（月亮/太阳）。
                     components::button(ui, "theme.toggle")
                         .position((kRailWidth - 22.0f) * 0.5f, screen.height - 28.0f)
@@ -831,7 +1040,17 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                         .text("")
                         .iconSize(11.0f)
                         .theme(theme.components, false)
-                        .onClick([] { g_dark = !g_dark; })
+                        .onClick([] {
+                            // Quick flip switches to the opposite explicit mode
+                            // (overrides follow-system) and persists immediately;
+                            // the settings pending value follows so a later
+                            // 「保存」 doesn't clobber it.
+                            g_themeMode = g_dark ? cfg::ThemeMode::Light
+                                                 : cfg::ThemeMode::Dark;
+                            g_pendingTheme = g_themeMode;
+                            g_dark = !g_dark;
+                            cfg::setThemeMode(g_themeMode);
+                        })
                         .build();
                 })
                 .build();
@@ -1079,43 +1298,380 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 components::text(ui, "settings.subtitle")
                     .position(infoX, 42.0f)
                     .size(contentWidth - 16.0f, 16.0f)
-                    .text("目前暂无需要设置的选项，以下为应用基本信息。")
+                    .text("下载默认保存到你的系统下载目录，可在此修改。")
                     .fontSize(11.0f)
                     .lineHeight(16.0f)
                     .color(theme.hintText)
                     .build();
 
-                struct InfoRow { const char* label; const char* value; };
-                static const InfoRow kInfoRows[] = {
-                    {"应用名称", "TinyNext 下载器"},
-                    {"版本", "0.1.0"},
-                    {"界面框架", "EUI-NEO 0.5.3"},
-                    {"网络库", "tinyhttps 0.2.9"},
-                    {"构建工具", "mcpp（C++23）"},
-                    {"默认保存目录", "downloads/"},
-                };
+                // ---- 主题设置：跟随系统 / 深色 / 浅色 ----
                 const float labelW = 90.0f;
-                float rowY = 66.0f;
-                for (const auto& row : kInfoRows) {
-                    components::text(ui, std::format("settings.k{}.label", row.label))
-                        .position(infoX, rowY)
-                        .size(labelW, 22.0f)
-                        .text(row.label)
+                float nextY = 58.0f;
+                components::text(ui, "settings.theme.label")
+                    .position(infoX, nextY)
+                    .size(labelW, 22.0f)
+                    .text("主题")
+                    .fontSize(12.0f)
+                    .lineHeight(22.0f)
+                    .color(theme.metaText)
+                    .build();
+
+                struct ThemeChoice { const char* label; cfg::ThemeMode mode; };
+                static const ThemeChoice kThemeChoices[] = {
+                    {"跟随系统", cfg::ThemeMode::System},
+                    {"深色", cfg::ThemeMode::Dark},
+                    {"浅色", cfg::ThemeMode::Light},
+                };
+                float themeBtnX = infoX + labelW + 8.0f;
+                for (std::size_t i = 0; i < 3; ++i) {
+                    const bool active = g_pendingTheme == kThemeChoices[i].mode;
+                    components::button(ui, std::format("settings.theme.{}", i))
+                        .position(themeBtnX, nextY - 1.0f)
+                        .size(76.0f, 24.0f)
+                        .text(kThemeChoices[i].label)
                         .fontSize(12.0f)
-                        .lineHeight(22.0f)
-                        .color(theme.metaText)
+                        .theme(theme.components, active)
+                        .onClick([mode = kThemeChoices[i].mode] {
+                            // 选择即预览；「保存」才落盘。
+                            g_pendingTheme = mode;
+                            g_themeMode = mode;
+                            switch (mode) {
+                                case cfg::ThemeMode::Dark:   g_dark = true;  break;
+                                case cfg::ThemeMode::Light:  g_dark = false; break;
+                                case cfg::ThemeMode::System: g_dark = cfg::osDark(); break;
+                            }
+                        })
                         .build();
-                    components::text(ui, std::format("settings.k{}.value", row.label))
-                        .position(infoX + labelW, rowY)
-                        .size(contentWidth - 16.0f - labelW, 22.0f)
-                        .text(row.value)
-                        .fontSize(12.0f)
-                        .lineHeight(22.0f)
-                        .color(theme.nameText)
-                        .build();
-                    rowY += 26.0f;
+                    themeBtnX += 84.0f;
                 }
+                nextY += 32.0f;
+
+                // ---- 下载引擎：tinyhttps / aria2-next ----
+                components::text(ui, "settings.engine.label")
+                    .position(infoX, nextY)
+                    .size(labelW, 22.0f)
+                    .text("下载引擎")
+                    .fontSize(12.0f)
+                    .lineHeight(22.0f)
+                    .color(theme.metaText)
+                    .build();
+
+                struct EngineChoice { const char* label; cfg::EngineChoice choice; };
+                static const EngineChoice kEngineChoices[] = {
+                    {"tinyhttps", cfg::EngineChoice::TinyHttps},
+                    {"aria2-next", cfg::EngineChoice::Aria2Next},
+                };
+                float engineBtnX = infoX + labelW + 8.0f;
+                for (std::size_t i = 0; i < 2; ++i) {
+                    const bool active = g_pendingEngine == kEngineChoices[i].choice;
+                    components::button(ui, std::format("settings.engine.{}", i))
+                        .position(engineBtnX, nextY - 1.0f)
+                        .size(90.0f, 24.0f)
+                        .text(kEngineChoices[i].label)
+                        .fontSize(12.0f)
+                        .theme(theme.components, active)
+                        .onClick([choice = kEngineChoices[i].choice] {
+                            g_pendingEngine = choice;  // 「保存」时生效
+                        })
+                        .build();
+                    engineBtnX += 98.0f;
+                }
+                nextY += 32.0f;
+
+                // ---- 下载路径：输入框 + 系统文件夹选择器 ----
+                components::text(ui, "settings.path.label")
+                    .position(infoX, nextY)
+                    .size(labelW, 22.0f)
+                    .text("下载路径")
+                    .fontSize(12.0f)
+                    .lineHeight(22.0f)
+                    .color(theme.metaText)
+                    .build();
+
+                const float pathInputW = std::max(
+                    160.0f, contentWidth - 16.0f - labelW - 8.0f - 60.0f);
+                components::input(ui, "settings.path.input")
+                    .position(infoX + labelW, nextY - 2.0f)
+                    .size(pathInputW, 26.0f)
+                    .placeholder("下载保存目录")
+                    .value(g_downloadDirText)
+                    .theme(theme.components)
+                    .onChange([](const std::string& value) { g_downloadDirText = value; })
+                    .build();
+
+                components::button(ui, "settings.path.browse")
+                    .position(infoX + labelW + pathInputW + 8.0f, nextY - 2.0f)
+                    .size(60.0f, 26.0f)
+                    .text("浏览…")
+                    .fontSize(12.0f)
+                    .theme(theme.components, false)
+                    .onClick([] {
+                        // 只填待提交值，点「保存」才写入配置。
+                        const auto picked = pickDownloadFolder();
+                        if (!picked.empty()) {
+                            g_downloadDirText = picked.string();
+                        }
+                    })
+                    .build();
+                nextY += 34.0f;
+
+                // ---- aria2 参数（仅 aria2-next 引擎相关）----
+                if (g_pendingEngine == cfg::EngineChoice::Aria2Next) {
+                    nextY += 2.0f;
+                    components::text(ui, "settings.aria2.header")
+                        .position(infoX, nextY)
+                        .size(contentWidth - 16.0f, 18.0f)
+                        .text("aria2 参数")
+                        .fontSize(11.0f)
+                        .lineHeight(18.0f)
+                        .color(theme.statusText)
+                        .build();
+                    nextY += 22.0f;
+
+                    auto drawParamField =
+                        [&](const std::string& id, const char* label,
+                            float x, float y, float inputW, const std::string& value,
+                            const std::function<void(const std::string&)>& onChange) {
+                            components::text(ui, id + ".label")
+                                .position(x, y)
+                                .size(84.0f, 22.0f)
+                                .text(label)
+                                .fontSize(11.0f)
+                                .lineHeight(22.0f)
+                                .color(theme.metaText)
+                                .build();
+                            components::input(ui, id + ".input")
+                                .position(x + 86.0f, y - 2.0f)
+                                .size(inputW, 26.0f)
+                                .value(value)
+                                .theme(theme.components)
+                                .onChange(onChange)
+                                .build();
+                        };
+
+                    const float col2X = infoX + 86.0f + 90.0f + 20.0f;  // 第二列
+                    drawParamField("settings.aria2.split", "分片数",
+                                   infoX, nextY, 90.0f, g_aria2SplitText,
+                                   [](const std::string& v) { g_aria2SplitText = v; });
+                    drawParamField("settings.aria2.conn", "每服务器连接",
+                                   col2X, nextY, 90.0f, g_aria2ConnText,
+                                   [](const std::string& v) { g_aria2ConnText = v; });
+                    nextY += 28.0f;
+                    drawParamField("settings.aria2.minsplit", "最小分片",
+                                   infoX, nextY, 90.0f, g_aria2MinSplitText,
+                                   [](const std::string& v) { g_aria2MinSplitText = v; });
+                    drawParamField("settings.aria2.limit", "限速KB/s",
+                                   col2X, nextY, 90.0f, g_aria2LimitText,
+                                   [](const std::string& v) { g_aria2LimitText = v; });
+                    nextY += 32.0f;
+                }
+
+                // ---- 操作：恢复默认路径 / 保存全部设置 / 放弃修改 ----
+                const float actionRowY = nextY;
+                components::button(ui, "settings.path.reset")
+                    .position(infoX + labelW, actionRowY)
+                    .size(76.0f, 26.0f)
+                    .text("恢复默认")
+                    .fontSize(12.0f)
+                    .theme(theme.components, false)
+                    .onClick([] {
+                        g_downloadDirText = cfg::defaultDownloadDir().string();
+                    })
+                    .build();
+
+                components::button(ui, "settings.save")
+                    .position(infoX + labelW + 8.0f + 76.0f, actionRowY)
+                    .size(76.0f, 26.0f)
+                    .text("保存")
+                    .fontSize(12.0f)
+                    .theme(theme.components, true)
+                    .onClick([] {
+                        const std::string t = trimText(g_downloadDirText);
+                        if (t.empty()) {
+                            showStatus("下载路径不能为空");
+                            return;
+                        }
+                        g_downloadDirText = t;
+
+                        // 主题：套用待提交值并落盘。
+                        g_themeMode = g_pendingTheme;
+                        switch (g_pendingTheme) {
+                            case cfg::ThemeMode::Dark:   g_dark = true;  break;
+                            case cfg::ThemeMode::Light:  g_dark = false; break;
+                            case cfg::ThemeMode::System: g_dark = cfg::osDark(); break;
+                        }
+                        cfg::setThemeMode(g_pendingTheme);
+
+                        // 下载引擎：若变化且无进行中任务，立即切换生效。
+                        const bool engineChanged = cfg::engine() != g_pendingEngine;
+                        cfg::setEngine(g_pendingEngine);
+                        if (engineChanged) {
+                            if (g_manager->busy()) {
+                                showStatus("有进行中的任务，下载引擎将在重启后生效");
+                            } else {
+                                g_manager = createEngine();
+                            }
+                        }
+
+                        // aria2 参数（仅 aria2-next 引擎生效）：解析并夹取。
+                        const cfg::Aria2Config cur = cfg::aria2Config();
+                        cfg::Aria2Config a2;
+                        a2.split = parseIntClamped(g_aria2SplitText, 1, 64, cur.split);
+                        a2.maxConnectionPerServer =
+                            parseIntClamped(g_aria2ConnText, 1, 64, cur.maxConnectionPerServer);
+                        a2.minSplitSize = "1M";
+                        if (parseSizeBytes(g_aria2MinSplitText) >= 1048576) {
+                            a2.minSplitSize = trimText(g_aria2MinSplitText);
+                        }
+                        a2.maxDownloadLimit =
+                            static_cast<std::int64_t>(
+                                parseIntClamped(g_aria2LimitText, 0, 1000000, 0)) * 1024;
+                        cfg::setAria2Config(a2);
+                        g_aria2SplitText = std::to_string(a2.split);
+                        g_aria2ConnText = std::to_string(a2.maxConnectionPerServer);
+                        g_aria2MinSplitText = a2.minSplitSize;
+                        g_aria2LimitText =
+                            std::to_string(a2.maxDownloadLimit / 1024);
+
+                        // 下载路径。
+                        cfg::setDownloadDir(g_downloadDirText);
+                        showStatus("设置已保存");
+                    })
+                    .build();
+
+                components::button(ui, "settings.discard")
+                    .position(infoX + labelW + 8.0f + 76.0f + 8.0f + 76.0f, actionRowY)
+                    .size(76.0f, 26.0f)
+                    .text("放弃")
+                    .fontSize(12.0f)
+                    .theme(theme.components, false)
+                    .onClick([] {
+                        // 回滚到已保存值。
+                        g_pendingTheme = cfg::themeMode();
+                        g_pendingEngine = cfg::engine();
+                        g_downloadDirText = cfg::downloadDir().string();
+                        g_themeMode = g_pendingTheme;
+                        g_dark = cfg::effectiveDark();
+                        const cfg::Aria2Config a2 = cfg::aria2Config();
+                        g_aria2SplitText = std::to_string(a2.split);
+                        g_aria2ConnText = std::to_string(a2.maxConnectionPerServer);
+                        g_aria2MinSplitText = a2.minSplitSize;
+                        g_aria2LimitText = std::to_string(a2.maxDownloadLimit / 1024);
+                        showStatus("已放弃更改");
+                    })
+                    .build();
+
             }
+
+                // ---- 关于弹窗：软件信息（所有页面可见）----
+                if (g_aboutOpen) {
+                    const float dlgW = 300.0f;
+                    const float dlgH = 306.0f;
+                    const float dlgX = (screen.width - dlgW) * 0.5f;
+                    const float dlgY = (screen.height - dlgH) * 0.5f;
+
+                    ui.rect("about.backdrop")
+                        .position(0, 0)
+                        .size(screen.width, screen.height)
+                        .zIndex(100)
+                        .color({0.0f, 0.0f, 0.0f, 0.45f})
+                        .onClick([] { g_aboutOpen = false; })
+                        .build();
+
+                    ui.stack("about.dialog")
+                        .position(dlgX, dlgY)
+                        .size(dlgW, dlgH)
+                        .zIndex(101)
+                        .content([&] {
+                            ui.rect("about.dialog.bg")
+                                .position(0, 0)
+                                .size(dlgW, dlgH)
+                                .color(theme.components.surface)
+                                .radius(10.0f)
+                                .border(1.0f,
+                                        components::theme::withOpacity(
+                                            theme.components.border, 0.6f))
+                                .build();
+
+                            components::text(ui, "about.title")
+                                .position(16.0f, 14.0f)
+                                .size(dlgW - 32.0f, 22.0f)
+                                .text("关于 TinyNext")
+                                .fontSize(15.0f)
+                                .lineHeight(22.0f)
+                                .color(theme.titleText)
+                                .build();
+
+                            struct AboutRow { const char* label; const char* value; };
+                            static const AboutRow kAboutRows[] = {
+                                {"应用名称", "TinyNext 下载器"},
+                                {"版本", "0.1.0"},
+                                {"界面框架", "EUI-NEO 0.5.3"},
+                                {"下载引擎", "tinyhttps / aria2-next"},
+                                {"网络库", "tinyhttps 0.2.9"},
+                                {"构建工具", "mcpp（C++23）"},
+                            };
+                            float rowY = 40.0f;
+                            for (const auto& row : kAboutRows) {
+                                components::text(ui, std::format("about.k{}.label", row.label))
+                                    .position(16.0f, rowY)
+                                    .size(90.0f, 22.0f)
+                                    .text(row.label)
+                                    .fontSize(11.0f)
+                                    .lineHeight(22.0f)
+                                    .color(theme.metaText)
+                                    .build();
+                                components::text(ui, std::format("about.k{}.value", row.label))
+                                    .position(108.0f, rowY)
+                                    .size(dlgW - 124.0f, 22.0f)
+                                    .text(row.value)
+                                    .fontSize(11.0f)
+                                    .lineHeight(22.0f)
+                                    .color(theme.nameText)
+                                    .build();
+                                rowY += 22.0f;
+                            }
+
+                            // ---- 项目主页 ----
+                            components::text(ui, "about.links.header")
+                                .position(16.0f, rowY + 4.0f)
+                                .size(dlgW - 32.0f, 16.0f)
+                                .text("项目主页")
+                                .fontSize(11.0f)
+                                .lineHeight(16.0f)
+                                .color(theme.statusText)
+                                .build();
+
+                            struct LinkRow { const char* label; const char* url; };
+                            static const LinkRow kLinks[] = {
+                                {"TinyNext 下载器", "https://github.com/FarnaHerry/tinynext"},
+                                {"mcpp 构建工具", "https://github.com/mcpp-community/mcpp"},
+                                {"EUI-NEO 界面框架", "https://github.com/sudoevolve/EUI-NEO"},
+                            };
+                            float linkY = rowY + 22.0f;
+                            for (const auto& link : kLinks) {
+                                components::button(ui, std::format("about.link.{}", link.label))
+                                    .position(16.0f, linkY)
+                                    .size(180.0f, 24.0f)
+                                    .text(link.label)
+                                    .fontSize(11.0f)
+                                    .theme(theme.components, false)
+                                    .onClick([url = std::string(link.url)] { openUrl(url); })
+                                    .build();
+                                linkY += 26.0f;
+                            }
+
+                            components::button(ui, "about.close")
+                                .position((dlgW - 76.0f) * 0.5f, dlgH - 30.0f)
+                                .size(76.0f, 24.0f)
+                                .text("关闭")
+                                .fontSize(12.0f)
+                                .theme(theme.components, true)
+                                .onClick([] { g_aboutOpen = false; })
+                                .build();
+                        })
+                        .build();
+                }
         })
         .build();
 }

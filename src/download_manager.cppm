@@ -1,76 +1,58 @@
-// download_manager.cppm — module interface for the download engine.
+// download_manager.cppm — tinyhttps-backed download engine.
 //
-// The only place the tinyhttps module leaks in is the implementation unit
-// (download_manager.cpp); consumers of this module see plain C++ types only.
+// Implements the engine-agnostic dl::DownloadEngine interface (defined in
+// tinynext.download_engine). tinyhttps only ever leaks in the implementation
+// unit (download_manager.cpp); consumers see plain C++ types.
 export module tinynext.download_manager;
 
 import std;
 
+export import tinynext.download_engine;
+
 namespace dl {
 
-export enum class State {
-    Queued,
-    Downloading,
-    Paused,
-    Done,
-    Failed,
-    Cancelled,
-};
-
-// Immutable snapshot of one download task, safe to read from any thread.
-export struct TaskView {
-    std::uint64_t id;
-    std::string url;
-    std::filesystem::path destPath;
-    State state;
-    std::int64_t totalBytes;      // -1 = unknown (no Content-Length)
-    std::int64_t downloadedBytes;
-    std::string error;            // empty unless Failed
-    double speedBps;              // bytes/second, last measured
-};
-
-export class DownloadManager {
+export class TinyHttpsEngine : public DownloadEngine {
 public:
     // Initializes the platform networking layer (on Windows this is Winsock:
     // tinyhttps never calls WSAStartup itself, so without this every connect
     // fails with "Connection failed" — verified on the consuming side).
-    DownloadManager();
-    ~DownloadManager();
+    TinyHttpsEngine();
+    ~TinyHttpsEngine() override;
 
-    DownloadManager(const DownloadManager&) = delete;
-    DownloadManager& operator=(const DownloadManager&) = delete;
+    TinyHttpsEngine(const TinyHttpsEngine&) = delete;
+    TinyHttpsEngine& operator=(const TinyHttpsEngine&) = delete;
 
     // Enqueue a download. Each task gets its own worker thread and its own
     // HttpClient (the library is not thread-safe). Returns the task id.
-    std::uint64_t start(const std::string& url, const std::filesystem::path& destPath);
+    std::uint64_t start(const std::string& url, const std::filesystem::path& destPath) override;
 
     // Request cancellation of a task. The worker stops at the next block
     // boundary; the task ends up in the Cancelled state.
-    void cancel(std::uint64_t id);
+    void cancel(std::uint64_t id) override;
 
     // Permanently remove a task from the list. If its worker is still running
     // it is cancelled first and joined before this returns, so the task is
     // guaranteed gone from snapshot() afterwards. Does not touch the file on
     // disk.
-    void remove(std::uint64_t id);
+    void remove(std::uint64_t id) override;
 
     // Pause a queued/running task. The worker parks at the next block boundary
     // (the connection stays open); the task enters the Paused state. No-op
     // unless the task is Queued or Downloading.
-    void pause(std::uint64_t id);
+    void pause(std::uint64_t id) override;
 
     // Resume a paused task. The worker continues from where it parked and the
     // task returns to the Downloading state. No-op unless the task is Paused.
-    void resume(std::uint64_t id);
+    void resume(std::uint64_t id) override;
 
     // Copy of all tasks, newest first.
-    std::vector<TaskView> snapshot() const;
+    std::vector<TaskView> snapshot() const override;
 
     // True while any task is queued or running.
-    bool busy() const;
+    bool busy() const override;
 
     // Cancel everything and join all workers. Called by the destructor.
-    void shutdown();
+    void shutdown() override;
 
 private:
     struct Task;

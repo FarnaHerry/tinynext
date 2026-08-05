@@ -1,6 +1,8 @@
 # TinyNext 下载器
 
-一个用 C++23 编写的 GUI 下载器：**EUI-NEO** 前端 + **tinyhttps** 下载引擎，全部通过 mcpp 包管理。
+一个用 C++23 编写的**跨平台** GUI 下载器：**EUI-NEO** 前端 + 可切换下载引擎
+（**tinyhttps** 内置 / **aria2-next** 外部进程，支持分片多连接），支持
+Windows / Linux / macOS，全部通过 mcpp 包管理。
 
 ## 构建与运行
 
@@ -9,7 +11,7 @@ mcpp build          # 编译
 mcpp run            # 启动 GUI 窗口
 ```
 
-下载的文件保存在运行目录下的 `downloads/` 文件夹。
+下载的文件默认保存在你的系统下载目录（可在设置页修改保存路径）。
 
 ## 界面
 
@@ -38,12 +40,57 @@ mcpp run            # 启动 GUI 窗口
 - 若关闭程序时仍有暂停任务，会自动取消并立即回收（shutdown 不会挂起）。
 - tinyhttps 不支持 HTTP Range/分片，真正跨进程的断点续传需要扩展它（后续可做）。
 
+## 设置（⚙ 设置页）
+
+- **主题**：跟随系统 / 深色 / 浅色（跟随系统时 ~2s 轮询 OS 主题，自动切换）。
+- **下载引擎**：`tinyhttps`（内置，零依赖）/ `aria2-next`（外部进程，分片多连接）。
+  切换后点「保存」立即生效（有进行中任务时需重启）。
+- **下载路径**：默认系统下载目录（Windows `%USERPROFILE%\Downloads` / macOS
+  `$HOME/Downloads` / Linux `XDG_DOWNLOAD_DIR`），可「浏览」用系统选择器或手输。
+- **aria2 参数**（仅 aria2-next）：分片数、每服务器连接（默认 64，上限 64）、
+  最小分片（≥1M）、每任务限速（KB/s，0=不限）。新下载立即生效。
+- 所有设置点「保存」落盘到 `tinynext.conf`（JSON），「放弃」回滚；左侧栏底部 ⓘ
+  打开「关于」弹窗（含项目 GitHub 链接）。
+
+## 下载引擎
+
+UI 只面向抽象 `dl::DownloadEngine` 接口（`src/download_engine.cppm`），两个实现：
+
+| 引擎 | 特点 |
+|------|------|
+| `TinyHttpsEngine` | 内置 tinyhttps，单连接顺序下载，零外部依赖，暂停是线程内停车 |
+| `Aria2Engine` | spawn `engines/aria2-next` 守护进程，JSON-RPC 驱动，`-x 64 -s 64` 分片多连接 + 断点续传（`.aria2` 控制文件） |
+
+## 跨平台与 aria2-next 引擎二进制
+
+三平台都需把对应的 aria2-next 二进制放进 `engines/`（已 gitignore，`checksums.sha256` 保留）：
+
+| 平台 | release 资产（v2.5.5） | 放置为 |
+|------|------------------------|--------|
+| Windows x64 | `aria2-next-2.5.5-windows-x86_64.exe` | `engines/aria2-next.exe` |
+| Linux x64 | `aria2-next-2.5.5-linux-x86_64` | `engines/aria2-next` |
+| macOS (Apple Silicon) | `aria2-next-2.5.5-macos-arm64` | `engines/aria2-next` |
+| macOS (Intel) | `aria2-next-2.5.5-macos-x86_64` | `engines/aria2-next` |
+
+下载页：https://github.com/AnInsomniacy/aria2-next/releases
+
+平台验证步骤：
+1. 各平台 `mcpp build`。Windows 自动加 GUI 子系统标志；Linux 用 `run.sh` 启动
+   （规避 mcpp 私有 glibc 与系统 Mesa 的 GLIBC 版本冲突）；macOS 直接 `mcpp run`。
+2. 设置页切到 **aria2-next** → 保存 → 添加一个大文件（≥128MB 才能用满 64 连接）。
+3. 文件夹选择器依赖：Linux 需 `zenity`（无则回退 `kdialog`，都没有则手输路径）；
+   macOS 用 `osascript`；Windows 系统自带。
+4. 主题跟随系统：Windows 读注册表、macOS 读 `AppleInterfaceStyle`、Linux 读 gtk
+   `settings.ini`（均 best-effort）。
+
 ## 技术栈
 
 | 组件 | 包 | 版本 |
 |------|-----|------|
 | UI 框架 | `compat:eui-neo` | 0.5.3（feature: `app-main`） |
-| 下载引擎 | `mcpplibs:tinyhttps` | 0.2.9 |
+| 下载引擎（内置） | `mcpplibs:tinyhttps` | 0.2.9 |
+| 下载引擎（可选） | `aria2-next`（外部进程） | 2.5.5 |
+| 配置 JSON | `nlohmann:json` | 3.12.0 |
 
 ### 架构
 
