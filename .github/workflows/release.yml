@@ -82,7 +82,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.os == 'Windows' && '~/.xlings' || '~/.mcpp' }}
-          key: mcpp-${{ runner.os }}-${{ hashFiles('mcpp.lock') }}
+          key: mcpp-${{ runner.os }}-${{ hashFiles('mcpp.lock', 'mcpp.toml') }}
 
       - name: Build release
         run: mcpp build --release
