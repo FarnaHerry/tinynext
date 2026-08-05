@@ -14,6 +14,7 @@ import tinynext.config;
 import tinynext.aria2_engine;
 import tinynext.download_engine;
 import tinynext.ui.utils;
+import tinynext.ui.platform;
 
 // ---- download engine ----
 // 纯 aria2-next 引擎（TinyHttpsEngine 已移除）：UI 只面向抽象接口 dl::DownloadEngine。
@@ -199,4 +200,40 @@ export bool addDownload() {
             parseIntClamped(g_addLimitText, 0, 1000000, 0)) * 1024;
     }
     return startDownloadFromUrl(g_urlText, opts);
+}
+
+// 每帧检查任务状态迁移：仅当任务从进行中（排队/下载/暂停）迁移到 Done/Failed 时
+// 发系统通知（避免会话恢复等历史状态误触发）。由 app.cpp 的 onFrame 调用。
+export void checkDownloadNotifications() {
+    static std::unordered_map<std::uint64_t, dl::State> lastStates;
+    const auto tasks = g_manager->snapshot();
+    std::unordered_set<std::uint64_t> seen;
+    seen.reserve(tasks.size());
+    for (const auto& t : tasks) {
+        seen.insert(t.id);
+        const auto it = lastStates.find(t.id);
+        if (it != lastStates.end()) {
+            const dl::State prev = it->second;
+            const bool wasActive = prev == dl::State::Queued ||
+                                   prev == dl::State::Downloading ||
+                                   prev == dl::State::Paused;
+            if (wasActive && prev != t.state) {
+                const std::string name = fileNameFromUrl(t.url);
+                if (t.state == dl::State::Done) {
+                    notifyDownload("下载完成", name + " 已下载完成");
+                } else if (t.state == dl::State::Failed) {
+                    notifyDownload("下载失败", name + " 下载失败");
+                }
+            }
+        }
+        lastStates[t.id] = t.state;
+    }
+    // 清掉已从列表移除的任务记录，避免 map 无限增长。
+    for (auto it = lastStates.begin(); it != lastStates.end();) {
+        if (seen.count(it->first) == 0) {
+            it = lastStates.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }

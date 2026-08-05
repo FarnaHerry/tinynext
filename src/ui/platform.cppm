@@ -153,3 +153,72 @@ export void openUrl(const std::string& url) {
     std::system(("xdg-open \"" + url + "\" >/dev/null 2>&1 &").c_str());
 #endif
 }
+
+// 下载完成/失败的系统通知（best-effort：工具缺失时静默，不阻塞 UI 线程）。
+//   Windows: PowerShell NotifyIcon 气泡（独立进程 + CREATE_NO_WINDOW）。
+//   macOS:   osascript 'display notification'。
+//   Linux:   notify-send（无则 kdialog --passivepopup 兜底）。
+export void notifyDownload(const std::string& title, const std::string& message) {
+#ifdef _WIN32
+    // PowerShell 单引号字符串：内容里嵌 ' 双写；剔除 cmd 特殊字符，避免破坏
+    // -Command "..." 的引号解析（下载文件名的这类字符极少见）。
+    auto psArg = [](const std::string& s) {
+        std::string out;
+        for (char c : s) {
+            if (c == '\'') { out += "''"; continue; }
+            if (c == '"' || c == '%' || c == '&' || c == '|' || c == '^') {
+                out += ' ';
+                continue;
+            }
+            out += c;
+        }
+        return out;
+    };
+    const std::string script =
+        "Add-Type -AssemblyName System.Windows.Forms;"
+        "$n=New-Object System.Windows.Forms.NotifyIcon;"
+        "$n.Icon=[System.Drawing.SystemIcons]::Information;"
+        "$n.Visible=$true;"
+        "$n.ShowBalloonTip(3000,'" + psArg(title) + "','" + psArg(message) + "',"
+        "[System.Windows.Forms.ToolTipIcon]::Info);"
+        "Start-Sleep -Seconds 4;$n.Dispose()";
+    // 独立进程启动 PowerShell，主进程不等它（避免 UI 卡 4 秒）。
+    const std::wstring cmdline =
+        L"powershell.exe -NoProfile -WindowStyle Hidden -Command \"" +
+        std::wstring(script.begin(), script.end()) + L"\"";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    if (CreateProcessW(nullptr, const_cast<wchar_t*>(cmdline.c_str()), nullptr, nullptr,
+                       FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+#elif defined(__APPLE__)
+    // AppleScript 字符串：内容里的 " 和 \ 转义；& 后台化避免阻塞。
+    auto asEsc = [](const std::string& s) {
+        std::string out;
+        for (char c : s) {
+            if (c == '"' || c == '\\') out += '\\';
+            out += c;
+        }
+        return out;
+    };
+    std::system(("osascript -e 'display notification \"" + asEsc(message) +
+                 "\" with title \"" + asEsc(title) + "\"' >/dev/null 2>&1 &").c_str());
+#else
+    // POSIX shell 单引号引用（' 内嵌 ' 用 '\'' 转义），彻底避免 shell 注入。
+    auto shq = [](const std::string& s) {
+        std::string out = "'";
+        for (char c : s) {
+            if (c == '\'') out += "'\\''";
+            else out += c;
+        }
+        out += "'";
+        return out;
+    };
+    std::system(("notify-send -a TinyNext " + shq(title) + " " + shq(message) +
+                 " || kdialog --title " + shq(title) + " --passivepopup " + shq(message) +
+                 " 3 >/dev/null 2>&1 &").c_str());
+#endif
+}

@@ -70,6 +70,8 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
             }
             // 单实例 inbox 轮询 + CLI 启动参数（tinynext.cli）。
             cli::handleCliAndInbox(deltaSeconds);
+            // 下载完成/失败系统通知（状态迁移检测）。
+            checkDownloadNotifications();
         })
         .content([&] {
             ui.rect("theme.background")
