@@ -24,8 +24,10 @@ default = "llvm@22.1.8"
 # /entry:mainCRTStartup keeps calling main() — glfw_app_main.cpp defines
 # main(), and the GUI subsystem's default entry (WinMainCRTStartup) would
 # otherwise demand a WinMain that doesn't exist.
+# -lws2_32 links winsock for aria2_engine.cpp's LocalSocket (tinyhttps used to
+# pull ws2_32 in as its dependency; with it removed we link it explicitly).
 [target.'cfg(windows)'.build]
-ldflags = ["-Wl,-subsystem:windows", "-Wl,-entry:mainCRTStartup"]
+ldflags = ["-Wl,-subsystem:windows", "-Wl,-entry:mainCRTStartup", "-lws2_32"]
 
 # 注意：不能用 0.5.5 —— 它在本项目 C++23 构建下编译不过（image_source.cpp /
 # platform.cpp 用 u8string() 返回 char8_t 赋给 std::string 报错），需先给 eui-neo
