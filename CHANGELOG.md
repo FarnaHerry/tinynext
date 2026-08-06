@@ -61,6 +61,13 @@
   （独立线程 + message-only 窗口，不 spawn 命令行）；编码从逐字节扩宽 UTF-8（乱码）改为
   `MultiByteToWideChar(CP_UTF8)` 正确转码。macOS 通知消息改经 argv 传入 osascript。
 - 设置页：移除顶部副标题提示；标题下移、表单首行加顶部占位，避免被滚动区上缘裁掉。
+- **Linux 目录选择器取消不再二次弹出**：原 `zenity || kdialog` 把「用户取消」（zenity
+  退出码非 0）当成「无 zenity」触发 kdialog 回退；改先 `command -v zenity` 探测，只当
+  不存在时才回退 kdialog。
+- **Linux 跟随系统深色修正**：现代桌面（GNOME 42+ / KDE Plasma 6）不写
+  `gtk-application-prefer-dark-theme` 到 settings.ini，旧检测恒返回浅色。新增按序探测：
+  `gsettings color-scheme`（prefer-dark/light）→ KDE `kreadconfig6 ColorScheme` → 旧
+  settings.ini（并兼容 `=true` 写法与 `gtk-theme-name` 含 dark）。
 
 ### 底层能力（较早实现）
 - **单实例** + **CLI 传参下载**：重复启动把 URL 写入 `<temp>/tinynext.inbox` 由主实例轮询取走；`tinynext agent` 打印 AI 用法指南。

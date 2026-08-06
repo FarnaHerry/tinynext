@@ -185,8 +185,11 @@ export std::filesystem::path pickDownloadFolder() {
 #ifdef __APPLE__
     cmd = "osascript -e 'POSIX path of (choose folder)' 2>/dev/null";
 #else
-    cmd = "zenity --file-selection --directory 2>/dev/null "
-          "|| kdialog --getexistingdirectory 2>/dev/null";
+    // 只当 zenity 不存在时才回退 kdialog：zenity 存在时用户点「取消」退出码非 0，
+    // 用 `||` 会让 kdialog 再弹一次。先探测再选一个执行。
+    cmd = "if command -v zenity >/dev/null 2>&1; then "
+          "zenity --file-selection --directory 2>/dev/null; "
+          "else kdialog --getexistingdirectory 2>/dev/null; fi";
 #endif
     FILE* pipe = ::popen(cmd, "r");
     if (!pipe) return {};

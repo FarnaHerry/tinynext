@@ -13,6 +13,8 @@ module;
 #define NOMINMAX
 #endif
 #include <windows.h>
+#else
+#include <cstdio>  // popen/fgets/pclose（POSIX，osDark 探测系统深色）— before import std
 #endif
 
 export module tinynext.config;
@@ -203,16 +205,51 @@ export bool osDark() {
     }
     return false;  // light
 #else
-    // Linux best-effort: gtk dark preference from settings.ini.
+    // Linux best-effort（从最通用到最旧的顺序）。只在 ThemeMode::System 时 ~2s 调
+    // 一次，popen 探测进程的开销可接受。
+    auto shellOut = [](const char* c) -> std::string {
+        FILE* pipe = ::popen(c, "r");
+        if (!pipe) return {};
+        std::string out;
+        char buf[128];
+        while (::fgets(buf, sizeof(buf), pipe)) out += buf;
+        ::pclose(pipe);
+        return out;
+    };
+    // 1. GNOME 42+ / 多数现代桌面：gsettings color-scheme
+    //    （"prefer-dark" / "default" / "prefer-light"）。注意很多新系统不写
+    //    settings.ini，只有这个 key，所以必须先查。
+    const std::string gs = shellOut(
+        "gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null");
+    if (gs.find("prefer-dark") != std::string::npos) return true;
+    if (gs.find("prefer-light") != std::string::npos) return false;
+    // 2. gsettings 不可用（无 schema / 非 GNOME）时试 KDE Plasma 6：ColorScheme
+    //    值如 "BreezeDark" / "BreezeLight"。GNOME 上 gs="default" 表示未显式设置，
+    //    不需要再试 KDE。
+    if (gs.empty()) {
+        const std::string kde = shellOut(
+            "kreadconfig6 --file kdeglobals --group General --key ColorScheme 2>/dev/null");
+        if (kde.find("Dark") != std::string::npos) return true;
+        if (kde.find("Light") != std::string::npos) return false;
+    }
+    // 3. 旧 GTK：settings.ini 的 gtk-application-prefer-dark-theme=1，或
+    //    gtk-theme-name 含 "dark"（如 Adwaita-dark）。
     if (const char* home = std::getenv("HOME")) {
         for (const char* sub : {"/.config/gtk-3.0/settings.ini",
                                 "/.config/gtk-4.0/settings.ini"}) {
             std::ifstream in(std::filesystem::path(home) / sub);
             std::string line;
             while (in && std::getline(in, line)) {
+                // 有的环境写 =1，有的写 =true（都是 GTK 布尔值）。
                 if (line.find("gtk-application-prefer-dark-theme=1") !=
-                    std::string::npos) {
+                        std::string::npos ||
+                    line.find("gtk-application-prefer-dark-theme=true") !=
+                        std::string::npos) {
                     return true;
+                }
+                if (line.find("gtk-theme-name=") != std::string::npos &&
+                    line.find("dark") != std::string::npos) {
+                    return true;  // 如 Adwaita-dark
                 }
             }
         }
