@@ -68,6 +68,9 @@
   `gtk-application-prefer-dark-theme` 到 settings.ini，旧检测恒返回浅色。新增按序探测：
   `gsettings color-scheme`（prefer-dark/light）→ KDE `kreadconfig6 ColorScheme` → 旧
   settings.ini（并兼容 `=true` 写法与 `gtk-theme-name` 含 dark）。
+- **设置页「恢复默认」改为重置全部设置**：原先只重置下载路径（主题/aria2 参数不动），
+  现在一并回默认——主题回「跟随系统」并即时预览、下载路径回系统目录、aria2 参数回
+  各字段默认值（仍需点「保存」落盘，与放弃/保存语义一致）。
 
 ### 底层能力（较早实现）
 - **单实例** + **CLI 传参下载**：重复启动把 URL 写入 `<temp>/tinynext.inbox` 由主实例轮询取走；`tinynext agent` 打印 AI 用法指南。
