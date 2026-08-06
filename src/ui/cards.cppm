@@ -132,13 +132,17 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
         .width(cardWidth)
         .height(kCardHeight)
         .content([&] {
-            // 卡片底：圆角表面 + 细边框。
+            // 卡片底：圆角表面 + 细边框 + 柔和投影（岛屿卡片风：与内容大卡分层）。
             ui.rect(fid + ".bg")
                 .position(0, 0)
                 .size(cardWidth, kCardHeight)
                 .color(theme.components.surface)
                 .radius(S(8.0f))
                 .border(1.0f, components::theme::withOpacity(theme.components.border, 0.55f))
+                .shadow(S(8.0f), S(2.0f),
+                        theme.components.dark
+                            ? core::Color{0.0f, 0.0f, 0.0f, 0.18f}
+                            : core::Color{0.10f, 0.14f, 0.22f, 0.08f})
                 .build();
 
             // ---- 第 1 行：文件名 + 状态 ----

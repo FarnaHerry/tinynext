@@ -5,14 +5,16 @@
 // application must provide — app::dslAppConfig() and app::compose() — and
 // delegates drawing to the tinynext.ui.* modules:
 //
-//   tinynext.ui.utils    scale factor + formatting/parse helpers
-//   tinynext.ui.theme    dark/light AppTheme + currentTheme()
-//   tinynext.ui.state    shared globals + engine + add-download flow
-//   tinynext.ui.platform DPI boot + folder picker + open helpers
-//   tinynext.ui.widgets  list picker + sidebar/rail/card-action controls
-//   tinynext.ui.cards    the download task card
-//   tinynext.ui.pages    downloads / settings pages, about dialog, compose
-//   tinynext.cli         single-instance + CLI (boot + inbox polling)
+//   tinynext.ui.utils         scale factor + formatting/parse helpers
+//   tinynext.ui.theme         dark/light AppTheme + currentTheme()
+//   tinynext.ui.state         shared globals + engine + add-download flow
+//   tinynext.ui.platform      DPI boot + folder picker + open helpers
+//   tinynext.ui.widgets       list picker + sidebar/rail/card-action controls
+//   tinynext.ui.cards         the download task card
+//   tinynext.ui.downloads_page  downloads page + add-download dialog
+//   tinynext.ui.settings_page   settings page
+//   tinynext.ui.about_dialog    about dialog
+//   tinynext.cli              single-instance + CLI (boot + inbox polling)
 //
 // eui_neo.h is included HERE (full, with eui/detail/dsl_app_impl.h): this TU
 // provides the app::* machinery (app::update / render / initialize / ...) that
@@ -28,7 +30,9 @@ import tinynext.cli;
 import tinynext.ui.utils;
 import tinynext.ui.theme;
 import tinynext.ui.widgets;
-import tinynext.ui.pages;
+import tinynext.ui.downloads_page;
+import tinynext.ui.settings_page;
+import tinynext.ui.about_dialog;
 import tinynext.ui.state;
 
 namespace app {
@@ -81,19 +85,14 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 .build();
 
             // ===================== 主侧边栏（图标栏） =====================
-            // 只放图标：左上角应用 logo（项目名称，特例做成圆角图标块），
-            // 下面是各应用页图标，底部是主题切换按钮 —— 无文字，保持简洁。
-            // 下载状态筛选不在主侧边栏，而是下载页内容区左侧自己的子侧边栏。
+            // 总侧边栏不套卡片、也不铺底色：整列直接透明，logo/导航/底部按钮浮在
+            // 页面背景上，让主题背景透出来更突出。左侧这列 kRailWidth 宽作为锚点，
+            // 悬浮的"岛"卡片（状态子侧边栏 / 内容卡）从它右侧起排。
             ui.stack("sidebar")
                 .position(0, 0)
                 .size(kRailWidth, screen.height)
                 .zIndex(5)
                 .content([&] {
-                    ui.rect("sidebar.bg")
-                        .position(0, 0)
-                        .size(kRailWidth, screen.height)
-                        .color(theme.components.surface)
-                        .build();
 
                     // 应用 logo：项目名缩写 "TN"（TinyNext），主色圆角块特例。
                     ui.rect("sidebar.logo.bg")

@@ -33,6 +33,29 @@
 - 默认窗口分辨率加大（`S(1120)×S(720)`，实际约 1568×1008）。
 - GitHub Actions（`release.yml`）：Release 说明同步纯 aria2；加防御性索引刷新步骤；本地验证 `mcpp build --release` 通过。
 
+### UI：岛屿卡片布局
+- **岛屿卡片风**：内容区 / 状态筛选侧边栏做成浮在背景上的圆角"岛"卡（`widgets::drawPanel`，
+  中间色调 + 细边框 + 柔和投影），顶部贴齐窗口顶、仅右缘留距。
+- **总侧边栏透明**：左侧图标栏恢复整高透明列（不铺底色、不套卡片），让主题背景透出。
+- **翻页简化**：◀ 页码 ▶ [数字/页]，整组收进一张小卡片；中间只显示当前页码，分页大小
+  为无边框的"数字/页"文本（带小箭头）。
+- **页面模块拆分**：`pages.cppm` 拆成 `downloads_page` / `settings_page` / `about_dialog`
+  三个独立模块，避免单文件管理过多页面。
+
+### UI：添加下载弹窗
+- **URL 多行**：输入框改为 multiline，长链接完整可见；打开时自动读剪贴板，若是
+  http(s)/magnet 链接则预填。
+- **分片数 / 优先级分行**：左标签"连接数"改"分片数"（实际是每任务 split）；优先级独立
+  一行（默认/高/中/低）。
+- 优先级下拉修复：标签 id 与 picker 内部撞名导致不显示、展开后点击外部不收起（加全屏
+  拦截层）、排序下拉弹层宽度不足文字溢出（加 `popupWidth`）。
+
+### 修复
+- **Windows 打开文件/文件夹非阻塞**：`openFile` / `openContainingFolder` 从
+  `std::system("explorer …")` 改 `ShellExecuteW`（共享 `shellExecFn()`），不再等 Explorer
+  窗口关闭卡 UI 线程。
+- 设置页：移除顶部副标题提示；标题下移、表单首行加顶部占位，避免被滚动区上缘裁掉。
+
 ### 底层能力（较早实现）
 - **单实例** + **CLI 传参下载**：重复启动把 URL 写入 `<temp>/tinynext.inbox` 由主实例轮询取走；`tinynext agent` 打印 AI 用法指南。
 - EUI-NEO 前端全模块化（`tinynext.ui.*`），`kUI=1.4` 统一缩放。

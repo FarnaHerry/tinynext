@@ -40,8 +40,11 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
 | `tinynext.aria2_engine` | `src/aria2_engine.cppm/.cpp` | aria2-next 引擎（JSON-RPC + 本地 socket） |
 | `tinynext.config` | `src/config.cppm` | 配置 / 主题 / 下载目录 |
 | `tinynext.cli` | `src/cli.cppm` | 单实例 + 命令行 URL + inbox |
-| `tinynext.ui.*` | `src/ui/*.cppm` | utils / theme / state / platform / widgets / cards / pages |
+| `tinynext.ui.*` | `src/ui/*.cppm` | utils / theme / state / platform / widgets / cards / downloads_page / settings_page / about_dialog |
 | `src/app.cpp` | 普通 TU | 入口：`app::dslAppConfig()` + `app::compose()` |
+
+页面已按职责拆成独立模块（`pages.cppm` 已删除）：
+`downloads_page`（下载页 + 添加下载弹窗）、`settings_page`（设置页）、`about_dialog`（关于弹窗）。
 
 ## 关键约定（改代码前必读）
 
@@ -67,4 +70,16 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
 9. **缩放**：所有尺寸经 `utils::S(x)`（`kUI=1.4`）放大，不要写裸像素。
 10. **aria2 引擎**：进程名 Windows 是 `aria2-next.exe`，unix 是 `aria2-next`；
     字段名用 `connections`（不是 `numConnections`）。
-11. **提交**：本地 commit 后由用户自行 push（不要代 push）。
+11. **岛屿卡片布局**：内容区/子侧边栏是浮在背景上的圆角"岛"卡（`widgets::drawPanel`，
+    底色 `mixColor(background, surface, 0.5)` 中间色调，圆角 `kIslandRadius`）；左侧
+    总侧边栏是整高透明列（不铺底色）。布局常量在 `utils.cppm`：`kIslandGap`（岛间距）、
+    `kPanelPad`（大卡内边距）、`kRightMargin`（右缘）。
+12. **eui 元素 id 全局唯一**：一个 frame 里同名 id 会互相覆盖（如 `components::text`
+    标签与 `buildListPicker(id="x")` 内部的 `x.label` 撞名 → 文字不显示）。新增控件
+    的 id 要避开已有前缀。
+13. **非阻塞打开**：`openFile` / `openContainingFolder` / `openUrl` 在 Windows 走
+    `ShellExecuteW`（`platform.cppm::shellExecFn()`），立即返回；**不要用
+    `std::system("explorer …")`**——explorer 会让调用方同步等窗口关闭，卡 UI 线程。
+14. **下拉点击外部收起**：`buildListPicker` 展开时铺一层全屏透明拦截层（吞掉点击），
+    点击弹层外即收起。弹层宽度可用 `popupWidth` 参数（图标字段的弹层要加宽容纳文字）。
+15. **提交**：本地 commit 后由用户自行 push（不要代 push）。

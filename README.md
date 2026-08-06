@@ -25,12 +25,23 @@ mcpp run            # 启动 GUI 窗口
 
 ## 界面
 
-- **左侧图标栏**：纯图标导航（下载列表 / 设置），底部按钮切换深浅主题；左上角是应用 logo（项目名缩写）。
-- **下载状态子侧边栏**：下载页内容区左侧的 **所有 / 下载中 / 已完成** 筛选。
+**岛屿卡片风布局**：内容区 / 状态筛选侧边栏是浮在背景上的圆角"岛"卡（`drawPanel` 统一
+样式：中间色调 + 细边框 + 柔和投影），顶部贴齐窗口顶（为后续自定义顶部栏预留），左缘是
+**透明的总侧边栏**（纯图标、不铺底色），只有卡片右缘留少量间距。
+
+- **左侧图标栏（总侧边栏）**：整高透明列，纯图标导航（下载列表 / 设置），底部按钮切换
+  深浅主题；左上角是应用 logo（项目名缩写）。
+- **下载状态子侧边栏**：下载页内容区左侧的 **所有 / 下载中 / 已完成** 筛选（独立岛卡）。
+- **内容大卡**：下载页的工具栏 + 任务列表 + 翻页收在同一张卡片里。
 - **任务卡片**：每个任务一张卡片，纵向排布文件名+状态标签、进度条、信息（百分比/速度/大小）+ 操作图标。
-- **添加下载弹窗**：右上角 **➕** 打开，输入链接后「提交」/「取消」；弹窗里可设置**该任务的连接数**（打开时自动填配置的默认值）、**优先级**、**重命名**、**限速**、**下载目录**（打开时自动填配置的默认目录）。
-- **顶部工具栏**（下载页右上）：**全部暂停 / 全部继续**、**排序**（最新在前 / 状态优先 / 文件名 / 大小 / 进度）、**➕ 添加下载**。
-- **翻页行**：◀ 第 X / Y 页 ▶，右侧选择每页条数（5/10/20/50/100）。
+- **添加下载弹窗**：右上角 **➕** 打开；**URL 输入框多行**（长链接完整可见），打开时
+  **自动读取剪贴板**（若是 http(s)/magnet 链接则预填）。弹窗里可设置**分片数**（每任务，
+  默认填配置值）、**优先级**（默认/高/中/低，独立一行）、**重命名**、**限速**、
+  **下载目录**。
+- **顶部工具栏**（内容大卡右上）：**全部暂停 / 全部继续**、**排序**（最新在前 / 状态优先 /
+  文件名 / 大小 / 进度）、**➕ 添加下载**。
+- **翻页**：◀ 页码 ▶ [数字/页]，整组收在一张小卡片里；中间只显示当前页码，分页大小是
+  无边框的"数字/页"文本（带小箭头，可点开选择 5/10/20/50/100）。
 
 ## UI 缩放
 
@@ -170,10 +181,14 @@ Linux 包内含 `run.sh` 启动脚本（走系统 loader + 系统 Mesa，原理�
 | `tinynext.ui.theme` | `src/ui/theme.cppm` | `AppTheme` 深浅主题 + `currentTheme()` |
 | `tinynext.ui.state` | `src/ui/state.cppm` | 共享可变全局 + 引擎 + 添加下载流程 |
 | `tinynext.ui.platform` | `src/ui/platform.cppm` | DPI boot + 文件夹选择 + 打开文件/URL |
-| `tinynext.ui.widgets` | `src/ui/widgets.cppm` | 列表选择器 + 侧栏/rail/卡片操作控件 |
+| `tinynext.ui.widgets` | `src/ui/widgets.cppm` | 列表选择器 + 侧栏/rail/卡片操作控件 + `drawPanel` 岛卡 |
 | `tinynext.ui.cards` | `src/ui/cards.cppm` | 下载任务卡片 |
-| `tinynext.ui.pages` | `src/ui/pages.cppm` | 下载页 / 设置页 / 关于弹窗 |
+| `tinynext.ui.downloads_page` | `src/ui/downloads_page.cppm` | 下载页 + 添加下载弹窗 |
+| `tinynext.ui.settings_page` | `src/ui/settings_page.cppm` | 设置页 |
+| `tinynext.ui.about_dialog` | `src/ui/about_dialog.cppm` | 关于弹窗 |
 | `src/app.cpp` | —（普通 TU） | 薄入口：`app::dslAppConfig()` + `app::compose()` 分发 |
+
+页面按职责拆成独立模块（原 `tinynext.ui.pages` / `pages.cppm` 已删除）。
 
 - `src/app.cpp` — EUI 应用入口。启用 `app-main` 特性后，`main()` 由包内的
   GLFW 入口（`core/app/glfw_app_main.cpp`）提供，本项目只定义
@@ -210,6 +225,17 @@ Linux 包内含 `run.sh` 启动脚本（走系统 loader + 系统 Mesa，原理�
    窗口屏幕像素，渲染按 `dpiScale` 换算保证高 DPI 清晰）和组件 button 的
    `.scale()`（只作用于单个按钮）。整体放大 UI 需要自己引入系数（见上文
    「UI 缩放」），并同时放大窗口尺寸，否则高 DPI 屏上控件仍然偏小。
+8. **eui 元素 id 必须全局唯一**：同一个 frame 里同名 id 会互相覆盖——例如
+   `components::text` 的标签 id 若写成 `add.priority.label`，会和
+   `buildListPicker(id="add.priority")` 内部的字段标签 id 撞名，导致文字不显示。
+   新增控件 id 要避开已有前缀。
+9. **Windows 打开文件/文件夹不要用 `std::system("explorer …")`**：`explorer` 从命令行
+   启动会让调用进程同步等 Explorer 窗口关闭，UI 线程卡死。统一走
+   `ShellExecuteW`（`platform.cppm::shellExecFn()`，立即返回）。
+10. **xlings 解压含 symlink 的 tarball 会在 Windows 上中途失败**：下载包里若有符号链接
+    （如 IXWebSocket 的 `Dockerfile` → `docker/Dockerfile.alpine`），解压器解到该条目即
+    中止，源码目录缺失导致 mcpp 报 `install_packages failed`。下载/校验本身没问题；
+    需要手工用系统 tar 完整解压（跳过 symlink）补装 verdir，见仓库根 CLAUDE.md。
 
 ## 许可
 

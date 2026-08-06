@@ -20,7 +20,7 @@
 ## 新增常量（`src/ui/utils.cppm`）
 
 ```cpp
-export constexpr float kCardGap = S(8.0f);       // 岛间距
+export constexpr float kIslandGap = S(4.0f);     // 岛间距（实现后调小；注意：kCardGap 已用于任务卡间距）
 export constexpr float kPanelPad = S(10.0f);     // 大卡内边距
 export constexpr float kIslandRadius = S(10.0f); // 外层岛圆角
 ```
@@ -46,10 +46,10 @@ export constexpr float kIslandRadius = S(10.0f); // 外层岛圆角
 
 ### 下载页（`src/ui/pages.cppm::drawDownloadsPage`）
 
-三岛横排，间距 `kCardGap`：
+三岛横排，间距 `kIslandGap`：
 
-- `railX = kMargin`，`subX = railX + kRailWidth + kCardGap`，
-  `contentX = subX + kSubSidebarWidth + kCardGap`；
+- `railX = kMargin`，`subX = railX + kRailWidth + kIslandGap`，
+  `contentX = subX + kSubSidebarWidth + kIslandGap`；
 - `islandTop = kMargin`，`islandH = screen.height - 2·kMargin`。
 - 状态子侧边栏卡：`(subX, islandTop)` size `(kSubSidebarWidth, islandH)`，底改
   `drawPanel`（圆角/色调统一），内容不变。
@@ -64,7 +64,7 @@ export constexpr float kIslandRadius = S(10.0f); // 外层岛圆角
 
 ### 设置页（`src/ui/pages.cppm::drawSettingsPage`）
 
-- `contentX = railX + kRailWidth + kCardGap`（无子侧边栏）；
+- `contentX = railX + kRailWidth + kIslandGap`（无子侧边栏）；
 - 一张 `drawPanel` 大卡 `(contentX, kMargin)` size `(contentW, screen.height-2·kMargin)`；
 - pad = `kPanelPad`：标题 `islandTop+pad`、副标题、滚动表单（X 收进 pad），
   底部操作行钉在 `islandTop + islandH - pad - kActionH`。
@@ -83,3 +83,19 @@ export constexpr float kIslandRadius = S(10.0f); // 外层岛圆角
 - 验证：`mcpp build` 编译通过；视觉效果由用户 `mcpp run` 自行确认。
 - 风险点：内容坐标偏移要仔细核对（工具栏/列表/翻页/空态/状态消息），防止贴边或
   越界；底部锚点（图标栏）随卡高变化。
+
+## 实现后调整（用户反馈，2026-08-06）
+
+1. **图标栏不套卡片**：恢复为整高 `surface` 竖条，从 `(0,0)` 占满窗口左缘（底部"关于/
+   主题"锚回 `screen.height - S(54)/S(28)`）。浮岛卡片过多会把左侧显得零散，改为图标栏
+   作左侧锚点、浮岛从它右侧起排。
+2. **卡片与图标栏之间无间隙**：状态子侧边栏 / 设置卡起点 `kRailWidth`（贴住图标栏右缘），
+   不再 `kRailWidth + kMargin`；子侧边栏与内容卡之间留 `kIslandGap`（已从 S(8) 逐次调小到 S(2)）。
+3. **卡片与窗口顶部无间隙**：`islandTop = 0`、`islandH = screen.height`（顶部贴齐、整高），
+   为后续无边框自定义顶部栏做准备——届时只需把 `islandTop` 改成标题栏高度。
+4. **右边缘收窄并改名**：原 `kMargin`（S(12)）现在只用作卡片右边缘到窗口边的间隙，改名
+   `kRightMargin` 并收窄到 S(6)，避免再被当作通用 margin 误用。
+5. **总侧边栏透明**：左侧图标栏去掉整高 `surface` 底色矩形，logo/导航/底部按钮直接
+   浮在页面背景上（主题背景透出更突出）；下载页的状态筛选子侧边栏**保留**独立岛卡片。
+6. 追加修复：`openFile` / `openContainingFolder` 的 Windows 分支从 `std::system("explorer …")`
+   改为 `ShellExecuteW`（共享 `shellExecFn()`），避免 UI 线程等 Explorer 退出而卡渲染。

@@ -2,6 +2,12 @@
 // URL, and the high-DPI-awareness boot. No EUI dependency (platform APIs + std).
 module;
 
+// GLFW native access（所有平台都需要：剪贴板读写；folder picker 的父 HWND 仅 Windows）。
+// GLFWwindow 在此保持不透明（不需要 eui_neo.h）；linkage spec 放在全局片段。
+struct GLFWwindow;
+extern "C" GLFWwindow* glfwGetCurrentContext();
+extern "C" const char* glfwGetClipboardString(GLFWwindow* window);
+
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -11,10 +17,6 @@ module;
 #endif
 #include <windows.h>
 #include <shlobj.h>  // BROWSEINFOW for the folder picker
-// GLFW native access for the folder picker's parent HWND. GLFWwindow is opaque
-// here (no eui_neo.h needed); linkage spec at namespace scope (global fragment).
-struct GLFWwindow;
-extern "C" GLFWwindow* glfwGetCurrentContext();
 extern "C" HWND glfwGetWin32Window(GLFWwindow* window);
 #endif
 #include <cstdio>  // popen/fgets/pclose (POSIX) — before import std
@@ -39,6 +41,21 @@ struct DpiAwarenessBoot {
     }
 };
 DpiAwarenessBoot g_dpiBoot;
+
+// 加载 shell32.dll 的 ShellExecuteW（只加载一次）。openUrl / openFile /
+// openContainingFolder 都经它异步拉起浏览器/程序/资源管理器：ShellExecuteW
+// 立即返回、不等待目标进程退出。之前用 std::system("explorer …") 会在 UI
+// 线程同步等 Explorer 窗口关闭，导致点击后渲染卡住。
+using ShellExecuteFn = HINSTANCE(WINAPI*)(HWND, LPCWSTR, LPCWSTR, LPCWSTR, LPCWSTR, INT);
+const ShellExecuteFn& shellExecFn() {
+    static const ShellExecuteFn fn = []() -> ShellExecuteFn {
+        HMODULE m = LoadLibraryW(L"shell32.dll");
+        if (!m) return nullptr;
+        return reinterpret_cast<ShellExecuteFn>(
+            reinterpret_cast<void*>(GetProcAddress(m, "ShellExecuteW")));
+    }();
+    return fn;
+}
 #endif
 
 } // namespace
@@ -110,10 +127,16 @@ export std::filesystem::path pickDownloadFolder() {
 #endif
 }
 
-// 用系统默认程序打开文件 / 打开所在文件夹（后台执行，避免阻塞 UI 线程）。
+// 用系统默认程序打开文件 / 打开所在文件夹（立即返回，不阻塞 UI 线程）。
 export void openFile(const std::filesystem::path& path) {
 #ifdef _WIN32
-    std::system(("explorer \"" + path.string() + "\"").c_str());
+    if (const ShellExecuteFn shellExec = shellExecFn(); shellExec) {
+        const std::wstring wpath = path.wstring();
+        shellExec(nullptr, L"open", wpath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        return;
+    }
+    // 兜底：start 启动后 cmd 立即退出，std::system 不会长等。
+    std::system(("start \"\" \"" + path.string() + "\"").c_str());
 #else
     std::system(("xdg-open \"" + path.string() + "\" >/dev/null 2>&1 &").c_str());
 #endif
@@ -121,7 +144,13 @@ export void openFile(const std::filesystem::path& path) {
 
 export void openContainingFolder(const std::filesystem::path& path) {
 #ifdef _WIN32
-    std::system(("explorer /select,\"" + path.string() + "\"").c_str());
+    if (const ShellExecuteFn shellExec = shellExecFn(); shellExec) {
+        // explorer.exe 直接带 /select 参数；ShellExecuteW 拉起即返回，不等窗口关闭。
+        const std::wstring params = L"/select,\"" + path.wstring() + L"\"";
+        shellExec(nullptr, L"open", L"explorer.exe", params.c_str(), nullptr, SW_SHOWNORMAL);
+        return;
+    }
+    std::system(("start \"\" explorer /select,\"" + path.string() + "\"").c_str());
 #else
     std::system(("xdg-open \"" + path.parent_path().string() + "\" >/dev/null 2>&1 &").c_str());
 #endif
@@ -132,15 +161,7 @@ export void openUrl(const std::string& url) {
 #ifdef _WIN32
     // ShellExecuteW 立即返回、不 spawn shell —— 之前用 std::system("start ...")
     // 会在 UI 线程同步等待 cmd/浏览器启动，导致点击链接后卡几秒。
-    using ShellExecuteFn = HINSTANCE(WINAPI*)(HWND, LPCWSTR, LPCWSTR,
-                                              LPCWSTR, LPCWSTR, INT);
-    static const ShellExecuteFn shellExec = []() -> ShellExecuteFn {
-        HMODULE m = LoadLibraryW(L"shell32.dll");
-        if (!m) return nullptr;
-        return reinterpret_cast<ShellExecuteFn>(
-            reinterpret_cast<void*>(GetProcAddress(m, "ShellExecuteW")));
-    }();
-    if (shellExec) {
+    if (const ShellExecuteFn shellExec = shellExecFn(); shellExec) {
         const std::wstring wurl(url.begin(), url.end());
         shellExec(nullptr, L"open", wurl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         return;
@@ -152,6 +173,18 @@ export void openUrl(const std::string& url) {
 #else
     std::system(("xdg-open \"" + url + "\" >/dev/null 2>&1 &").c_str());
 #endif
+}
+
+// 读取系统剪贴板文本（best-effort：无 GLFW 上下文时返回空）。用于打开添加下载
+// 弹窗时自动检测剪贴板里的下载链接。GLFW 的字符串在下次剪贴板操作前有效，
+// 立即拷贝进 std::string。
+export std::string getClipboardText() {
+    if (GLFWwindow* ctx = glfwGetCurrentContext()) {
+        if (const char* text = glfwGetClipboardString(ctx)) {
+            return std::string(text);
+        }
+    }
+    return {};
 }
 
 // 下载完成/失败的系统通知（best-effort：工具缺失时静默，不阻塞 UI 线程）。

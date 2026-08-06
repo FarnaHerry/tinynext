@@ -10,20 +10,45 @@ import std;
 import tinynext.ui.theme;
 import tinynext.ui.utils;
 
+// ----------------------------------------------------- 外层"岛"卡片背景 --
+// 岛屿卡片风：内容区 / 侧边栏都做成浮在页面背景上的圆角"岛"。底色取
+// background↔surface 的中间色调，保证与纯 surface 的内层卡片（如任务卡）分层，
+// 不会糊在一起；统一圆角 + 细边框 + 柔和投影。
+export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
+                      float w, float h, const AppTheme& theme) {
+    const auto& tokens = theme.components;
+    const core::Color panelColor =
+        core::mixColor(tokens.background, tokens.surface, 0.5f);
+    const core::Color shadowColor =
+        tokens.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.25f}
+                    : core::Color{0.10f, 0.14f, 0.22f, 0.12f};
+    ui.rect(id)
+        .position(x, y)
+        .size(w, h)
+        .color(panelColor)
+        .radius(kIslandRadius)
+        .border(1.0f, components::theme::withOpacity(tokens.border, 0.6f))
+        .shadow(S(14.0f), S(3.0f), shadowColor)
+        .build();
+}
+
 // ----------------------------------------------------- 通用上下拉列表选择器 --
 //
 // eui 的 components::dropdown 只会向下弹出，放在底部翻页行时弹层会超出窗口下缘。
 // 这里做一个通用选择器：字段（文字显示当前项，或纯图标 fa-sort）+ 向上/向下
 // 展开的 popup，样式取自当前主题 tokens。分页大小（向上）与排序（向下）共用。
-export enum class PickerField { Text, Icon };
+export enum class PickerField { Text, Icon, Plain };
 
 export void buildListPicker(eui::Ui& ui, const std::string& id, float width, float height,
                             const AppTheme& theme, bool& open, const char* const* labels,
                             int count, int selected, bool opensUp, PickerField field,
-                            const std::function<void(int)>& onPick) {
+                            const std::function<void(int)>& onPick,
+                            float popupWidth = 0.0f) {
     const float itemHeight = S(22.0f);
     const float popupPad = S(3.0f);
     const float popupGap = S(3.0f);
+    // 弹层宽度：默认与字段同宽；字段是纯图标（如排序）时可传入更宽的值容纳文字。
+    const float popWidth = popupWidth > 0.0f ? popupWidth : width;
     const float popupHeight = itemHeight * count + popupPad * 2.0f;
     const auto& tokens = theme.components;
     const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
@@ -41,6 +66,36 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
                     .iconSize(S(13.0f))
                     .theme(theme.components, false)
                     .onClick([&open] { open = !open; })
+                    .build();
+            } else if (field == PickerField::Plain) {
+                // 纯文本字段：无边框条，当前项文字居中 + 右侧小箭头（无尾 chevron），
+                // 点击弹出列表。默认透明，仅 hover/按下给出轻微底色反馈。
+                ui.rect(id + ".hit")
+                    .size(width, height)
+                    .states({0.0f, 0.0f, 0.0f, 0.0f}, tokens.surfaceHover,
+                            tokens.surfaceActive)
+                    .radius(S(6.0f))
+                    .onClick([&open] { open = !open; })
+                    .build();
+                ui.text(id + ".label")
+                    .x(-S(4.0f))  // 给右侧箭头让位，视觉上仍居中
+                    .size(width - S(10.0f), height)
+                    .text(labels[selected])
+                    .fontSize(S(11.0f))
+                    .lineHeight(height)
+                    .color(tokens.text)
+                    .horizontalAlign(core::HorizontalAlign::Center)
+                    .verticalAlign(core::VerticalAlign::Center)
+                    .build();
+                ui.text(id + ".chevron")
+                    .x(width - S(15.0f))
+                    .size(S(12.0f), height)
+                    .icon(open ? 0xF077 : 0xF078)  // chevron-up / chevron-down
+                    .fontSize(S(9.0f))
+                    .lineHeight(height)
+                    .color(tokens.primary)
+                    .horizontalAlign(core::HorizontalAlign::Center)
+                    .verticalAlign(core::VerticalAlign::Center)
                     .build();
             } else {
                 ui.rect(id + ".field")
@@ -76,16 +131,29 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
 
             // ---- 弹出列表（向上或向下展开）----
             if (open) {
+                // 全屏透明拦截层（在弹层之下）：点击弹层外任意处收起，并吞掉点击
+                // 防止穿透到弹窗遮罩/其他控件。尺寸放大覆盖任意窗口。
+                ui.rect(id + ".dismiss")
+                    .position(-S(2000.0f), -S(2000.0f))
+                    .size(S(5000.0f), S(5000.0f))
+                    .states({0.0f, 0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f, 0.0f},
+                            {0.0f, 0.0f, 0.0f, 0.0f})
+                    .onClick([&open] { open = false; })
+                    .onScroll([](const core::ScrollEvent&) {})
+                    .build();
+
                 ui.stack(id + ".popup")
+                    .x(popWidth > width ? width - popWidth : 0.0f)  // 比字段宽时向右边缘对齐
                     .y(opensUp ? -(popupHeight + popupGap) : height + popupGap)
-                    .size(width, popupHeight)
+                    .size(popWidth, popupHeight)
                     .zIndex(31)
                     .content([&] {
                         ui.rect(id + ".popup.bg")
-                            .size(width, popupHeight)
+                            .size(popWidth, popupHeight)
                             .color(tokens.dark ? tokens.surfaceActive : tokens.surface)
                             .radius(S(8.0f))
                             .border(1.0f, components::theme::withOpacity(tokens.border, 0.78f))
+                            .onClick([] {})  // 吞掉弹层内部空白点击，避免穿透到遮罩关闭弹窗
                             .build();
 
                         for (int i = 0; i < count; ++i) {
@@ -93,7 +161,7 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
                             ui.rect(id + ".item." + std::to_string(i))
                                 .x(popupPad)
                                 .y(itemY)
-                                .size(width - popupPad * 2.0f, itemHeight)
+                                .size(popWidth - popupPad * 2.0f, itemHeight)
                                 .states({0.0f, 0.0f, 0.0f, 0.0f}, tokens.surfaceHover,
                                         tokens.surfaceActive)
                                 .radius(S(5.0f))
@@ -106,7 +174,7 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
                             ui.text(id + ".item.label." + std::to_string(i))
                                 .x(popupPad + S(8.0f))
                                 .y(itemY)
-                                .size(width - popupPad * 2.0f - S(16.0f), itemHeight)
+                                .size(popWidth - popupPad * 2.0f - S(16.0f), itemHeight)
                                 .text(labels[i])
                                 .fontSize(S(11.0f))
                                 .lineHeight(itemHeight)
