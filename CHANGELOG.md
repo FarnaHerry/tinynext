@@ -14,7 +14,8 @@
 - **磁力 / BT**：接受 `magnet:` 链接（仅 aria2 引擎）；magnet 任务不设 `out`，元数据落地后 `files[0].path` 显示真实路径。
 - **断点续传**：失败 / 已取消卡片 ↻「重新下载」→ aria2 从同目录 `.aria2` 控制文件续传（`retry()` 复用原 URL+路径）。
 - **重启会话恢复**：daemon 启动带 `--save-session` / `--input-file`，退出前 `aria2.saveSession`；重启后 `recoverSession()` 用 `tellActive/tellWaiting/tellStopped` 重建任务表。
-- **下载完成 / 失败系统通知**：任务从进行中迁移到 Done/Failed 时弹系统通知（Windows PowerShell 气泡 / macOS osascript / Linux notify-send→kdialog，best-effort）。
+- **下载完成 / 失败系统通知**：任务从进行中迁移到 Done/Failed 时弹系统通知（Windows 原生
+  托盘气泡 `Shell_NotifyIconW` / macOS osascript / Linux notify-send→kdialog，best-effort）。
 - **WebSocket 事件推送**（新增 `compat:websocket` / IXWebSocket 依赖）：aria2 的
   `onDownloadStart/Complete/Error/Pause/Stop/BtDownloadComplete` 推送**即时**驱动状态
   迁移与完成/失败通知；进度轮询从 ~5Hz 降到 **1s**（对齐 Motrix/AriaNg）。引擎加
@@ -54,6 +55,10 @@
 - **Windows 打开文件/文件夹非阻塞**：`openFile` / `openContainingFolder` 从
   `std::system("explorer …")` 改 `ShellExecuteW`（共享 `shellExecFn()`），不再等 Explorer
   窗口关闭卡 UI 线程。
+- **通知改原生实现 + 修编码**：Windows 完成/失败通知从 `powershell -WindowStyle Hidden`
+  （会被杀软/主防当作静默执行命令行而拦截）改成原生 `Shell_NotifyIconW` 托盘气泡
+  （独立线程 + message-only 窗口，不 spawn 命令行）；编码从逐字节扩宽 UTF-8（乱码）改为
+  `MultiByteToWideChar(CP_UTF8)` 正确转码。macOS 通知消息改经 argv 传入 osascript。
 - 设置页：移除顶部副标题提示；标题下移、表单首行加顶部占位，避免被滚动区上缘裁掉。
 
 ### 底层能力（较早实现）

@@ -17,6 +17,7 @@ extern "C" const char* glfwGetClipboardString(GLFWwindow* window);
 #endif
 #include <windows.h>
 #include <shlobj.h>  // BROWSEINFOW for the folder picker
+#include <shellapi.h>  // Shell_NotifyIconW / NIM_* / NIF_*（原生通知）
 extern "C" HWND glfwGetWin32Window(GLFWwindow* window);
 #endif
 #include <cstdio>  // popen/fgets/pclose (POSIX) — before import std
@@ -55,6 +56,77 @@ const ShellExecuteFn& shellExecFn() {
             reinterpret_cast<void*>(GetProcAddress(m, "ShellExecuteW")));
     }();
     return fn;
+}
+
+// UTF-8 → UTF-16。Windows 通知需要宽字符，逐字节扩宽（旧写法）会把中文变成乱码，
+// 必须用 MultiByteToWideChar(CP_UTF8) 正确转码。
+std::wstring utf8ToWide(const std::string& utf8) {
+    if (utf8.empty()) return {};
+    const int n = MultiByteToWideChar(CP_UTF8, 0, utf8.data(),
+                                      static_cast<int>(utf8.size()), nullptr, 0);
+    std::wstring out(static_cast<std::size_t>(n), L'\0');
+    if (n > 0) {
+        MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()),
+                            out.data(), n);
+    }
+    return out;
+}
+
+struct NotifyPayload {
+    std::wstring title;
+    std::wstring message;
+};
+
+// 独立线程跑一个 message-only 窗口 + Shell_NotifyIconW 气泡（约 4.5s 后自动移除）。
+// 纯 Win32，不 spawn 任何命令行进程——之前用 `powershell -WindowStyle Hidden` 会被
+// 杀软/主防当作恶意静默执行而拦截。
+DWORD WINAPI notifyThreadProc(LPVOID param) {
+    std::unique_ptr<NotifyPayload> payload(static_cast<NotifyPayload*>(param));
+    const wchar_t* kClass = L"TinyNext.Notify";
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = kClass;
+    // 并发通知时类可能已注册（ERROR_CLASS_ALREADY_EXISTS）——此时仍可创建窗口，
+    // 但只有真正注册成功的那一程才负责 UnregisterClassW。
+    const bool registered = RegisterClassW(&wc) != 0 ||
+                            GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
+
+    HWND hwnd = CreateWindowExW(0, kClass, L"", 0, 0, 0, 0, 0, HWND_MESSAGE,
+                                nullptr, wc.hInstance, nullptr);
+    if (!hwnd) {
+        if (registered) UnregisterClassW(kClass, wc.hInstance);
+        return 1;
+    }
+
+    NOTIFYICONDATAW nid{};
+    nid.cbSize = sizeof(nid);
+    nid.hWnd = hwnd;
+    nid.uID = 1;
+    nid.uFlags = NIF_ICON | NIF_INFO;
+    nid.hIcon = LoadIconW(nullptr, reinterpret_cast<LPCWSTR>(IDI_INFORMATION));
+    nid.dwInfoFlags = NIIF_INFO;
+    nid.uTimeout = 4000;
+    wcsncpy_s(nid.szInfoTitle, ARRAYSIZE(nid.szInfoTitle), payload->title.c_str(), _TRUNCATE);
+    wcsncpy_s(nid.szInfo, ARRAYSIZE(nid.szInfo), payload->message.c_str(), _TRUNCATE);
+    Shell_NotifyIconW(NIM_ADD, &nid);
+
+    // 系统会自动收掉气泡；到时移除托盘图标。
+    SetTimer(hwnd, 1, 4500, nullptr);
+    MSG msg;
+    while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        if (msg.message == WM_TIMER && msg.wParam == 1) {
+            Shell_NotifyIconW(NIM_DELETE, &nid);
+            PostQuitMessage(0);
+            continue;
+        }
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+    KillTimer(hwnd, 1);
+    DestroyWindow(hwnd);
+    if (registered) UnregisterClassW(kClass, wc.hInstance);
+    return 0;
 }
 #endif
 
@@ -188,57 +260,37 @@ export std::string getClipboardText() {
 }
 
 // 下载完成/失败的系统通知（best-effort：工具缺失时静默，不阻塞 UI 线程）。
-//   Windows: PowerShell NotifyIcon 气泡（独立进程 + CREATE_NO_WINDOW）。
-//   macOS:   osascript 'display notification'。
+//   Windows: 原生 Shell_NotifyIconW 托盘气泡（独立线程 + message-only 窗口，
+//            不 spawn 命令行，杀软不拦；UTF-8 → UTF-16 正确转码不乱码）。
+//   macOS:   osascript 'display notification'（消息经 argv 传入，规避 AppleScript
+//            源码编码/转义问题）。
 //   Linux:   notify-send（无则 kdialog --passivepopup 兜底）。
 export void notifyDownload(const std::string& title, const std::string& message) {
 #ifdef _WIN32
-    // PowerShell 单引号字符串：内容里嵌 ' 双写；剔除 cmd 特殊字符，避免破坏
-    // -Command "..." 的引号解析（下载文件名的这类字符极少见）。
-    auto psArg = [](const std::string& s) {
-        std::string out;
-        for (char c : s) {
-            if (c == '\'') { out += "''"; continue; }
-            if (c == '"' || c == '%' || c == '&' || c == '|' || c == '^') {
-                out += ' ';
-                continue;
-            }
-            out += c;
-        }
-        return out;
-    };
-    const std::string script =
-        "Add-Type -AssemblyName System.Windows.Forms;"
-        "$n=New-Object System.Windows.Forms.NotifyIcon;"
-        "$n.Icon=[System.Drawing.SystemIcons]::Information;"
-        "$n.Visible=$true;"
-        "$n.ShowBalloonTip(3000,'" + psArg(title) + "','" + psArg(message) + "',"
-        "[System.Windows.Forms.ToolTipIcon]::Info);"
-        "Start-Sleep -Seconds 4;$n.Dispose()";
-    // 独立进程启动 PowerShell，主进程不等它（避免 UI 卡 4 秒）。
-    const std::wstring cmdline =
-        L"powershell.exe -NoProfile -WindowStyle Hidden -Command \"" +
-        std::wstring(script.begin(), script.end()) + L"\"";
-    STARTUPINFOW si{};
-    si.cb = sizeof(si);
-    PROCESS_INFORMATION pi{};
-    if (CreateProcessW(nullptr, const_cast<wchar_t*>(cmdline.c_str()), nullptr, nullptr,
-                       FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
+    // 独立线程跑气泡，UI 线程不等待。
+    auto* payload = new NotifyPayload{utf8ToWide(title), utf8ToWide(message)};
+    HANDLE hThread = CreateThread(nullptr, 0, notifyThreadProc, payload, 0, nullptr);
+    if (!hThread) {
+        delete payload;
+        return;
     }
+    CloseHandle(hThread);
 #elif defined(__APPLE__)
-    // AppleScript 字符串：内容里的 " 和 \ 转义；& 后台化避免阻塞。
-    auto asEsc = [](const std::string& s) {
-        std::string out;
+    // 消息/标题经 argv 传给 osascript（POSIX 单引号引用），避免把中文嵌进
+    // AppleScript 源码导致编码/转义问题；& 后台化避免阻塞。
+    auto shq = [](const std::string& s) {
+        std::string out = "'";
         for (char c : s) {
-            if (c == '"' || c == '\\') out += '\\';
-            out += c;
+            if (c == '\'') out += "'\\''";
+            else out += c;
         }
+        out += "'";
         return out;
     };
-    std::system(("osascript -e 'display notification \"" + asEsc(message) +
-                 "\" with title \"" + asEsc(title) + "\"' >/dev/null 2>&1 &").c_str());
+    std::system(("osascript -e 'on run argv' "
+                 "-e 'display notification (item 1 of argv) with title (item 2 of argv)' "
+                 "-e 'end run' " + shq(message) + " " + shq(title) +
+                 " >/dev/null 2>&1 &").c_str());
 #else
     // POSIX shell 单引号引用（' 内嵌 ' 用 '\'' 转义），彻底避免 shell 注入。
     auto shq = [](const std::string& s) {
