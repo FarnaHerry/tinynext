@@ -82,9 +82,9 @@ tellActive/tellWaiting/tellStopped 重建任务表。
 2. **UI 模块加 include 用 `"eui_ui.h"`**，不要用完整 `<eui_neo.h>`。
 3. **缩放**：所有尺寸经 `utils::S(x)`（`kUI=1.4`）放大，不写裸像素；窗口尺寸也要一起
    放大（EUI 逻辑像素 = 窗口屏幕像素）。
-4. **每任务选项**：`dl::StartOptions{connections, priority, outputName, dirOverride,
-   limitBps}` 全部生效；优先级选择器索引 → 数值的映射集中在
-   `state::priorityValueFromPicker`（一处常量，方向待随包二进制验证）。
+4. **每任务选项**：`dl::StartOptions{connections, outputName, dirOverride, limitBps}`
+   全部生效。注意 aria2-next **没有下载级 `priority` 选项**（实测 + `--help=#all`
+   确认），优先级功能已移除，别再加回去。
 5. **磁力**：magnet 任务不设 `out`，真实路径由 `refreshStates` 从 `files[0].path` 更新；
    重命名 / 下载目录解析逻辑都在 `startDownloadFromUrl`。
 6. **重新下载**：Failed/Cancelled 卡片 ↻ 调 `engine->retry(id)`，aria2 复用原 URL+路径

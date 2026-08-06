@@ -56,9 +56,9 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
    冲突。给 UI 模块加 include 时用 `"eui_ui.h"`。
 4. **共享状态**：所有可变 UI 全局在 `tinynext.ui.state` 模块（导出，直接读写）。
    引擎对象是 `state::g_manager`（`unique_ptr<dl::DownloadEngine>`）。
-5. **每任务选项**：`dl::StartOptions{connections, priority, outputName, dirOverride, limitBps}`，
-   `Aria2Engine` 全部生效（priority/limit 需 >0）。优先级选择器索引 → 数值的映射在
-   `state::priorityValueFromPicker`（一处常量，方向待随包二进制验证）。
+5. **每任务选项**：`dl::StartOptions{connections, outputName, dirOverride, limitBps}`，
+   `Aria2Engine` 全部生效（connections/limitBps 需 >0）。注意 aria2-next **没有下载级
+   priority 选项**（实测 + `--help=#all` 确认），优先级功能已移除，别再加回去。
 6. **磁力**：`startDownloadFromUrl` 接受 `magnet:` 前缀；magnet 任务不设 `out`，
    destPath 由 `refreshStates` 从 `files[0].path` 更新为真实路径。
 7. **重新下载**：Failed/Cancelled 卡片 ↻ 调 `engine->retry(id)`（`DownloadEngine` 接口）。

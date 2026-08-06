@@ -72,13 +72,6 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                              });
             break;
         }
-        case SortMode::Priority:
-            // 高优先在前（数值大 = 高优先，与 priorityValueFromPicker 一致）。
-            std::stable_sort(filtered.begin(), filtered.end(),
-                             [](const auto& a, const auto& b) {
-                                 return a.priority > b.priority;
-                             });
-            break;
     }
     const int totalCount = static_cast<int>(filtered.size());
     const int totalPages = std::max(1, (totalCount + g_pageSize - 1) / g_pageSize);
@@ -150,14 +143,14 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
 
     // 排序选择器：图标按钮 + 向下弹出列表（buildListPicker 不设位置，
     // 由外层 stack 绝对定位）。
-    static const char* kSortLabels[] = {"最新在前", "状态优先", "文件名", "大小", "进度", "优先级"};
+    static const char* kSortLabels[] = {"最新在前", "状态优先", "文件名", "大小", "进度"};
     ui.stack("tool.sort.wrap")
         .position(sortX, toolY)
         .size(toolW, toolW)
         .zIndex(30)
         .content([&] {
             buildListPicker(ui, "tool.sort", toolW, toolW, theme,
-                            g_sortOpen, kSortLabels, 6,
+                            g_sortOpen, kSortLabels, 5,
                             static_cast<int>(g_sort), false,
                             PickerField::Icon,
                             [](int i) {
@@ -199,8 +192,6 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                                   }
                               }
                               g_addConnectionsText = std::to_string(cfg::aria2Config().split);
-                              g_addPriority = 0;
-                              g_addPriorityOpen = false;
                               g_addRenameText.clear();
                               g_addLimitText.clear();
                               g_addDirText = cfg::downloadDir().string();
@@ -336,7 +327,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     // ---- 添加下载弹窗（模态）：链接 + 每任务高级选项 ----
     if (g_addOpen) {
         const float dlgW = S(320.0f);
-        const float dlgH = S(316.0f);
+        const float dlgH = S(280.0f);
         const float dlgX = (screen.width - dlgW) * 0.5f;
         const float dlgY = (screen.height - dlgH) * 0.5f;
         const float labelX = S(16.0f);
@@ -344,11 +335,10 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         const float inputX = S(74.0f);
         const float urlH = S(48.0f);      // URL 多行输入高度（长链接可见）
         const float splitY = S(96.0f);    // 分片数（独立一行）
-        const float priorityY = S(132.0f); // 优先级（独立一行，普通字段）
-        const float row3Y = S(168.0f);    // 重命名
-        const float row4Y = S(204.0f);    // 限速
-        const float row5Y = S(240.0f);    // 下载目录
-        const float btnY = S(278.0f);
+        const float row3Y = S(132.0f);    // 重命名
+        const float row4Y = S(168.0f);    // 限速
+        const float row5Y = S(204.0f);    // 下载目录
+        const float btnY = S(242.0f);
 
         // 半透明遮罩，点击空白处关闭。zIndex 高于侧边栏/翻页，
         // 保证整个窗口都被盖住。
@@ -413,32 +403,6 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .theme(theme.components)
                     .onChange([](const std::string& value) { g_addConnectionsText = value; })
                     .onEnter([] { if (addDownload()) g_addOpen = false; })
-                    .build();
-
-                // ---- 优先级：默认/高/中/低（独立一行，仅 aria2 生效）----
-                // 注意 id 不能用 "add.priority.label"——buildListPicker(id="add.priority")
-                // 内部字段标签正好也是该 id，会互相覆盖。
-                components::text(ui, "add.priority.title")
-                    .position(labelX, priorityY - S(2.0f))
-                    .size(labelW, S(28.0f))
-                    .text("优先级")
-                    .fontSize(S(12.0f))
-                    .lineHeight(S(28.0f))
-                    .verticalAlign(core::VerticalAlign::Center)
-                    .color(theme.metaText)
-                    .build();
-                ui.stack("add.priority.wrap")
-                    .position(inputX, priorityY - S(2.0f))
-                    .size(S(82.0f), S(28.0f))
-                    .zIndex(32)
-                    .content([&] {
-                        static const char* kPriorityLabels[] = {"默认", "高", "中", "低"};
-                        // 默认选"默认"（0），字段直接显示当前值。
-                        buildListPicker(ui, "add.priority", S(82.0f), S(28.0f),
-                                        theme, g_addPriorityOpen, kPriorityLabels,
-                                        4, g_addPriority, false, PickerField::Text,
-                                        [](int i) { g_addPriority = i; });
-                    })
                     .build();
 
                 // ---- 重命名（可选，留空=URL 文件名）----
