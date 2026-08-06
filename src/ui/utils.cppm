@@ -22,10 +22,11 @@ export constexpr float kCardPad = S(10.0f);
 export constexpr float kCardGap = S(6.0f);
 export constexpr float kCardIconW = S(22.0f);          // 卡片操作图标按钮边长
 export constexpr float kCardIconGap = S(4.0f);
-export constexpr float kRailWidth = S(26.0f);          // 大侧边栏（图标栏）宽
+export constexpr float kRailWidth = S(40.0f);          // 大侧边栏（图标栏）宽
 export constexpr float kSubSidebarWidth = S(96.0f);    // 下载页内状态子侧边栏宽
 // 岛屿卡片布局：外层"岛"卡片之间的间距 / 大卡内边距 / 岛卡片圆角。
 export constexpr float kIslandGap = S(2.0f);
+export constexpr float kIslandVInset = S(6.0f);   // 岛卡距窗口上/下的空隙（卡片感）
 export constexpr float kPanelPad = S(10.0f);
 export constexpr float kIslandRadius = S(10.0f);
 

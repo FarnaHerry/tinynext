@@ -41,10 +41,10 @@ bool sameAria2Config(const cfg::Aria2Config& x, const cfg::Aria2Config& y) {
 // 设置页没有下载状态子侧边栏，内容区紧跟图标栏右侧。
 export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
     // 岛屿卡片风：设置页整块是一张悬浮圆角大卡（标题 + 表单 + 底部操作行都收在卡内）。
-    // 图标栏占满左缘（不套卡片），这张卡紧贴它右侧起排（无间隙）；顶部贴齐窗口顶
-    // （顶部不预留 margin，为后续自定义顶部栏做准备）。
-    const float islandTop = 0.0f;
-    const float islandH = screen.height;
+    // 图标栏占满左缘（不套卡片），这张卡紧贴它右侧起排（无间隙）；上下各留
+    // kIslandVInset 空隙（卡片感）。
+    const float islandTop = kIslandVInset;
+    const float islandH = screen.height - 2.0f * kIslandVInset;
     const float contentX = kRailWidth;
     const float contentW = screen.width - contentX - kRightMargin;
     const float pad = kPanelPad;

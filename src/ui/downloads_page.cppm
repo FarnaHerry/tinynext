@@ -88,10 +88,9 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
 
     // ---- 布局尺寸（岛屿卡片风：内容区两张浮岛卡片）----
     // 图标栏占满左缘（整高竖条、不套卡片），状态子侧边栏 + 内容大卡两张浮岛
-    // 紧贴图标栏右侧、顶部贴齐窗口顶（顶部不预留 margin，为后续自定义顶部栏做准备，
-    // 届时把 islandTop 设为标题栏高度即可）；仅右侧留 kRightMargin。
-    const float islandTop = 0.0f;
-    const float islandH = screen.height;
+    // 紧贴图标栏右侧，上下各留 kIslandVInset 空隙（卡片感）；仅右侧留 kRightMargin。
+    const float islandTop = kIslandVInset;
+    const float islandH = screen.height - 2.0f * kIslandVInset;
     const float subX = kRailWidth;
     const float contentX = subX + kSubSidebarWidth + kIslandGap;
     const float contentW = screen.width - contentX - kRightMargin;
@@ -154,10 +153,10 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     static const char* kSortLabels[] = {"最新在前", "状态优先", "文件名", "大小", "进度", "优先级"};
     ui.stack("tool.sort.wrap")
         .position(sortX, toolY)
-        .size(toolW, kInputHeight)
+        .size(toolW, toolW)
         .zIndex(30)
         .content([&] {
-            buildListPicker(ui, "tool.sort", toolW, kInputHeight, theme,
+            buildListPicker(ui, "tool.sort", toolW, toolW, theme,
                             g_sortOpen, kSortLabels, 6,
                             static_cast<int>(g_sort), false,
                             PickerField::Icon,
@@ -169,62 +168,44 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         })
         .build();
 
-    // 全部继续：恢复所有已暂停任务。
-    components::button(ui, "tool.startAll")
-        .position(startAllX, toolY)
-        .size(toolW, kInputHeight)
-        .icon(0xF04B)  // fa-play
-        .text("")
-        .iconSize(S(13.0f))
-        .theme(theme.components, false)
-        .onClick([] {
-            g_manager->resumeAll();
-            showStatus("已全部继续");
-        })
-        .build();
+    // 全部继续：恢复所有已暂停任务（正圆，默认无描边，hover 才浮现）。
+    drawToolbarIconButton(ui, "tool.startAll", startAllX, toolY, toolW, toolW,
+                          0xF04B, false, theme,
+                          [] {
+                              g_manager->resumeAll();
+                              showStatus("已全部继续");
+                          });
 
-    // 全部暂停：暂停所有排队/进行中任务。
-    components::button(ui, "tool.pauseAll")
-        .position(pauseAllX, toolY)
-        .size(toolW, kInputHeight)
-        .icon(0xF04C)  // fa-pause
-        .text("")
-        .iconSize(S(13.0f))
-        .theme(theme.components, false)
-        .onClick([] {
-            g_manager->pauseAll();
-            showStatus("已全部暂停");
-        })
-        .build();
+    // 全部暂停：暂停所有排队/进行中任务（正圆，默认无描边，hover 才浮现）。
+    drawToolbarIconButton(ui, "tool.pauseAll", pauseAllX, toolY, toolW, toolW,
+                          0xF04C, false, theme,
+                          [] {
+                              g_manager->pauseAll();
+                              showStatus("已全部暂停");
+                          });
 
-    // 添加下载：右上角 ➕ 图标，点击弹出对话框。
-    components::button(ui, "add.btn")
-        .position(addX, toolY)
-        .size(toolW, kInputHeight)
-        .icon(0xF067)  // fa-plus
-        .text("")
-        .iconSize(S(13.0f))
-        .theme(theme.components, true)
-        .onClick([] {
-            // 打开弹窗：恢复默认选项——连接数填配置的 split 值，下载目录填配置
-            // 的默认下载目录；其余清空。若剪贴板是 http(s)/magnet 链接则预填 URL。
-            g_urlText.clear();
-            const std::string clip = trimText(getClipboardText());
-            if (!clip.empty()) {
-                if (clip.starts_with("http://") || clip.starts_with("https://") ||
-                    clip.starts_with("magnet:")) {
-                    g_urlText = clip;
-                }
-            }
-            g_addConnectionsText = std::to_string(cfg::aria2Config().split);
-            g_addPriority = 0;
-            g_addPriorityOpen = false;
-            g_addRenameText.clear();
-            g_addLimitText.clear();
-            g_addDirText = cfg::downloadDir().string();
-            g_addOpen = true;
-        })
-        .build();
+    // 添加下载：右上角 ➕ 图标（正圆 + 一直主色填充），点击弹出对话框。
+    drawToolbarIconButton(ui, "add.btn", addX, toolY, toolW, toolW,
+                          0xF067, true, theme,
+                          [] {
+                              // 打开弹窗：恢复默认选项——连接数填配置的 split 值，下载目录填配置
+                              // 的默认下载目录；其余清空。若剪贴板是 http(s)/magnet 链接则预填 URL。
+                              g_urlText.clear();
+                              const std::string clip = trimText(getClipboardText());
+                              if (!clip.empty()) {
+                                  if (clip.starts_with("http://") || clip.starts_with("https://") ||
+                                      clip.starts_with("magnet:")) {
+                                      g_urlText = clip;
+                                  }
+                              }
+                              g_addConnectionsText = std::to_string(cfg::aria2Config().split);
+                              g_addPriority = 0;
+                              g_addPriorityOpen = false;
+                              g_addRenameText.clear();
+                              g_addLimitText.clear();
+                              g_addDirText = cfg::downloadDir().string();
+                              g_addOpen = true;
+                          });
 
     // ---- 任务列表：卡片式布局（名称/进度/信息纵向排布）----
     if (totalCount == 0) {

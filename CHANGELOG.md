@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0（Unreleased / 开发中）
+## 0.2.1（Unreleased / 开发中）
 
 ### 下载引擎：纯 aria2-next
 - 移除内置 tinyhttps 引擎（`TinyHttpsEngine` / `tinynext.download_manager` 模块），**aria2-next 成为唯一下载引擎**。

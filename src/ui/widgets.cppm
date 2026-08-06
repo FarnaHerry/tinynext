@@ -32,6 +32,57 @@ export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
         .build();
 }
 
+// 工具栏图标按钮：非主按钮默认无描边，hover 时浮现细边框 + 轻微底色（利用
+// ui.state 持久存 hover，每帧读它切边框颜色，transition 过渡）；primary 时一直
+// 主色填充（保持默认描边，如 ➕ 添加按钮）。
+export void drawToolbarIconButton(eui::Ui& ui, const std::string& id, float x, float y,
+                                  float w, float h, unsigned int icon, bool primary,
+                                  const AppTheme& theme, std::function<void()> onClick) {
+    const auto& tokens = theme.components;
+    const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
+    const core::Color transparent{0.0f, 0.0f, 0.0f, 0.0f};
+    // 完美正圆：半径 = 短边一半（调用方传正方形尺寸即可）。
+    const float radius = std::min(w, h) * 0.5f;
+
+    if (primary) {
+        components::button(ui, id)
+            .position(x, y)
+            .size(w, h)
+            .icon(icon)
+            .text("")
+            .iconSize(S(13.0f))
+            .theme(tokens, true)
+            .radius(radius)
+            .onClick(std::move(onClick))
+            .build();
+        return;
+    }
+
+    bool& hovered = ui.state<bool>(id + ".hover");
+    const core::Color borderColor = components::theme::withOpacity(tokens.border, 0.9f);
+    ui.rect(id + ".fill")
+        .position(x, y)
+        .size(w, h)
+        .states(transparent, tokens.surfaceHover, tokens.surfaceActive)
+        .radius(radius)
+        .border(1.0f, hovered ? borderColor : transparent)
+        .transition(transition)
+        .onHover([&hovered](bool h) { hovered = h; })
+        .onClick(std::move(onClick))
+        .build();
+
+    ui.text(id + ".icon")
+        .position(x, y)
+        .size(w, h)
+        .icon(icon)
+        .fontSize(S(13.0f))
+        .lineHeight(h)
+        .color(tokens.text)
+        .horizontalAlign(core::HorizontalAlign::Center)
+        .verticalAlign(core::VerticalAlign::Center)
+        .build();
+}
+
 // ----------------------------------------------------- 通用上下拉列表选择器 --
 //
 // eui 的 components::dropdown 只会向下弹出，放在底部翻页行时弹层会超出窗口下缘。
@@ -59,14 +110,10 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
         .content([&] {
             // ---- 字段（点击切换展开/收起）：文字显示当前项，或纯图标 ----
             if (field == PickerField::Icon) {
-                components::button(ui, id + ".btn")
-                    .size(width, height)
-                    .icon(0xF0DC)  // fa-sort
-                    .text("")
-                    .iconSize(S(13.0f))
-                    .theme(theme.components, false)
-                    .onClick([&open] { open = !open; })
-                    .build();
+                // 图标字段（如排序）：默认无描边，hover 才浮现。
+                drawToolbarIconButton(ui, id + ".btn", 0, 0, width, height,
+                                      0xF0DC, false, theme,
+                                      [&open] { open = !open; });
             } else if (field == PickerField::Plain) {
                 // 纯文本字段：无边框条，当前项文字居中 + 右侧小箭头（无尾 chevron），
                 // 点击弹出列表。默认透明，仅 hover/按下给出轻微底色反馈。

@@ -33,6 +33,7 @@ import tinynext.ui.widgets;
 import tinynext.ui.downloads_page;
 import tinynext.ui.settings_page;
 import tinynext.ui.about_dialog;
+import tinynext.ui.platform;
 import tinynext.ui.state;
 
 namespace app {
@@ -51,6 +52,13 @@ const DslAppConfig& dslAppConfig() {
 }
 
 void compose(eui::Ui& ui, const eui::Screen& screen) {
+    // 启动时设一次应用图标（窗口/任务栏）。
+    static bool iconApplied = false;
+    if (!iconApplied) {
+        iconApplied = true;
+        applyAppIcon();
+    }
+
     const AppTheme& theme = currentTheme();
 
     // 根用 stack：底层铺满窗口的主题背景（clearColor 在初始化时固化、无法运行时
@@ -76,6 +84,13 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
             cli::handleCliAndInbox(deltaSeconds);
             // 下载完成/失败系统通知（状态迁移检测）。
             checkDownloadNotifications();
+            // 系统标题栏跟随主题：g_dark 变化（启动/主题按钮/设置保存/跟随系统）
+            // 时同步一次，让原生边框配色与界面一致。
+            static bool lastDark = !g_dark;
+            if (g_dark != lastDark) {
+                lastDark = g_dark;
+                setNativeTheme(g_dark);
+            }
         })
         .content([&] {
             ui.rect("theme.background")
@@ -95,8 +110,9 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 .content([&] {
 
                     // 应用 logo：项目名缩写 "TN"（TinyNext），主色圆角块特例。
+                    // 水平居中于图标栏（rail 加宽后不能写死 S(4)，要按 kRailWidth 计算）。
                     ui.rect("sidebar.logo.bg")
-                        .position(S(4.0f), S(10.0f))
+                        .position((kRailWidth - S(18.0f)) * 0.5f, S(10.0f))
                         .size(S(18.0f), S(18.0f))
                         .color(theme.components.primary)
                         .radius(S(5.0f))

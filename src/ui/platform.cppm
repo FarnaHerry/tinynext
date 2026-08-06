@@ -18,6 +18,7 @@ extern "C" const char* glfwGetClipboardString(GLFWwindow* window);
 #include <windows.h>
 #include <shlobj.h>  // BROWSEINFOW for the folder picker
 #include <shellapi.h>  // Shell_NotifyIconW / NIM_* / NIF_*（原生通知）
+#include <dwmapi.h>    // DwmSetWindowAttribute（标题栏沉浸式深色模式）
 extern "C" HWND glfwGetWin32Window(GLFWwindow* window);
 #endif
 #include <cstdio>  // popen/fgets/pclose (POSIX) — before import std
@@ -257,6 +258,62 @@ export std::string getClipboardText() {
         }
     }
     return {};
+}
+
+// 让系统原生标题栏跟随深浅主题（Windows 沉浸式深色模式；其他平台 no-op）。
+// 无法自绘无边框标题栏（eui-neo 不支持），用系统能力让边框配色跟主题一致。
+export void setNativeTheme(bool dark) {
+#ifdef _WIN32
+    if (GLFWwindow* ctx = glfwGetCurrentContext()) {
+        if (HWND hwnd = glfwGetWin32Window(ctx)) {
+            const BOOL darkMode = dark ? TRUE : FALSE;
+            DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE,
+                                  &darkMode, sizeof(darkMode));
+        }
+    }
+#else
+    (void)dark;
+#endif
+}
+
+// 加载应用图标（assets/icon.ico，来自 eui 默认图标）并设为窗口/任务栏图标。
+// Windows 用原生 ICO + LoadImage + WM_SETICON，避免解码 PNG。
+export void applyAppIcon() {
+#ifdef _WIN32
+    if (GLFWwindow* ctx = glfwGetCurrentContext()) {
+        HWND hwnd = glfwGetWin32Window(ctx);
+        if (!hwnd) return;
+        wchar_t exe[MAX_PATH]{};
+        const DWORD len = GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        if (len == 0 || len >= MAX_PATH) return;
+        const std::filesystem::path exeDir = std::filesystem::path(exe).parent_path();
+        // 与 eui 的 assets 解析一致：exeDir/assets + CWD 相对多候选。
+        const std::filesystem::path candidates[] = {
+            exeDir / "assets" / "icon.ico",
+            exeDir / "icon.ico",
+            std::filesystem::path("assets") / "icon.ico",
+            std::filesystem::path("..") / "assets" / "icon.ico",
+            std::filesystem::path("..") / ".." / "assets" / "icon.ico",
+        };
+        for (const std::filesystem::path& ico : candidates) {
+            if (!std::filesystem::exists(ico)) continue;
+            HICON hIconBig = static_cast<HICON>(
+                LoadImageW(nullptr, ico.c_str(), IMAGE_ICON, 0, 0,
+                           LR_LOADFROMFILE | LR_DEFAULTSIZE));
+            if (hIconBig) {
+                SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(hIconBig));
+            }
+            HICON hIconSmall = static_cast<HICON>(
+                LoadImageW(nullptr, ico.c_str(), IMAGE_ICON, 16, 16, LR_LOADFROMFILE));
+            if (hIconSmall) {
+                SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(hIconSmall));
+            }
+            break;
+        }
+    }
+#else
+    // POSIX：GLFW 窗口图标需要解码 PNG→RGBA，暂不做；后续可加。
+#endif
 }
 
 // 下载完成/失败的系统通知（best-effort：工具缺失时静默，不阻塞 UI 线程）。
