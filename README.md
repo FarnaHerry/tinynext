@@ -139,7 +139,7 @@ Linux / macOS 三平台构建并创建 Release（也可 `workflow_dispatch` 手�
    Linux / macOS 的编译问题（这两个平台是首次在 CI 编译 POSIX 分支）。
 2. 三平台都绿后打标签并推送：
    ```bash
-   git tag v0.1.0 && git push origin v0.1.0
+   git tag v0.2.0 && git push origin v0.2.0
    ```
 3. 到仓库 Releases 页把自动生成的 **draft** release 补充说明后发布。
 

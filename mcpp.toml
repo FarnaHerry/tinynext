@@ -1,6 +1,6 @@
 [package]
 name        = "tinynext"
-version     = "0.1.0"
+version     = "0.2.0"
 description = "A GUI downloader: EUI-NEO frontend + aria2-next download engine"
 license     = "MIT"
 
