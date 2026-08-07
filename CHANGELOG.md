@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.1（Unreleased / 开发中）
+## 0.2.2（2026-08-07）
 
 ### 下载引擎：纯 aria2-next
 - 移除内置 tinyhttps 引擎（`TinyHttpsEngine` / `tinynext.download_manager` 模块），**aria2-next 成为唯一下载引擎**。
@@ -22,13 +22,15 @@
   `tasksMutex_` 让 WS 后台线程安全更新任务。核实：aria2-next **无**
   `--enable-rpc-websocket` flag（HTTP 层检测 `Connection: upgrade` 自动升级）、也**无**
   进度推送事件，故保留轮询补进度；WS 掉线自动回退轮询。
-- 卡片显示 **ETA 剩余时间**；排序新增「优先级」。
+- 卡片显示 **ETA 剩余时间**。
 
 ### 配置与每任务选项
 - aria2 配置扩展：**代理**（HTTP/HTTPS，aria2 不支持 SOCKS5）、**重试次数 / 等待秒**、**最大同时下载数**（队列并发，默认 5）、**完成后移除控制文件**、**完成后命令**、**User-Agent / Referer / 磁盘缓存**。
 - 设置页正文改**可滚动**；aria2 参数在 daemon 已启动时提示「重启后生效」。
-- 添加弹窗每任务选项：**连接数 / 优先级 / 重命名 / 限速KB/s / 下载目录**；打开时**默认填配置的连接数与下载目录**。
-- 优先级选择器索引 → aria2 `priority` 数值的映射集中在 `state::priorityValueFromPicker`（方向待随包二进制验证，若反只改一处）。
+- 添加弹窗每任务选项：**连接数 / 重命名 / 限速KB/s / 下载目录**；打开时**默认填配置的连接数与下载目录**。
+- **移除优先级功能**：实测 + `aria2-next --help=#all` 确认 aria2-next **没有下载级
+  `priority` 选项**（参数被静默忽略，排队恒为添加顺序），「优先级」选择器 / 排序 /
+  `priorityValueFromPicker` 一并删除。想先下哪个就暂停其他任务。
 
 ### 其他
 - 默认窗口分辨率加大（`S(1120)×S(720)`，实际约 1568×1008）。
@@ -46,10 +48,9 @@
 ### UI：添加下载弹窗
 - **URL 多行**：输入框改为 multiline，长链接完整可见；打开时自动读剪贴板，若是
   http(s)/magnet 链接则预填。
-- **分片数 / 优先级分行**：左标签"连接数"改"分片数"（实际是每任务 split）；优先级独立
-  一行（默认/高/中/低）。
-- 优先级下拉修复：标签 id 与 picker 内部撞名导致不显示、展开后点击外部不收起（加全屏
-  拦截层）、排序下拉弹层宽度不足文字溢出（加 `popupWidth`）。
+- **分片数分行**：左标签"连接数"改"分片数"（实际是每任务 split）。
+- 下拉修复：展开后点击外部不收起（加全屏拦截层）、排序下拉弹层宽度不足文字溢出
+  （加 `popupWidth`）。
 
 ### 修复
 - **Windows 打开文件/文件夹非阻塞**：`openFile` / `openContainingFolder` 从
@@ -60,6 +61,16 @@
   （独立线程 + message-only 窗口，不 spawn 命令行）；编码从逐字节扩宽 UTF-8（乱码）改为
   `MultiByteToWideChar(CP_UTF8)` 正确转码。macOS 通知消息改经 argv 传入 osascript。
 - 设置页：移除顶部副标题提示；标题下移、表单首行加顶部占位，避免被滚动区上缘裁掉。
+- **Linux 目录选择器取消不再二次弹出**：原 `zenity || kdialog` 把「用户取消」（zenity
+  退出码非 0）当成「无 zenity」触发 kdialog 回退；改先 `command -v zenity` 探测，只当
+  不存在时才回退 kdialog。
+- **Linux 跟随系统深色修正**：现代桌面（GNOME 42+ / KDE Plasma 6）不写
+  `gtk-application-prefer-dark-theme` 到 settings.ini，旧检测恒返回浅色。新增按序探测：
+  `gsettings color-scheme`（prefer-dark/light）→ KDE `kreadconfig6 ColorScheme` → 旧
+  settings.ini（并兼容 `=true` 写法与 `gtk-theme-name` 含 dark）。
+- **设置页「恢复默认」改为重置全部设置**：原先只重置下载路径（主题/aria2 参数不动），
+  现在一并回默认——主题回「跟随系统」并即时预览、下载路径回系统目录、aria2 参数回
+  各字段默认值（仍需点「保存」落盘，与放弃/保存语义一致）。
 
 ### 底层能力（较早实现）
 - **单实例** + **CLI 传参下载**：重复启动把 URL 写入 `<temp>/tinynext.inbox` 由主实例轮询取走；`tinynext agent` 打印 AI 用法指南。

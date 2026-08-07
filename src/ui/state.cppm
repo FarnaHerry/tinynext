@@ -71,9 +71,7 @@ export std::string g_refererText = cfg::aria2Config().referer;
 export std::string g_diskCacheText = cfg::aria2Config().diskCache;
 // 添加下载弹窗的每任务连接数（默认 = 配置 split 值；空/0 = 配置默认）。
 export std::string g_addConnectionsText = std::to_string(cfg::aria2Config().split);
-// 添加下载弹窗的每任务高级选项：优先级（0=默认，选择器索引）、重命名、限速、目录。
-export int g_addPriority = 0;
-export bool g_addPriorityOpen = false;
+// 添加下载弹窗的每任务高级选项：重命名、限速、目录。
 export std::string g_addRenameText;
 export std::string g_addLimitText;
 export std::string g_addDirText;
@@ -91,7 +89,7 @@ export bool g_pageSizeOpen = false;  // 分页大小下拉是否展开
 export constexpr int kPageSizes[] = {5, 10, 20, 50, 100};
 
 // 下载列表排序。切换排序回到第 1 页。
-export enum class SortMode { Newest, State, Name, Size, Progress, Priority };
+export enum class SortMode { Newest, State, Name, Size, Progress };
 export SortMode g_sort = SortMode::Newest;
 export bool g_sortOpen = false;  // 排序下拉是否展开
 
@@ -122,18 +120,7 @@ export int pageSizeIndex() {
 
 // ---- add-download flow ----
 
-// 优先级选择器索引 → aria2 priority 数值（0=默认）。aria2 的 priority 范围
-// 1..100、数值方向待随包二进制验证；若相反只需改这个函数的返回值。
-export int priorityValueFromPicker(int index) {
-    switch (index) {
-        case 1: return 3;   // 高
-        case 2: return 2;   // 中
-        case 3: return 1;   // 低
-        default: return 0;  // 默认
-    }
-}
-
-// 校验并启动一个下载；返回是否成功。完整的每任务选项在 opts 里（连接数/优先级/
+// 校验并启动一个下载；返回是否成功。完整的每任务选项在 opts 里（连接数/
 // 重命名/限速/目录）。对话框 / CLI / 单实例 inbox 共用。
 export bool startDownloadFromUrl(std::string url, const dl::StartOptions& opts) {
     const std::size_t first = url.find_first_not_of(" \t\r\n");
@@ -181,7 +168,7 @@ export bool startDownloadFromUrl(std::string url, int connections) {
     return startDownloadFromUrl(std::move(url), opts);
 }
 
-// “添加下载”弹窗提交：URL + 每任务高级选项（连接数/优先级/重命名/限速/目录）。
+// “添加下载”弹窗提交：URL + 每任务高级选项（连接数/重命名/限速/目录）。
 export bool addDownload() {
     dl::StartOptions opts;
     std::string t = g_addConnectionsText;
@@ -192,7 +179,6 @@ export bool addDownload() {
             opts.connections = 0;
         }
     }
-    opts.priority = priorityValueFromPicker(g_addPriority);
     opts.outputName = trimText(g_addRenameText);
     opts.dirOverride = trimText(g_addDirText);
     if (!trimText(g_addLimitText).empty()) {

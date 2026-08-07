@@ -29,14 +29,13 @@ export struct TaskView {
     std::string error;            // empty unless Failed
     double speedBps;              // bytes/second, last measured
     int connections = 1;          // active network connections; 1 = single-connection engine
-    int priority = 0;             // 0 = 未设置；>0 时用于展示/排序（与 StartOptions 同尺度）
 };
 
 // Per-task start options. connections == 0 means "use the engine default from
 // config"; engines that don't support a field just ignore it.
+// 注意：aria2-next 没有下载级 priority 选项（实测+--help=#all 确认），优先级功能已移除。
 export struct StartOptions {
     int connections = 0;                  // 0 = 引擎按配置默认
-    int priority = 0;                     // 0 = 默认；>0 时作为该任务优先级（1..100）
     std::string outputName;               // 重命名；空 = 取 URL 文件名
     std::filesystem::path dirOverride;    // 覆盖下载目录；空 = 配置目录（相对按配置目录解析）
     std::int64_t limitBps = 0;            // 每任务限速 bytes/s；0 = 全局配置

@@ -297,7 +297,30 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         .text("恢复默认")
         .fontSize(S(12.0f))
         .theme(theme.components, false)
-        .onClick([] { g_downloadDirText = cfg::defaultDownloadDir().string(); })
+        .onClick([] {
+            // 全部设置回默认：主题回「跟随系统」（并即时预览）、路径回系统下载目录、
+            // aria2 参数回默认值。仍需点「保存」才落盘（与放弃/保存语义一致）。
+            g_pendingTheme = cfg::ThemeMode::System;
+            g_themeMode = cfg::ThemeMode::System;
+            g_dark = cfg::osDark();
+            g_downloadDirText = cfg::defaultDownloadDir().string();
+            const cfg::Aria2Config d;  // 默认构造 = 各字段默认值
+            g_aria2SplitText = std::to_string(d.split);
+            g_aria2ConnText = std::to_string(d.maxConnectionPerServer);
+            g_aria2MinSplitText = d.minSplitSize;
+            g_aria2LimitText = std::to_string(d.maxDownloadLimit / 1024);
+            g_proxyText = d.proxy;
+            g_noProxyText = d.noProxy;
+            g_maxTriesText = std::to_string(d.maxTries);
+            g_retryWaitText = std::to_string(d.retryWait);
+            g_maxConcurrentText = std::to_string(d.maxConcurrentDownloads);
+            g_removeControlFile = d.removeControlFile;
+            g_onCompleteText = d.onDownloadComplete;
+            g_userAgentText = d.userAgent;
+            g_refererText = d.referer;
+            g_diskCacheText = d.diskCache;
+            showStatus("已恢复默认（点「保存」生效）");
+        })
         .build();
 
     components::button(ui, "settings.save")

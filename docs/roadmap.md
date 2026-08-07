@@ -41,7 +41,7 @@ aria2），让 mcpp / xlings 等其他包管理器「直接复用 TinyNext 作�
 `decorated` 配置 + `setWindowPos` / 最小化 / 最大化 API），再自绘标题栏 + 拖动区 +
 最小化/最大化/关闭三个按钮。
 
-### eui-neo 版本声明与 C++23 构建兼容性（2026-08 发现）
+### eui-neo 版本声明与 C++23 构建兼容性（2026-08 发现，已解决）
 
 - `mcpp.toml` 曾声明 `eui-neo = 0.5.5`，但 mcpp 包索引一度没有 0.5.5，实际装的是
   **0.5.3**；锁文件却记录 0.5.5，导致 `mcpp build` 拉包时报 `E_NOT_FOUND`。
@@ -49,8 +49,20 @@ aria2），让 mcpp / xlings 等其他包管理器「直接复用 TinyNext 作�
   编译不过**：`core/render/image_source.cpp`、`core/platform/platform.cpp` 用
   `path::u8string()`（C++20 起返回 `char8_t`）赋给 `std::string` 报错，另有
   `lowerCopy` 匹配失败。
-- 结论：**已把 mcpp.toml 降到 0.5.3**（实际验证可用的版本），README / about
-  版本号同步。升 0.5.5 需先给 eui-neo 打补丁（见上条）。
+- **解决（2026-08）**：compat.eui-neo 0.5.5 配方加**包级 `-fno-char8_t`**——禁掉
+  `char8_t` 后 `u8string()` 在所有平台返回 `std::string`，编译通过；`mcpp.toml` 升回
+  **0.5.5**，并补 `-ldwmapi`（0.5.5 的 DWM 标题栏深色用）。0.5.3 的 pin 已解除。
+
+### 下载优先级功能：aria2-next 不支持（2026-08 核实，已移除）
+
+- 添加弹窗曾提供「优先级（默认/高/中/低）」选择器 + 任务排序「优先级」，把
+  `priority` 作为 addUri 选项传给 aria2。
+- **实测 + `aria2-next --help=#all` 确认：aria2-next 没有下载级 `priority` 选项**
+  （只有 `--bt-prioritize-piece`，是 BT 分片选择）。三次排队实测全是 FIFO——`priority`
+  参数被静默忽略，所有任务等权。
+- 结论：**优先级是伪需求**（想先下就暂停其他任务，app 本就支持），选择器 / 排序 /
+  `priorityValueFromPicker` / `StartOptions.priority` 已一并移除。若 aria2-next 日后
+  补回该选项，再按「高数值 = 高优先」恢复 UI 即可。
 
 ### 代理：aria2 不支持 SOCKS5（2026-08 核实）
 

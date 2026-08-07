@@ -641,10 +641,6 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
     if (limit > 0) {
         optionsJ["max-download-limit"] = std::to_string(limit);
     }
-    // 优先级（>0 才传）。
-    if (options.priority > 0) {
-        optionsJ["priority"] = std::to_string(options.priority);
-    }
 
     // 磁力/BT：内容名由种子决定，只设 dir 不设 out；destPath 用占位，等
     // refreshStates() 从 files[0].path 更新为真实路径。HTTP(S) 才设 out。
@@ -812,9 +808,6 @@ void Aria2Engine::retry(std::uint64_t id) {
         task->opts.limitBps > 0 ? task->opts.limitBps : a2.maxDownloadLimit;
     if (limit > 0) {
         optionsJ["max-download-limit"] = std::to_string(limit);
-    }
-    if (task->opts.priority > 0) {
-        optionsJ["priority"] = std::to_string(task->opts.priority);
     }
     // 磁力/BT 不设 out（内容名由种子决定）。
     if (!task->url.starts_with("magnet:")) {
@@ -1016,8 +1009,7 @@ std::vector<TaskView> Aria2Engine::snapshot() const {
         const Task& task = **it;
         out.push_back(TaskView{task.id, task.url, task.destPath, task.state,
                                task.totalBytes, task.downloadedBytes,
-                               task.error, task.speedBps, task.connections,
-                               task.opts.priority});
+                               task.error, task.speedBps, task.connections});
     }
     return out;
 }
