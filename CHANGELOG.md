@@ -3,8 +3,9 @@
 ## 0.2.3（Unreleased / 开发中）
 
 ### 发布与安装包
-- **平台安装包**（CI 打包升级）：Windows 出 NSIS `setup.exe`（per-user 装到
-  `%LOCALAPPDATA%\Programs\TinyNext`，无管理员、Add/Remove Programs 卸载项、中文向导）；
+- **平台安装包**（CI 打包升级）：Windows 出 NSIS `setup.exe`——**Modern UI 2 现代化
+  向导**（欢迎/安装目录/进度/完成页 + 品牌图 + 「运行」复选框，中文文案），per-user 装到
+  `%LOCALAPPDATA%\Programs\TinyNext`，无管理员、Add/Remove Programs 卸载项；
   Linux 出 `.deb` + `.rpm`（装 `/opt/tinynext` + 系统 loader 启动器 + 桌面项/图标）；
   macOS 暂保持 tar.gz（签名需 Apple 账号，后续做）。免安装 zip / tar.gz 全部保留。
 - **配置/会话移到 per-user 目录**：`tinynext.conf` 与 aria2 `tinynext.session` 从 cwd
