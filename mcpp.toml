@@ -28,9 +28,20 @@ default = "llvm@22.1.8"
 # pull ws2_32 in as its dependency; with it removed we link it explicitly).
 [target.'cfg(windows)'.build]
 ldflags = ["-Wl,-subsystem:windows", "-Wl,-entry:mainCRTStartup", "-lws2_32", "-ldwmapi"]
-# 说明：exe 图标/版本资源曾用 resources.res 经 ldflags 嵌入（mcpp 原生不支持 .rc），
-# 但 llvm-windres 的 VERSIONINFO 有兼容问题，且属 workaround；等 mcpp 原生支持 .rc 后再加。
-# resources.rc 已保留备用。
+
+# exe 图标 + 版本信息：mcpp 2026.8.7.1 原生 [resources]（取代旧的 resources.rc /
+# windres workaround，已删除）。仅 PE/Windows 目标实际嵌入；Linux/macOS 只校验路径、
+# 产物不变，无需 cfg(windows)。FILEVERSION 取 [package].version（现为 0.2.5），
+# ProductName/FileDescription/CompanyName 等默认取 [package]，这里覆盖部分字段。
+[resources]
+icon = "assets/icon.ico"
+
+[resources.version-info]
+company           = "TinyNext"
+product           = "TinyNext 下载器"
+description       = "TinyNext 下载器"
+original-filename = "tinynext.exe"
+internal-name     = "tinynext"
 
 # eui-neo 0.5.5：compat 配方上加包级 -fno-char8_t（修 u8string() 返回 char8_t 赋给
 # std::string 的 C++23 编译错）+ 补 -ldwmapi（0.5.5 的 DWM 标题栏深色用）。版本决策见
