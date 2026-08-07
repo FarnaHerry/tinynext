@@ -37,6 +37,10 @@ fi
 
 cat > %{buildroot}/usr/bin/tinynext <<'EOF'
 #!/bin/sh
+# 先 cd 到安装目录：经系统 ld.so 拉起时 /proc/self/exe 指向 loader（而非本程序），
+# eui 只能靠 CWD 下的 assets/ 解析字体/图标（与 make-dist.sh 生成的 run.sh 一致）。
+# 配置读写走 $XDG_CONFIG_HOME（configPath 优先 XDG），不受 CWD 影响。
+cd /opt/tinynext
 exec /lib64/ld-linux-x86-64.so.2 \
   --library-path "/usr/lib64:/usr/lib/x86_64-linux-gnu:/opt/tinynext" \
   /opt/tinynext/tinynext "$@"
@@ -50,6 +54,7 @@ Name=TinyNext
 Comment=GUI downloader
 Exec=/usr/bin/tinynext
 Icon=tinynext
+StartupWMClass=TinyNext 下载器
 Terminal=false
 Categories=Network;FileTransfer;GTK;
 EOF

@@ -45,9 +45,11 @@ if [ -x "$work/opt/tinynext/engines/aria2-next" ]; then
     chmod +x "$work/opt/tinynext/engines/aria2-next"
 fi
 
-# ---- launcher (no cd - config lands in $HOME) ----
+# ---- launcher (先 cd 到安装目录：ld.so 拉起时 /proc/self/exe 指向 loader，eui 靠
+#      CWD 的 assets/ 解析字体/图标；配置读写走 XDG，不受 CWD 影响) ----
 cat > "$work/usr/bin/tinynext" <<'EOF'
 #!/bin/sh
+cd /opt/tinynext
 exec /lib64/ld-linux-x86-64.so.2 \
   --library-path "/usr/lib/x86_64-linux-gnu:/usr/lib64:/opt/tinynext" \
   /opt/tinynext/tinynext "$@"
@@ -62,6 +64,7 @@ Name=TinyNext
 Comment=GUI downloader
 Exec=/usr/bin/tinynext
 Icon=tinynext
+StartupWMClass=TinyNext 下载器
 Terminal=false
 Categories=Network;FileTransfer;GTK;
 EOF
