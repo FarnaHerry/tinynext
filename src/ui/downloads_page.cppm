@@ -193,7 +193,6 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                               }
                               g_addConnectionsText = std::to_string(cfg::aria2Config().split);
                               g_addRenameText.clear();
-                              g_addLimitText.clear();
                               g_addDirText = cfg::downloadDir().string();
                               g_addOpen = true;
                           });
@@ -327,7 +326,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     // ---- 添加下载弹窗（模态）：链接 + 每任务高级选项 ----
     if (g_addOpen) {
         const float dlgW = S(320.0f);
-        const float dlgH = S(280.0f);
+        const float dlgH = S(244.0f);
         const float dlgX = (screen.width - dlgW) * 0.5f;
         const float dlgY = (screen.height - dlgH) * 0.5f;
         const float labelX = S(16.0f);
@@ -336,9 +335,8 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         const float urlH = S(48.0f);      // URL 多行输入高度（长链接可见）
         const float splitY = S(96.0f);    // 分片数（独立一行）
         const float row3Y = S(132.0f);    // 重命名
-        const float row4Y = S(168.0f);    // 限速
-        const float row5Y = S(204.0f);    // 下载目录
-        const float btnY = S(242.0f);
+        const float row4Y = S(168.0f);    // 下载目录
+        const float btnY = S(206.0f);
 
         // 半透明遮罩，点击空白处关闭。zIndex 高于侧边栏/翻页，
         // 保证整个窗口都被盖住。
@@ -424,28 +422,9 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .onEnter([] { if (addDownload()) g_addOpen = false; })
                     .build();
 
-                // ---- 每任务限速 KB/s（0=全局配置）----
-                components::text(ui, "add.limit.label")
-                    .position(labelX, row4Y)
-                    .size(labelW, S(28.0f))
-                    .text("限速KB/s")
-                    .fontSize(S(12.0f))
-                    .lineHeight(S(28.0f))
-                    .color(theme.metaText)
-                    .build();
-                components::input(ui, "add.limit")
-                    .position(inputX, row4Y - S(2.0f))
-                    .size(dlgW - inputX - S(16.0f), S(28.0f))
-                    .placeholder("0=全局")
-                    .value(g_addLimitText)
-                    .theme(theme.components)
-                    .onChange([](const std::string& value) { g_addLimitText = value; })
-                    .onEnter([] { if (addDownload()) g_addOpen = false; })
-                    .build();
-
                 // ---- 下载目录（留空=全局；磁力链接建议填写）----
                 components::text(ui, "add.dir.label")
-                    .position(labelX, row5Y)
+                    .position(labelX, row4Y)
                     .size(labelW, S(28.0f))
                     .text("下载目录")
                     .fontSize(S(12.0f))
@@ -453,7 +432,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .color(theme.metaText)
                     .build();
                 components::input(ui, "add.dir")
-                    .position(inputX, row5Y - S(2.0f))
+                    .position(inputX, row4Y - S(2.0f))
                     .size(dlgW - inputX - S(16.0f) - S(60.0f) - S(8.0f), S(28.0f))
                     .placeholder("留空=全局")
                     .value(g_addDirText)
@@ -464,7 +443,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 components::button(ui, "add.dir.browse")
                     .position(inputX + (dlgW - inputX - S(16.0f) - S(60.0f) - S(8.0f)) +
                                   S(8.0f),
-                              row5Y - S(2.0f))
+                              row4Y - S(2.0f))
                     .size(S(60.0f), S(26.0f))
                     .text("浏览…")
                     .fontSize(S(12.0f))

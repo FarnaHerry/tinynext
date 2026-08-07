@@ -636,10 +636,9 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
     optionsJ["min-split-size"] = a2.minSplitSize;
     optionsJ["continue"] = "true";
 
-    // 每任务限速覆盖全局。
-    const std::int64_t limit = options.limitBps > 0 ? options.limitBps : a2.maxDownloadLimit;
-    if (limit > 0) {
-        optionsJ["max-download-limit"] = std::to_string(limit);
+    // 每任务限速已移除（无意义），统一用配置的 maxDownloadLimit。
+    if (a2.maxDownloadLimit > 0) {
+        optionsJ["max-download-limit"] = std::to_string(a2.maxDownloadLimit);
     }
 
     // 磁力/BT：内容名由种子决定，只设 dir 不设 out；destPath 用占位，等
@@ -804,10 +803,9 @@ void Aria2Engine::retry(std::uint64_t id) {
     optionsJ["max-connection-per-server"] = std::to_string(connections);
     optionsJ["min-split-size"] = a2.minSplitSize;
     optionsJ["continue"] = "true";
-    const std::int64_t limit =
-        task->opts.limitBps > 0 ? task->opts.limitBps : a2.maxDownloadLimit;
-    if (limit > 0) {
-        optionsJ["max-download-limit"] = std::to_string(limit);
+    // 每任务限速已移除（无意义），统一用配置的 maxDownloadLimit。
+    if (a2.maxDownloadLimit > 0) {
+        optionsJ["max-download-limit"] = std::to_string(a2.maxDownloadLimit);
     }
     // 磁力/BT 不设 out（内容名由种子决定）。
     if (!task->url.starts_with("magnet:")) {

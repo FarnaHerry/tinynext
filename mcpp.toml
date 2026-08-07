@@ -32,9 +32,9 @@ ldflags = ["-Wl,-subsystem:windows", "-Wl,-entry:mainCRTStartup", "-lws2_32", "-
 # 但 llvm-windres 的 VERSIONINFO 有兼容问题，且属 workaround；等 mcpp 原生支持 .rc 后再加。
 # resources.rc 已保留备用。
 
-# 注意：不能用 0.5.5 —— 它在本项目 C++23 构建下编译不过（image_source.cpp /
-# platform.cpp 用 u8string() 返回 char8_t 赋给 std::string 报错），需先给 eui-neo
-# 打补丁（vendoring）才能升。0.5.3 是实际验证过的版本。
+# eui-neo 0.5.5：compat 配方上加包级 -fno-char8_t（修 u8string() 返回 char8_t 赋给
+# std::string 的 C++23 编译错）+ 补 -ldwmapi（0.5.5 的 DWM 标题栏深色用）。版本决策见
+# docs/roadmap.md。
 [dependencies.compat]
 eui-neo = { version = "0.5.5", features = ["app-main"] }
 # 包装 IXWebSocket（client-only、零依赖）：aria2 RPC 的 WebSocket 事件推送

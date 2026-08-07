@@ -7,7 +7,7 @@
 - aria2 本地 JSON-RPC 改用自写的极简跨平台 `LocalSocket`（winsock / POSIX，非阻塞 connect 超时），`mcpp.toml` 去掉 `tinyhttps` 依赖。
 - `http://` 不再强制升级为 `https://`（那是 tinyhttps 只支持 HTTPS 的限制；aria2 原生支持 http）。
 - 设置页去掉「下载引擎」切换；`config.cppm` 去掉 `EngineChoice` / `engine()`。
-- eui-neo 固定 **0.5.3**（0.5.5 与 C++23 构建不兼容，见 `docs/roadmap.md`）。
+- eui-neo 升到 **0.5.5**（compat 配方加包级 `-fno-char8_t` 修 C++23 构建的 u8string 报错，并补 `-ldwmapi`；版本决策见 `docs/roadmap.md`）。
 - Windows 链接补 `-lws2_32`（`LocalSocket` 用 winsock）。
 
 ### 下载功能
@@ -27,7 +27,10 @@
 ### 配置与每任务选项
 - aria2 配置扩展：**代理**（HTTP/HTTPS，aria2 不支持 SOCKS5）、**重试次数 / 等待秒**、**最大同时下载数**（队列并发，默认 5）、**完成后移除控制文件**、**完成后命令**、**User-Agent / Referer / 磁盘缓存**。
 - 设置页正文改**可滚动**；aria2 参数在 daemon 已启动时提示「重启后生效」。
-- 添加弹窗每任务选项：**连接数 / 重命名 / 限速KB/s / 下载目录**；打开时**默认填配置的连接数与下载目录**。
+- 添加弹窗每任务选项：**连接数 / 重命名 / 下载目录**；打开时**默认填配置的连接数与下载目录**。
+- **移除每任务单独限速**：限速统一走设置页的「每任务限速」全局配置（aria2 的
+  `max-download-limit`），添加弹窗不再有「限速KB/s」输入——每任务覆盖无意义，
+  `StartOptions.limitBps` 一并删除。
 - **移除优先级功能**：实测 + `aria2-next --help=#all` 确认 aria2-next **没有下载级
   `priority` 选项**（参数被静默忽略，排队恒为添加顺序），「优先级」选择器 / 排序 /
   `priorityValueFromPicker` 一并删除。想先下哪个就暂停其他任务。

@@ -38,7 +38,7 @@ export struct StartOptions {
     int connections = 0;                  // 0 = 引擎按配置默认
     std::string outputName;               // 重命名；空 = 取 URL 文件名
     std::filesystem::path dirOverride;    // 覆盖下载目录；空 = 配置目录（相对按配置目录解析）
-    std::int64_t limitBps = 0;            // 每任务限速 bytes/s；0 = 全局配置
+    // 限速不在这里：每任务单独限速已移除（无意义），统一走配置的 maxDownloadLimit。
 };
 
 // Abstract download engine contract. Implementations are owned by the app
