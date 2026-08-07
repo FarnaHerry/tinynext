@@ -236,6 +236,54 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
         .build();
 }
 
+// 数字步进输入：文本输入 + 内嵌 -/+ 按钮。value 是当前文本（可手输数字；空/非法
+// 按 0），加减基于解析出的整数，夹到 [min,max]、步长 step，改完写回并回调。
+// 布局：[-] [输入] [+]。
+export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, float y,
+                               float width, float height, const AppTheme& theme,
+                               const std::string& value,
+                               const std::function<void(const std::string&)>& onChange,
+                               int min, int max, int step) {
+    const float btnW = std::min(S(20.0f), (width - S(4.0f)) * 0.35f);
+    const float gap = S(3.0f);
+    const float inputW = width - btnW * 2.0f - gap * 2.0f;
+    const auto& tokens = theme.components;
+
+    components::button(ui, id + ".minus")
+        .position(x, y)
+        .size(btnW, height)
+        .icon(0xF068)  // fa-minus
+        .text("")
+        .iconSize(S(9.0f))
+        .theme(tokens, false)
+        .onClick([value, onChange, min, max, step] {
+            int cur = 0;
+            try { cur = std::stoi(trimText(value)); } catch (...) {}
+            onChange(std::to_string(std::clamp(cur - step, min, max)));
+        })
+        .build();
+    components::input(ui, id + ".input")
+        .position(x + btnW + gap, y)
+        .size(inputW, height)
+        .value(value)
+        .theme(tokens)
+        .onChange(onChange)
+        .build();
+    components::button(ui, id + ".plus")
+        .position(x + btnW + gap + inputW + gap, y)
+        .size(btnW, height)
+        .icon(0xF067)  // fa-plus
+        .text("")
+        .iconSize(S(9.0f))
+        .theme(tokens, false)
+        .onClick([value, onChange, min, max, step] {
+            int cur = 0;
+            try { cur = std::stoi(trimText(value)); } catch (...) {}
+            onChange(std::to_string(std::clamp(cur + step, min, max)));
+        })
+        .build();
+}
+
 // 侧边栏列表项（普通列表）：图标 + 文字，激活时主色高亮 + 左侧竖条。
 // 用于页面导航（下载列表 / 设置）和下载状态筛选（所有 / 下载中 / 已完成）。
 export void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y,

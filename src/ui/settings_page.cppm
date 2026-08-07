@@ -142,6 +142,24 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .build();
             };
 
+            // 行内"标签 + 数字步进输入"：与 field 同布局，但输入框带 -/+ 步进按钮。
+            // 只接受数字的字段用这个，既能手输又能点加减。
+            auto numericField = [&](eui::Ui& r, const std::string& id, const char* label,
+                                    float x, float inputW, const std::string& value,
+                                    const std::function<void(const std::string&)>& onChange,
+                                    int min, int max, int step) {
+                components::text(r, "st." + id + ".label")
+                    .position(x, 0)
+                    .size(kLabelW, kFieldH)
+                    .text(label)
+                    .fontSize(S(11.0f))
+                    .lineHeight(kFieldH)
+                    .color(theme.metaText)
+                    .build();
+                buildNumberStepper(r, "st." + id + ".input", x + kLabelW, -S(2.0f),
+                                   inputW, S(26.0f), theme, value, onChange, min, max, step);
+            };
+
             // ---- 主题：跟随系统 / 深色 / 浅色 ----
             row("theme", kFieldH, [&](eui::Ui& r, float) {
                 components::text(r, "st.theme.label")
@@ -231,10 +249,12 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 });
 
                 row("a.split", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "a.split", "分片数", 0, kInputW, g_aria2SplitText,
-                          [](const std::string& v) { g_aria2SplitText = v; });
-                    field(r, "a.conn", "每服务器连接", kCol2X, kInputW, g_aria2ConnText,
-                          [](const std::string& v) { g_aria2ConnText = v; });
+                    numericField(r, "a.split", "分片数", 0, kInputW, g_aria2SplitText,
+                                 [](const std::string& v) { g_aria2SplitText = v; },
+                                 1, 64, 1);
+                    numericField(r, "a.conn", "每服务器连接", kCol2X, kInputW, g_aria2ConnText,
+                                 [](const std::string& v) { g_aria2ConnText = v; },
+                                 1, 64, 1);
                 });
                 row("a.minsplit", kFieldH, [&](eui::Ui& r, float) {
                     // 最小分片：数值输入 + 紧跟的单位下拉（KB/MB/GB）。
@@ -247,13 +267,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .lineHeight(kFieldH)
                         .color(theme.metaText)
                         .build();
-                    components::input(r, "st.a.minsplit.input")
-                        .position(kLabelW, -S(2.0f))
-                        .size(kInputW, S(26.0f))
-                        .value(g_aria2MinSplitText)
-                        .theme(theme.components)
-                        .onChange([](const std::string& v) { g_aria2MinSplitText = v; })
-                        .build();
+                    buildNumberStepper(r, "st.a.minsplit.input", kLabelW, -S(2.0f),
+                                       kInputW, S(26.0f), theme, g_aria2MinSplitText,
+                                       [](const std::string& v) { g_aria2MinSplitText = v; },
+                                       1, 1024, 1);
                     r.stack("st.a.minsplit.unit")
                         .position(kLabelW + kInputW + S(8.0f), -S(2.0f))
                         .size(S(64.0f), S(26.0f))
@@ -280,18 +297,21 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                           "host1,host2（逗号分隔）");
                 });
                 row("a.retry", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "a.maxtries", "最大重试次数", 0, kInputW, g_maxTriesText,
-                          [](const std::string& v) { g_maxTriesText = v; },
-                          "0=无限");
-                    field(r, "a.retrywait", "重试等待秒", kCol2X, kInputW, g_retryWaitText,
-                          [](const std::string& v) { g_retryWaitText = v; });
+                    numericField(r, "a.maxtries", "最大重试次数", 0, kInputW, g_maxTriesText,
+                                 [](const std::string& v) { g_maxTriesText = v; },
+                                 0, 100, 1);
+                    numericField(r, "a.retrywait", "重试等待秒", kCol2X, kInputW, g_retryWaitText,
+                                 [](const std::string& v) { g_retryWaitText = v; },
+                                 0, 600, 1);
                 });
                 row("a.limit", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "a.limit", "限速KB/s", 0, kInputW, g_aria2LimitText,
-                          [](const std::string& v) { g_aria2LimitText = v; });
-                    field(r, "a.concurrent", "最大同时下载数", kCol2X, kInputW,
-                          g_maxConcurrentText,
-                          [](const std::string& v) { g_maxConcurrentText = v; });
+                    numericField(r, "a.limit", "限速KB/s", 0, kInputW, g_aria2LimitText,
+                                 [](const std::string& v) { g_aria2LimitText = v; },
+                                 0, 1000000, 100);
+                    numericField(r, "a.concurrent", "最大同时下载数", kCol2X, kInputW,
+                                 g_maxConcurrentText,
+                                 [](const std::string& v) { g_maxConcurrentText = v; },
+                                 1, 64, 1);
                 });
                 row("a.remctrl", kFieldH, [&](eui::Ui& r, float) {
                     components::text(r, "st.a.remctrl.label")

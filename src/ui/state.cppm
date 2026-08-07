@@ -54,7 +54,12 @@ export cfg::ThemeMode g_pendingTheme = g_themeMode;
 // aria2 参数待提交值（设置页输入框的文本形式）。
 export std::string g_aria2SplitText = std::to_string(cfg::aria2Config().split);
 export std::string g_aria2ConnText = std::to_string(cfg::aria2Config().maxConnectionPerServer);
-export std::string g_aria2MinSplitText = cfg::aria2Config().minSplitSize;
+// 最小分片数值部分（初始从配置拆出纯数值，"1M" → "1"），单位单独存 g_aria2MinSplitUnit。
+export std::string g_aria2MinSplitText = [] {
+    std::string value, unit;
+    splitSizeUnit(cfg::aria2Config().minSplitSize, value, unit);
+    return value;
+}();
 export std::string g_aria2MinSplitUnit = [] {
     std::string value, unit;
     splitSizeUnit(cfg::aria2Config().minSplitSize, value, unit);
