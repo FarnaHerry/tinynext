@@ -56,7 +56,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
             struct AboutRow { const char* label; const char* value; };
             static const AboutRow kAboutRows[] = {
                 {"应用名称", "TinyNext 下载器"},
-                {"版本", "0.2.2"},
+                {"版本", "0.2.3"},
                 {"界面框架", "EUI-NEO 0.5.3"},
                 {"下载引擎", "aria2-next 2.5.5"},
                 {"网络传输", "本地 socket（无外部依赖）"},

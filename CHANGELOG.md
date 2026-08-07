@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.2.3（Unreleased / 开发中）
+
+### 发布与安装包
+- **平台安装包**（CI 打包升级）：Windows 出 NSIS `setup.exe`（per-user 装到
+  `%LOCALAPPDATA%\Programs\TinyNext`，无管理员、Add/Remove Programs 卸载项、中文向导）；
+  Linux 出 `.deb` + `.rpm`（装 `/opt/tinynext` + 系统 loader 启动器 + 桌面项/图标）；
+  macOS 暂保持 tar.gz（签名需 Apple 账号，后续做）。免安装 zip / tar.gz 全部保留。
+- **配置/会话移到 per-user 目录**：`tinynext.conf` 与 aria2 `tinynext.session` 从 cwd
+  改到 `%APPDATA%\TinyNext`（macOS `~/Library/Application Support` / Linux
+  `$XDG_CONFIG_HOME`）——安装版经快捷方式启动时 cwd 可能是 System32 等不可写目录，
+  写 cwd 会导致设置存不上、任务无法续传。exe 旁已有旧配置继续优先使用（便携版兼容）。
+- CI 打包修复：rpm 桌面图标改用预渲染 `assets/icon.png`（icon.ico 多帧导致 convert
+  输出 `-0.png` 而非 `icon.png`）、NSIS 中文向导语言文件 `SimpChinese.nlf` 仓库本地化
+  （choco 精简版无 Contrib、且 NSIS3 里文件名是 SimpChinese 而非 ChineseSimplified）、
+  makensis 标准目录回退搜索。
+
+### UI
+- 下载页状态筛选侧边栏标题「下载状态」→「任务列表」。
+
+### 每任务选项
+- **移除每任务单独限速**：限速统一走设置页「每任务限速」全局配置（aria2
+  `max-download-limit`），添加弹窗不再有「限速KB/s」输入，`StartOptions.limitBps` 删除。
+
 ## 0.2.2（2026-08-07）
 
 ### 下载引擎：纯 aria2-next
@@ -28,9 +51,6 @@
 - aria2 配置扩展：**代理**（HTTP/HTTPS，aria2 不支持 SOCKS5）、**重试次数 / 等待秒**、**最大同时下载数**（队列并发，默认 5）、**完成后移除控制文件**、**完成后命令**、**User-Agent / Referer / 磁盘缓存**。
 - 设置页正文改**可滚动**；aria2 参数在 daemon 已启动时提示「重启后生效」。
 - 添加弹窗每任务选项：**连接数 / 重命名 / 下载目录**；打开时**默认填配置的连接数与下载目录**。
-- **移除每任务单独限速**：限速统一走设置页的「每任务限速」全局配置（aria2 的
-  `max-download-limit`），添加弹窗不再有「限速KB/s」输入——每任务覆盖无意义，
-  `StartOptions.limitBps` 一并删除。
 - **移除优先级功能**：实测 + `aria2-next --help=#all` 确认 aria2-next **没有下载级
   `priority` 选项**（参数被静默忽略，排队恒为添加顺序），「优先级」选择器 / 排序 /
   `priorityValueFromPicker` 一并删除。想先下哪个就暂停其他任务。
