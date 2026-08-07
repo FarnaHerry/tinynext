@@ -267,7 +267,15 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
         .size(inputW, height)
         .value(value)
         .theme(tokens)
-        .onChange(onChange)
+        .onChange([onChange](const std::string& v) {
+            // 只保留数字：手输字母/符号会被滤掉（eui input 每帧用 value() 覆盖
+            // 内部文本，写回纯数字状态后显示即同步）。范围校验在保存层。
+            std::string digits;
+            for (char c : v) {
+                if (c >= '0' && c <= '9') digits += c;
+            }
+            onChange(digits);
+        })
         .build();
     components::button(ui, id + ".plus")
         .position(x + btnW + gap + inputW + gap, y)

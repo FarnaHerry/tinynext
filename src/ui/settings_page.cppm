@@ -398,6 +398,48 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             }
             g_downloadDirText = t;
 
+            // aria2 参数：先整体校验（空/非整数/越界 → 报错并中止保存，不落任何值），
+            // 全部通过才应用主题 + 落盘。
+            auto validateInt = [&](const std::string& text, int lo, int hi,
+                                   const char* label, int& out) -> bool {
+                const std::string s = trimText(text);
+                if (s.empty()) {
+                    showStatus(std::format("{} 不能为空", label));
+                    return false;
+                }
+                int v = 0;
+                try {
+                    v = std::stoi(s);
+                } catch (...) {
+                    showStatus(std::format("{} 必须是整数", label));
+                    return false;
+                }
+                if (v < lo || v > hi) {
+                    showStatus(std::format("{} 需在 {}~{} 之间", label, lo, hi));
+                    return false;
+                }
+                out = v;
+                return true;
+            };
+
+            int splitV = 0, connV = 0, minSplitV = 0, limitV = 0,
+                maxTriesV = 0, retryWaitV = 0, concurrentV = 0;
+            if (!validateInt(g_aria2SplitText, 1, 64, "分片数", splitV)) return;
+            if (!validateInt(g_aria2ConnText, 1, 64, "每服务器连接", connV)) return;
+            if (!validateInt(g_aria2MinSplitText, 1, 1024, "最小分片", minSplitV)) return;
+            if (!validateInt(g_aria2LimitText, 0, 1000000, "限速KB/s", limitV)) return;
+            if (!validateInt(g_maxTriesText, 0, 100, "最大重试次数", maxTriesV)) return;
+            if (!validateInt(g_retryWaitText, 0, 600, "重试等待秒", retryWaitV)) return;
+            if (!validateInt(g_maxConcurrentText, 1, 64, "最大同时下载数", concurrentV)) return;
+
+            // 最小分片：数值 + 单位合成后必须 ≥ 1M（aria2 下限）。
+            const std::string minSplitCombined =
+                joinSizeUnit(std::to_string(minSplitV), g_aria2MinSplitUnit);
+            if (parseSizeBytes(minSplitCombined) < 1048576) {
+                showStatus("最小分片不能小于 1M");
+                return;
+            }
+
             // 主题：套用待提交值并落盘。
             g_themeMode = g_pendingTheme;
             switch (g_pendingTheme) {
@@ -407,29 +449,18 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             }
             cfg::setThemeMode(g_pendingTheme);
 
-            // aria2 参数：解析并夹取后落盘，回写规范化文本。
+            // aria2 参数：用已校验值落盘。
             const cfg::Aria2Config cur = cfg::aria2Config();
             cfg::Aria2Config a2;
-            a2.split = parseIntClamped(g_aria2SplitText, 1, 64, cur.split);
-            a2.maxConnectionPerServer =
-                parseIntClamped(g_aria2ConnText, 1, 64, cur.maxConnectionPerServer);
-            a2.minSplitSize = "1M";
-            {
-                const std::string combined =
-                    joinSizeUnit(trimText(g_aria2MinSplitText), g_aria2MinSplitUnit);
-                if (parseSizeBytes(combined) >= 1048576) {
-                    a2.minSplitSize = combined;
-                }
-            }
-            a2.maxDownloadLimit =
-                static_cast<std::int64_t>(
-                    parseIntClamped(g_aria2LimitText, 0, 1000000, 0)) * 1024;
+            a2.split = splitV;
+            a2.maxConnectionPerServer = connV;
+            a2.minSplitSize = minSplitCombined;
+            a2.maxDownloadLimit = static_cast<std::int64_t>(limitV) * 1024;
             a2.proxy = trimText(g_proxyText);
             a2.noProxy = trimText(g_noProxyText);
-            a2.maxTries = parseIntClamped(g_maxTriesText, 0, 100, cur.maxTries);
-            a2.retryWait = parseIntClamped(g_retryWaitText, 0, 600, cur.retryWait);
-            a2.maxConcurrentDownloads =
-                parseIntClamped(g_maxConcurrentText, 1, 64, cur.maxConcurrentDownloads);
+            a2.maxTries = maxTriesV;
+            a2.retryWait = retryWaitV;
+            a2.maxConcurrentDownloads = concurrentV;
             a2.removeControlFile = g_removeControlFile;
             a2.onDownloadComplete = trimText(g_onCompleteText);
             a2.userAgent = trimText(g_userAgentText);

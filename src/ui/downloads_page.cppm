@@ -393,15 +393,10 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .lineHeight(S(28.0f))
                     .color(theme.metaText)
                     .build();
-                components::input(ui, "add.conn")
-                    .position(inputX, splitY - S(2.0f))
-                    .size(S(84.0f), S(28.0f))
-                    .placeholder("0=默认")
-                    .value(g_addConnectionsText)
-                    .theme(theme.components)
-                    .onChange([](const std::string& value) { g_addConnectionsText = value; })
-                    .onEnter([] { if (addDownload()) g_addOpen = false; })
-                    .build();
+                buildNumberStepper(ui, "add.conn", inputX, splitY - S(2.0f),
+                                   S(84.0f), S(28.0f), theme, g_addConnectionsText,
+                                   [](const std::string& v) { g_addConnectionsText = v; },
+                                   0, 64, 1);  // 0=用配置默认
 
                 // ---- 重命名（可选，留空=URL 文件名）----
                 components::text(ui, "add.rename.label")
