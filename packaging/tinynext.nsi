@@ -1,21 +1,19 @@
-; tinynext.nsi -- NSIS installer for TinyNext (Windows).
+; tinynext.nsi -- NSIS installer for TinyNext (Windows), Modern UI 2.
 ; Built by make-win-pkg.ps1 (which first runs make-dist.ps1 to stage ..\dist\).
 ; Version is injected on the command line:
 ;     makensis /DAPP_VERSION=x.y.z tinynext.nsi
 ;
-; IMPORTANT: keep this file ASCII-only. NSIS reads a BOM-less UTF-8 script as
-; the ANSI codepage; a non-ASCII byte (e.g. the Chinese shortcut names) would be
-; misread on en-US CI runners. The wizard UI is still Chinese because we load
-; NSIS's own ChineseSimplified.nlf (encoded properly inside NSIS).
+; Requires a FULL NSIS install (Modern UI 2 + SimpChinese language file). The
+; choco "nsis" package is a slim build with no Contrib -- CI downloads the full
+; NSIS 3.10 zip instead.
+;
+; IMPORTANT: keep this file ASCII-only (NSIS reads a BOM-less UTF-8 script as
+; the ANSI codepage). All Chinese UI text comes from the SimpChinese language
+; file, not from strings in this script.
 
 Unicode true
 
-; Chinese wizard UI (Next/Back/Install/Uninstall buttons etc.).
-; Load from the repo copy (packaging/SimpChinese.nlf): the choco "nsis" package is
-; a slim build with no Contrib\Language files, and in NSIS 3 the simplified-Chinese
-; file is SimpChinese.nlf (not ChineseSimplified.nlf). Shipping it makes the wizard
-; language independent of how NSIS was installed.
-LoadLanguageFile "SimpChinese.nlf"
+!include "MUI2.nsh"
 
 !ifndef APP_VERSION
   !error "APP_VERSION not defined -- pass /DAPP_VERSION=x.y.z"
@@ -24,36 +22,46 @@ LoadLanguageFile "SimpChinese.nlf"
 Name "TinyNext ${APP_VERSION}"
 OutFile "..\tinynext-v${APP_VERSION}-win64-setup.exe"
 
-; Per-user install (no admin needed). TinyNext writes tinynext.conf to its cwd,
-; so the shortcut's "Start in" points at the install dir -- config lands next to
-; the exe, matching the portable zip behaviour. Program Files would be
-; unwritable for the config file.
+; Per-user install (no admin needed). Config/session live in the per-user
+; config dir (not cwd), so no "Start in" is required.
 InstallDir "$LOCALAPPDATA\Programs\TinyNext"
 InstallDirRegKey HKCU "Software\TinyNext" "InstallLocation"
 
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 
-Icon "..\assets\icon.ico"
+; ---- Modern UI 2 ----
+!define MUI_ABORTWARNING
+!define MUI_ICON "..\assets\icon.ico"
+!define MUI_UNICON "..\assets\icon.ico"
+!define MUI_HEADERIMAGE
+!define MUI_HEADERIMAGE_RIGHT
+!define MUI_HEADERIMAGE_BITMAP "header-r.bmp"
+!define MUI_WELCOMEFINISHPAGE_BITMAP "welcome.bmp"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\tinynext.exe"
 
-; ---- pages ----
-Page directory
-Page instfiles
-UninstPage uninstConfirm
-UninstPage instfiles
+; MUI2 requires MUI_LANGUAGE to come after all MUI_[UN]PAGE_* macros.
+!insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_INSTFILES
+!insertmacro MUI_PAGE_FINISH
+
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
+
+!insertmacro MUI_LANGUAGE "SimpChinese"
 
 ; ---- install ----
 Section "TinyNext" SecMain
     SetOutPath "$INSTDIR"
     File /r "..\dist\*"
 
-    ; Start menu + desktop shortcuts. Config/session are stored in the per-user
-    ; config dir (not cwd), so no "Start in" is needed -- NSIS core CreateShortCut
-    ; cannot set a working directory anyway. Shortcut icon from assets.
+    ; Start menu + desktop shortcuts (icon from assets; wizard text is Chinese
+    ; via the language file, shortcut names stay ASCII).
     CreateDirectory "$SMPROGRAMS\TinyNext"
-    CreateShortCut "$SMPROGRAMS\TinyNext\TinyNext.lnk" "$INSTDIR\tinynext.exe" "" "$INSTDIR\assets\icon.ico" 0 SW_SHOWNORMAL "" "TinyNext downloader"
+    CreateShortCut "$SMPROGRAMS\TinyNext\TinyNext.lnk" "$INSTDIR\tinynext.exe" "" "$INSTDIR\assets\icon.ico" 0 SW_SHOWNORMAL "" "TinyNext"
     CreateShortCut "$SMPROGRAMS\TinyNext\Uninstall TinyNext.lnk" "$INSTDIR\Uninstall.exe"
-    CreateShortCut "$DESKTOP\TinyNext.lnk" "$INSTDIR\tinynext.exe" "" "$INSTDIR\assets\icon.ico" 0 SW_SHOWNORMAL "" "TinyNext downloader"
+    CreateShortCut "$DESKTOP\TinyNext.lnk" "$INSTDIR\tinynext.exe" "" "$INSTDIR\assets\icon.ico" 0 SW_SHOWNORMAL "" "TinyNext"
 
     ; Uninstaller + Add/Remove Programs entry (per-user, HKCU).
     WriteUninstaller "$INSTDIR\Uninstall.exe"
