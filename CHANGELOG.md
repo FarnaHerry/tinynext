@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.4（Unreleased / 开发中）
+
+### CI
+- GitHub Actions 升级到 Node 24 大版本（checkout v7 / cache v6 / upload-artifact v7 /
+  download-artifact v8），消掉 Node 20 弃用警告。已核对 upload 的
+  `name/path/if-no-files-found`、download 的 `path/merge-multiple` 语义不变，
+  release artifacts 流程照旧。
+
 ## 0.2.3（Unreleased / 开发中）
 
 ### 发布与安装包
