@@ -66,12 +66,13 @@ Terminal=false
 Categories=Network;FileTransfer;GTK;
 EOF
 
-# ---- icon (ico -> png) ----
-if command -v convert >/dev/null 2>&1; then
-    convert "$root/assets/icon.ico" -resize 256x256 \
-        "$work/usr/share/icons/hicolor/256x256/apps/tinynext.png"
+# ---- icon (pre-rendered 256x256 PNG, committed as assets/icon.png) ----
+# 不用 imagemagick 现场转：icon.ico 是多帧，convert 会输出 tinynext-0.png 而非
+# tinynext.png。直接拷仓库里的 icon.png。
+if [ -f "$root/assets/icon.png" ]; then
+    cp "$root/assets/icon.png" "$work/usr/share/icons/hicolor/256x256/apps/tinynext.png"
 else
-    echo "WARN: imagemagick (convert) missing - desktop icon skipped" >&2
+    echo "WARN: assets/icon.png missing - desktop icon skipped" >&2
 fi
 
 # ---- md5sums (paths relative to package root, no leading ./) ----

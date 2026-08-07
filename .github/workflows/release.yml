@@ -100,12 +100,12 @@ jobs:
         shell: pwsh
         run: choco install nsis --no-progress -y
 
-      - name: Install rpm / imagemagick (Linux packaging)
+      - name: Install rpm (Linux packaging)
         if: runner.os == 'Linux'
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y rpm imagemagick
+          sudo apt-get install -y rpm
 
       - name: Build release
         run: mcpp build --release

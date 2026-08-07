@@ -5,7 +5,7 @@
 # Usage: bash packaging/make-linux-pkg.sh
 #
 # Requires the build to have happened (`mcpp build --release`). CI installs the
-# packaging tools with: sudo apt-get install -y rpm imagemagick
+# packaging tool with: sudo apt-get install -y rpm
 #
 # Outputs (repo root):
 #   tinynext-v<ver>-linux-x86_64.tar.gz     (portable, from make-dist.sh)

@@ -54,7 +54,8 @@ Terminal=false
 Categories=Network;FileTransfer;GTK;
 EOF
 
-convert %{_repo}/assets/icon.ico -resize 256x256 \
+# 预渲染 PNG（icon.ico 是多帧，convert 会输出 tinynext-0.png，这里直接拷 icon.png）
+cp %{_repo}/assets/icon.png \
     %{buildroot}/usr/share/icons/hicolor/256x256/apps/tinynext.png
 
 %files

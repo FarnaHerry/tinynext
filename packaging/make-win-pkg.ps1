@@ -27,9 +27,23 @@ if (-not $versionLine) { throw "cannot parse version from mcpp.toml" }
 $version = $versionLine -replace '^\s*version\s*=\s*"([^"]+)".*', '$1'
 
 Write-Host "== 3/3 makensis =="
-$makensis = Get-Command makensis -ErrorAction SilentlyContinue
+# choco 装的 NSIS 可能没有 makensis shim（不在 PATH），回退到标准安装目录找。
+function Find-Makensis {
+    $cmd = Get-Command makensis -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $dirs = @()
+    $pf86 = [Environment]::GetFolderPath([System.Environment+SpecialFolder]::ProgramFilesX86)
+    if ($pf86) { $dirs += $pf86 }
+    if ($env:ProgramFiles) { $dirs += $env:ProgramFiles }
+    foreach ($base in $dirs) {
+        $candidate = Join-Path (Join-Path $base "NSIS") "makensis.exe"
+        if (Test-Path $candidate) { return $candidate }
+    }
+    return $null
+}
+$makensis = Find-Makensis
 if (-not $makensis) { throw "makensis not found - install NSIS (choco install nsis)" }
-& $makensis.Source "/DAPP_VERSION=$version" (Join-Path $PSScriptRoot "tinynext.nsi")
+& $makensis "/DAPP_VERSION=$version" (Join-Path $PSScriptRoot "tinynext.nsi")
 if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
 
 $out = Join-Path $repoRoot "tinynext-v$version-win64-setup.exe"
