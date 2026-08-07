@@ -244,14 +244,17 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
                                const std::string& value,
                                const std::function<void(const std::string&)>& onChange,
                                int min, int max, int step) {
-    const float btnW = std::min(S(20.0f), (width - S(4.0f)) * 0.35f);
+    // -/+ 按钮做成正方形 → 纯圆（radius = 边长/2），垂直居中于输入框高度。
+    const float btnSize = std::min(S(20.0f), height);
+    const float btnY = y + (height - btnSize) * 0.5f;
     const float gap = S(3.0f);
-    const float inputW = width - btnW * 2.0f - gap * 2.0f;
+    const float inputW = width - btnSize * 2.0f - gap * 2.0f;
     const auto& tokens = theme.components;
 
     components::button(ui, id + ".minus")
-        .position(x, y)
-        .size(btnW, height)
+        .position(x, btnY)
+        .size(btnSize, btnSize)
+        .radius(btnSize * 0.5f)
         .icon(0xF068)  // fa-minus
         .text("")
         .iconSize(S(9.0f))
@@ -263,7 +266,7 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
         })
         .build();
     components::input(ui, id + ".input")
-        .position(x + btnW + gap, y)
+        .position(x + btnSize + gap, y)
         .size(inputW, height)
         .value(value)
         .theme(tokens)
@@ -278,8 +281,9 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
         })
         .build();
     components::button(ui, id + ".plus")
-        .position(x + btnW + gap + inputW + gap, y)
-        .size(btnW, height)
+        .position(x + btnSize + gap + inputW + gap, btnY)
+        .size(btnSize, btnSize)
+        .radius(btnSize * 0.5f)
         .icon(0xF067)  // fa-plus
         .text("")
         .iconSize(S(9.0f))

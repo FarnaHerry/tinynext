@@ -228,7 +228,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     // ---- 翻页控件组：◀ 页码 ▶ [数字/页]，整组收进一张小卡片 ----
     // 简洁版：中间只显示当前页码数字（不再显示"第 X / Y 页"），分页大小是
     // 无边框的纯文本"数字/页"。整组控件包在一张圆角小卡里（岛内小岛）。
-    constexpr float kChevWidth = S(18.0f);
+    constexpr float kChevWidth = S(20.0f);  // 正方形 → components::button 默认 radius 钳成纯圆
     constexpr float kPageLabelWidth = S(28.0f);   // 仅当前页码
     constexpr float kPageSizeWidth = S(52.0f);    // "数字/页" 纯文本
     constexpr float kPagerGap = S(4.0f);
@@ -267,7 +267,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 .alignItems(core::Align::CENTER)
                 .content([&] {
                     components::button(ui, "pager.prev")
-                        .size(kChevWidth, S(20.0f))
+                        .size(kChevWidth, kChevWidth)
                         .icon(0xF053)  // chevron-left
                         .text("")
                         .iconSize(S(11.0f))
@@ -287,7 +287,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .build();
 
                     components::button(ui, "pager.next")
-                        .size(kChevWidth, S(20.0f))
+                        .size(kChevWidth, kChevWidth)
                         .icon(0xF054)  // chevron-right
                         .text("")
                         .iconSize(S(11.0f))
