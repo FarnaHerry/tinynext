@@ -58,7 +58,7 @@ jobs:
             pkg_glob: tinynext-v*.tar.gz
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install mcpp (Linux / macOS)
         if: runner.os != 'Windows'
@@ -79,7 +79,7 @@ jobs:
           "$env:USERPROFILE\.xlings\subos\default\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Cache mcpp toolchain
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ runner.os == 'Windows' && '~/.xlings' || '~/.mcpp' }}
           key: mcpp-${{ runner.os }}-${{ hashFiles('mcpp.lock', 'mcpp.toml') }}
@@ -138,7 +138,7 @@ jobs:
         run: ${{ matrix.pkg_cmd }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}
           path: ${{ matrix.pkg_glob }}
@@ -152,10 +152,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
