@@ -120,3 +120,23 @@ export std::int64_t parseSizeBytes(const std::string& input) {
         return 0;
     }
 }
+
+// 把 "1M"/"512K"/"2G" 拆成数值与显示单位（KB/MB/GB）；无/未知后缀按 MB 兜底。
+export void splitSizeUnit(const std::string& size, std::string& value, std::string& unit) {
+    if (size.size() >= 2) {
+        switch (size.back()) {
+            case 'K': case 'k': value = size.substr(0, size.size() - 1); unit = "KB"; return;
+            case 'M': case 'm': value = size.substr(0, size.size() - 1); unit = "MB"; return;
+            case 'G': case 'g': value = size.substr(0, size.size() - 1); unit = "GB"; return;
+            default: break;
+        }
+    }
+    value = size;
+    unit = "MB";
+}
+
+// 数值 + 显示单位（KB/MB/GB）→ aria2 后缀形式（"1M"/"512K"/"2G"）。
+export std::string joinSizeUnit(const std::string& value, const std::string& unit) {
+    const char suffix = unit == "KB" ? 'K' : unit == "GB" ? 'G' : 'M';
+    return trimText(value) + suffix;
+}

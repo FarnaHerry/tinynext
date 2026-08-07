@@ -55,6 +55,12 @@ export cfg::ThemeMode g_pendingTheme = g_themeMode;
 export std::string g_aria2SplitText = std::to_string(cfg::aria2Config().split);
 export std::string g_aria2ConnText = std::to_string(cfg::aria2Config().maxConnectionPerServer);
 export std::string g_aria2MinSplitText = cfg::aria2Config().minSplitSize;
+export std::string g_aria2MinSplitUnit = [] {
+    std::string value, unit;
+    splitSizeUnit(cfg::aria2Config().minSplitSize, value, unit);
+    return unit;
+}();  // 最小分片单位（KB/MB/GB），随配置解析
+export bool g_minSplitUnitOpen = false;  // 最小分片单位下拉是否展开
 export std::string g_aria2LimitText =
     std::to_string(cfg::aria2Config().maxDownloadLimit / 1024);  // KB/s
 // daemon 级参数待提交值。

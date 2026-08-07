@@ -35,6 +35,14 @@ bool sameAria2Config(const cfg::Aria2Config& x, const cfg::Aria2Config& y) {
            x.diskCache == y.diskCache;
 }
 
+// 最小分片单位下拉的可选项（KB/MB；GB 对 min-split-size 过于大，不提供）。
+// 旧配置里的 G 后缀解析后按 MB 显示（sizeUnitIndex 兜底到 MB）。
+constexpr const char* kSizeUnits[] = {"KB", "MB"};
+int sizeUnitIndex(const std::string& unit) {
+    if (unit == "KB") return 0;
+    return 1;  // MB（默认）
+}
+
 } // namespace
 
 // ===================== 设置页 =====================
@@ -98,11 +106,15 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 .build();
 
             // 一行 = 一个定高 stack 子项，由 scrollView 纵向自动排布。
+            // zIndex 用于把含弹出下拉的行抬到其它行之上（eui 按 zIndex 稳定排序
+            // 直接子元素），否则弹层会被后面几行盖住。
             auto row = [&](const std::string& id, float height,
-                           const std::function<void(eui::Ui&, float)>& draw) {
+                           const std::function<void(eui::Ui&, float)>& draw,
+                           int zIndex = 0) {
                 sv.stack("st." + id)
                     .width(rowW)
                     .height(height)
+                    .zIndex(zIndex)
                     .content([&] { draw(sv, rowW); })
                     .build();
             };
@@ -225,11 +237,38 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                           [](const std::string& v) { g_aria2ConnText = v; });
                 });
                 row("a.minsplit", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "a.minsplit", "最小分片", 0, kInputW, g_aria2MinSplitText,
-                          [](const std::string& v) { g_aria2MinSplitText = v; });
-                    field(r, "a.limit", "限速KB/s", kCol2X, kInputW, g_aria2LimitText,
-                          [](const std::string& v) { g_aria2LimitText = v; });
-                });
+                    // 最小分片：数值输入 + 紧跟的单位下拉（KB/MB/GB）。
+                    // aria2 的 --min-split-size 要求 ≥ 1M，保存时统一校验兜底。
+                    components::text(r, "st.a.minsplit.label")
+                        .position(0, 0)
+                        .size(kLabelW, kFieldH)
+                        .text("最小分片")
+                        .fontSize(S(11.0f))
+                        .lineHeight(kFieldH)
+                        .color(theme.metaText)
+                        .build();
+                    components::input(r, "st.a.minsplit.input")
+                        .position(kLabelW, -S(2.0f))
+                        .size(kInputW, S(26.0f))
+                        .value(g_aria2MinSplitText)
+                        .theme(theme.components)
+                        .onChange([](const std::string& v) { g_aria2MinSplitText = v; })
+                        .build();
+                    r.stack("st.a.minsplit.unit")
+                        .position(kLabelW + kInputW + S(8.0f), -S(2.0f))
+                        .size(S(64.0f), S(26.0f))
+                        .zIndex(30)
+                        .content([&] {
+                            buildListPicker(r, "a.minsplit.unit", S(64.0f), S(26.0f),
+                                            theme, g_minSplitUnitOpen, kSizeUnits, 2,
+                                            sizeUnitIndex(g_aria2MinSplitUnit), false,
+                                            PickerField::Text,
+                                            [](int i) {
+                                                g_aria2MinSplitUnit = kSizeUnits[i];
+                                            });
+                        })
+                        .build();
+                }, 100);  // 行 zIndex：让弹出下拉盖过后面各行
                 row("a.proxy", kFieldH, [&](eui::Ui& r, float) {
                     field(r, "a.proxy", "代理地址", 0, fullW, g_proxyText,
                           [](const std::string& v) { g_proxyText = v; },
@@ -247,8 +286,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     field(r, "a.retrywait", "重试等待秒", kCol2X, kInputW, g_retryWaitText,
                           [](const std::string& v) { g_retryWaitText = v; });
                 });
-                row("a.concurrent", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "a.concurrent", "最大同时下载数", 0, fullW,
+                row("a.limit", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "a.limit", "限速KB/s", 0, kInputW, g_aria2LimitText,
+                          [](const std::string& v) { g_aria2LimitText = v; });
+                    field(r, "a.concurrent", "最大同时下载数", kCol2X, kInputW,
                           g_maxConcurrentText,
                           [](const std::string& v) { g_maxConcurrentText = v; });
                 });
@@ -307,7 +348,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             const cfg::Aria2Config d;  // 默认构造 = 各字段默认值
             g_aria2SplitText = std::to_string(d.split);
             g_aria2ConnText = std::to_string(d.maxConnectionPerServer);
-            g_aria2MinSplitText = d.minSplitSize;
+            splitSizeUnit(d.minSplitSize, g_aria2MinSplitText, g_aria2MinSplitUnit);
             g_aria2LimitText = std::to_string(d.maxDownloadLimit / 1024);
             g_proxyText = d.proxy;
             g_noProxyText = d.noProxy;
@@ -353,8 +394,12 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             a2.maxConnectionPerServer =
                 parseIntClamped(g_aria2ConnText, 1, 64, cur.maxConnectionPerServer);
             a2.minSplitSize = "1M";
-            if (parseSizeBytes(g_aria2MinSplitText) >= 1048576) {
-                a2.minSplitSize = trimText(g_aria2MinSplitText);
+            {
+                const std::string combined =
+                    joinSizeUnit(trimText(g_aria2MinSplitText), g_aria2MinSplitUnit);
+                if (parseSizeBytes(combined) >= 1048576) {
+                    a2.minSplitSize = combined;
+                }
             }
             a2.maxDownloadLimit =
                 static_cast<std::int64_t>(
@@ -375,7 +420,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             cfg::setAria2Config(a2);
             g_aria2SplitText = std::to_string(a2.split);
             g_aria2ConnText = std::to_string(a2.maxConnectionPerServer);
-            g_aria2MinSplitText = a2.minSplitSize;
+            splitSizeUnit(a2.minSplitSize, g_aria2MinSplitText, g_aria2MinSplitUnit);
             g_aria2LimitText = std::to_string(a2.maxDownloadLimit / 1024);
             g_proxyText = a2.proxy;
             g_noProxyText = a2.noProxy;
@@ -414,7 +459,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             const cfg::Aria2Config a2 = cfg::aria2Config();
             g_aria2SplitText = std::to_string(a2.split);
             g_aria2ConnText = std::to_string(a2.maxConnectionPerServer);
-            g_aria2MinSplitText = a2.minSplitSize;
+            splitSizeUnit(a2.minSplitSize, g_aria2MinSplitText, g_aria2MinSplitUnit);
             g_aria2LimitText = std::to_string(a2.maxDownloadLimit / 1024);
             g_proxyText = a2.proxy;
             g_noProxyText = a2.noProxy;
