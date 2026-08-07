@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.2.5（Unreleased / 开发中）
+## 0.2.6（Unreleased / 开发中）
+
+## 0.2.5（2026-08-08）
 
 ### 字体与 Linux 安装包
 - **正文换用思源黑体（Noto Sans SC，OFL）**：移除 eui 默认示例字体「荆南俊俊体」（卡通
