@@ -142,7 +142,7 @@ Linux / macOS 三平台构建并创建 Release（也可 `workflow_dispatch` 手�
    Linux / macOS 的编译问题（这两个平台是首次在 CI 编译 POSIX 分支）。
 2. 三平台都绿后打标签并推送：
    ```bash
-   git tag v0.2.4 && git push origin v0.2.4
+   git tag v0.2.5 && git push origin v0.2.5
    ```
 3. 到仓库 Releases 页把自动生成的 **draft** release 补充说明后发布。
 
@@ -207,8 +207,8 @@ runner。）
   `<eui_neo.h>`（提供 `dsl_app_impl.h` 里的 `app::update/render` 等机制实现）；
   各 UI 模块只包含精简头 `src/ui/eui_ui.h`（去掉 `dsl_app_impl.h`）——该头内联
   lambda 若同时出现在普通 TU 和模块全局片段会 mangled name 冲突。
-- `assets/` — EUI 默认中文字体（JingNanJunJunTi）+ 图标字体，运行时按
-  `exeDir/assets/` 或 `assets/` 相对路径解析。
+- `assets/` — 随包字体：正文 Noto Sans SC（思源黑体，OFL，含许可文本）+ 图标
+  FontAwesome（OFL），运行时按 `exeDir/assets/` 或 `assets/` 相对路径解析。
 
 ## 踩过的坑（重要）
 

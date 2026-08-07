@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.5（Unreleased / 开发中）
+
+### 字体与 Linux 安装包
+- **正文换用思源黑体（Noto Sans SC，OFL）**：移除 eui 默认示例字体「荆南俊俊体」（卡通
+  圆体、Bold 单字重、无明确授权），改用 Noto Sans SC Regular，随包附带 OFL 许可文本；
+  UI 文字更规整、可随安装包自由分发。
+- **修复 Linux 安装包（deb/rpm）启动空白**：安装版启动脚本先 `cd /opt/tinynext` 再经
+  系统 loader 拉起二进制。此前经 `ld.so` 启动时 `/proc/self/exe` 指向 loader 而非本程序，
+  eui 的字体/图标资产按 exeDir/CWD 解析全部失败，回退系统字体又在 Fedora 上全 miss，
+  导致页面空白无字、图标异常。
+- **修复任务栏图标**：桌面项加 `StartupWMClass=TinyNext 下载器`，窗口不再显示系统默认
+  图标（此前 WM_CLASS 是中文窗口标题，匹配不上桌面项，出现双图标）。
+
+### 修复
+- Windows 跟随系统主题：`osDark()` 从错误的 DLL 查 `SHGetValueW`，导致跟随系统主题时
+  永远深色。
+
 ## 0.2.4（Unreleased / 开发中）
 
 ### CI
