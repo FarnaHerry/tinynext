@@ -144,18 +144,25 @@ Linux / macOS 三平台构建并创建 Release（也可 `workflow_dispatch` 手�
 
 产物（aria2-next 二进制在 CI 上按 `engines/checksums.sha256` 校验后随包附上）：
 
-| 平台 | 产物 | 打包脚本 |
-|------|------|----------|
-| Windows x64 | `tinynext-v*-win64.zip` | `make-dist.ps1` |
-| Linux x64 | `tinynext-v*-linux-x86_64.tar.gz` | `make-dist.sh linux x86_64` |
-| macOS Apple Silicon | `tinynext-v*-macos-arm64.tar.gz` | `make-dist.sh macos arm64` |
+**安装包 + 免安装版**：
+
+| 平台 | 安装包 | 免安装版 | 打包脚本 |
+|------|--------|----------|----------|
+| Windows x64 | `tinynext-v*-win64-setup.exe`（NSIS） | `tinynext-v*-win64.zip` | `make-win-pkg.ps1` |
+| Linux x64 | `tinynext-v*-linux-x86_64.deb` / `*.rpm` | `tinynext-v*-linux-x86_64.tar.gz` | `make-linux-pkg.sh` |
+| macOS Apple Silicon | —（暂不做 dmg） | `tinynext-v*-macos-arm64.tar.gz` | `make-dist.sh macos arm64` |
+
+- **Windows 安装包**：per-user 装到 `%LOCALAPPDATA%\Programs\TinyNext`（无需管理员），
+  开始菜单/桌面快捷方式、Add/Remove Programs 卸载项齐全。未签名，SmartScreen 可能提示。
+- **Linux 安装包**：装到 `/opt/tinynext` + `/usr/bin/tinynext` 启动器 + 桌面项；
+  启动器走系统 loader（Debian multiarch + Fedora `/usr/lib64` 都覆盖）。`.deb` 声明
+  `Depends: libc6 (>= 2.39), libgl1`，目标机器需 glibc ≥ 2.39 且有桌面 Mesa/GLX。
+- **Linux 免安装包**内含 `run.sh`（走系统 loader + 系统 Mesa，原理见仓库根 `run.sh`），
+  同样需 glibc ≥ 2.39 且有桌面 GLX。
 
 （macOS Intel 暂不参与 CI 构建——官方 mcpp install.sh 只提供 macosx-arm64
 二进制；等 Intel 的 mcpp 二进制或 macOS 上 subos 安装验证后再加 `macos-13`
 runner。）
-
-Linux 包内含 `run.sh` 启动脚本（走系统 loader + 系统 Mesa，原理见仓库根
-`run.sh`），目标机器需 glibc ≥ 2.39 且有桌面 GLX。
 
 ## 技术栈
 

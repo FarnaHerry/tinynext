@@ -4,6 +4,12 @@ downloads/
 compile_commands.json
 dist/
 *.zip
+*.tar.gz
+tinynext-v*-win64-setup.exe
+tinynext-v*-linux-x86_64.deb
+tinynext-v*-linux-x86_64.rpm
+rpmbuild/
+.deb-root/
 tinynext.conf
 tinynext.session
 # bundled aria2-next engine binary (downloaded from releases; checksum in engines/)
