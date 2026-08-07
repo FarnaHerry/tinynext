@@ -200,10 +200,10 @@ export void setThemeMode(ThemeMode mode) {
 export bool osDark() {
 #ifdef _WIN32
     // AppsUseLightTheme (HKCU\...\Themes\Personalize): 0 = dark, 1 = light.
-    // SHGetValueW is loaded from shell32 so no link change is needed.
+    // SHGetValueW 是 shlwapi.dll 的导出（不是 shell32），动态加载避免链接 shlwapi。
     using ShGetValueFn = LSTATUS(WINAPI*)(HKEY, LPCWSTR, LPCWSTR, DWORD*, void*, DWORD*);
     static const ShGetValueFn shGetValue = []() -> ShGetValueFn {
-        HMODULE m = LoadLibraryW(L"shell32.dll");
+        HMODULE m = LoadLibraryW(L"shlwapi.dll");
         if (!m) return nullptr;
         return reinterpret_cast<ShGetValueFn>(
             reinterpret_cast<void*>(GetProcAddress(m, "SHGetValueW")));
