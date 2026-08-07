@@ -373,38 +373,15 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .color(theme.titleText)
                     .build();
 
-                // ---- URL 多行输入（scrollview 包一层可见/可拖滚动条，兼容超长链接）----
-                // eui 自带 input 无滚动条、只支持滚轮。这里把 input 高度设为换行行数
-                // 对应的实际高度（用 input 同一套 InputModel 布局测量，换行宽度一致），
-                // 内容超高时外层 scrollview 出滚动条，不超高则不显示。
-                const float urlFont = theme.components.metrics.typography.input;
-                const float urlInset = theme.components.metrics.spacing.content;
-                const float urlLineH = urlFont * 1.2f;
-                components::scrollView(ui, "add.url.scroll")
+                components::input(ui, "add.url")
                     .position(labelX, S(40.0f))
                     .size(dlgW - S(32.0f), urlH)
+                    .multiline(true)  // 多行：长链接完整可见，滚轮可滚动
+                    .placeholder("https://… 或 magnet:…")
+                    .value(g_urlText)
                     .theme(theme.components)
-                    .content([&](eui::Ui& u, float cw, float /*viewportH*/) {
-                        // cw = 内容宽度（有滚动条时已扣除其占位）。
-                        const float wrapW = cw - 2.0f * urlInset;
-                        int lines = 1;
-                        if (!g_urlText.empty()) {
-                            lines = static_cast<int>(
-                                components::input_detail::InputModel::measureLines(
-                                    g_urlText, "Microsoft YaHei", urlFont, wrapW).size());
-                            if (lines < 1) lines = 1;
-                        }
-                        const float needH = std::max(urlH, lines * urlLineH + 2.0f * urlInset);
-                        components::input(u, "add.url")
-                            .size(cw, needH)
-                            .multiline(true)
-                            .placeholder("https://… 或 magnet:…")
-                            .value(g_urlText)
-                            .theme(theme.components)
-                            .onChange([](const std::string& value) { g_urlText = value; })
-                            .onEnter([] { if (addDownload()) g_addOpen = false; })
-                            .build();
-                    })
+                    .onChange([](const std::string& value) { g_urlText = value; })
+                    .onEnter([] { if (addDownload()) g_addOpen = false; })
                     .build();
 
                 // ---- 分片数（0=配置默认；仅 aria2 生效）----
