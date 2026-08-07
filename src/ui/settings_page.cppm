@@ -38,7 +38,7 @@ bool sameAria2Config(const cfg::Aria2Config& x, const cfg::Aria2Config& y) {
 } // namespace
 
 // ===================== 设置页 =====================
-// 设置页没有下载状态子侧边栏，内容区紧跟图标栏右侧。
+// 设置页没有任务列表子侧边栏，内容区紧跟图标栏右侧。
 export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
     // 岛屿卡片风：设置页整块是一张悬浮圆角大卡（标题 + 表单 + 底部操作行都收在卡内）。
     // 图标栏占满左缘（不套卡片），这张卡紧贴它右侧起排（无间隙）；上下各留

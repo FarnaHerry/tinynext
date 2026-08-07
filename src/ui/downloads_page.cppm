@@ -17,7 +17,7 @@ import tinynext.ui.state;
 import tinynext.ui.platform;
 
 // ===================== 下载页 =====================
-// 布局：左侧是下载状态子侧边栏，右侧是输入栏 + 卡片任务列表 + 翻页控件组。
+// 布局：左侧是任务列表子侧边栏，右侧是输入栏 + 卡片任务列表 + 翻页控件组。
 export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
     // ---- 数据：筛选 + 排序 + 分页切片（每帧重跑，跟随下载线程实时刷新）----
     const auto tasks = g_manager->snapshot();
@@ -80,7 +80,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const int end = std::min(totalCount, start + g_pageSize);
 
     // ---- 布局尺寸（岛屿卡片风：内容区两张浮岛卡片）----
-    // 图标栏占满左缘（整高竖条、不套卡片），状态子侧边栏 + 内容大卡两张浮岛
+    // 图标栏占满左缘（整高竖条、不套卡片），任务列表子侧边栏 + 内容大卡两张浮岛
     // 紧贴图标栏右侧，上下各留 kIslandVInset 空隙（卡片感）；仅右侧留 kRightMargin。
     const float islandTop = kIslandVInset;
     const float islandH = screen.height - 2.0f * kIslandVInset;
@@ -99,7 +99,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
 
     drawPanel(ui, "dl.content.panel", contentX, islandTop, contentW, islandH, theme);
 
-    // ---- 下载状态子侧边栏：所有 / 下载中 / 已完成（独立岛卡片）----
+    // ---- 任务列表子侧边栏：所有 / 下载中 / 已完成（独立岛卡片）----
     ui.stack("sub.filter")
         .position(subX, islandTop)
         .size(kSubSidebarWidth, islandH)
@@ -110,7 +110,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             components::text(ui, "sub.filter.label")
                 .position(S(9.0f), S(10.0f))
                 .size(kSubSidebarWidth - S(18.0f), S(14.0f))
-                .text("下载状态")
+                .text("任务列表")
                 .fontSize(S(10.0f))
                 .lineHeight(S(14.0f))
                 .color(theme.metaText)
@@ -373,15 +373,38 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .color(theme.titleText)
                     .build();
 
-                components::input(ui, "add.url")
+                // ---- URL 多行输入（scrollview 包一层可见/可拖滚动条，兼容超长链接）----
+                // eui 自带 input 无滚动条、只支持滚轮。这里把 input 高度设为换行行数
+                // 对应的实际高度（用 input 同一套 InputModel 布局测量，换行宽度一致），
+                // 内容超高时外层 scrollview 出滚动条，不超高则不显示。
+                const float urlFont = theme.components.metrics.typography.input;
+                const float urlInset = theme.components.metrics.spacing.content;
+                const float urlLineH = urlFont * 1.2f;
+                components::scrollView(ui, "add.url.scroll")
                     .position(labelX, S(40.0f))
                     .size(dlgW - S(32.0f), urlH)
-                    .multiline(true)  // 多行：长链接可完整看到
-                    .placeholder("https://… 或 magnet:…")
-                    .value(g_urlText)
                     .theme(theme.components)
-                    .onChange([](const std::string& value) { g_urlText = value; })
-                    .onEnter([] { if (addDownload()) g_addOpen = false; })
+                    .content([&](eui::Ui& u, float cw, float /*viewportH*/) {
+                        // cw = 内容宽度（有滚动条时已扣除其占位）。
+                        const float wrapW = cw - 2.0f * urlInset;
+                        int lines = 1;
+                        if (!g_urlText.empty()) {
+                            lines = static_cast<int>(
+                                components::input_detail::InputModel::measureLines(
+                                    g_urlText, "Microsoft YaHei", urlFont, wrapW).size());
+                            if (lines < 1) lines = 1;
+                        }
+                        const float needH = std::max(urlH, lines * urlLineH + 2.0f * urlInset);
+                        components::input(u, "add.url")
+                            .size(cw, needH)
+                            .multiline(true)
+                            .placeholder("https://… 或 magnet:…")
+                            .value(g_urlText)
+                            .theme(theme.components)
+                            .onChange([](const std::string& value) { g_urlText = value; })
+                            .onEnter([] { if (addDownload()) g_addOpen = false; })
+                            .build();
+                    })
                     .build();
 
                 // ---- 分片数（0=配置默认；仅 aria2 生效）----
