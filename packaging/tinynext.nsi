@@ -11,7 +11,11 @@
 Unicode true
 
 ; Chinese wizard UI (Next/Back/Install/Uninstall buttons etc.).
-LoadLanguageFile "${NSISDIR}\Contrib\Language files\ChineseSimplified.nlf"
+; Load from the repo copy (packaging/SimpChinese.nlf): the choco "nsis" package is
+; a slim build with no Contrib\Language files, and in NSIS 3 the simplified-Chinese
+; file is SimpChinese.nlf (not ChineseSimplified.nlf). Shipping it makes the wizard
+; language independent of how NSIS was installed.
+LoadLanguageFile "SimpChinese.nlf"
 
 !ifndef APP_VERSION
   !error "APP_VERSION not defined -- pass /DAPP_VERSION=x.y.z"
@@ -43,12 +47,13 @@ Section "TinyNext" SecMain
     SetOutPath "$INSTDIR"
     File /r "..\dist\*"
 
-    ; Start menu + desktop shortcuts. "Start in" = $INSTDIR so the config file
-    ; (tinynext.conf) is written next to the exe. Shortcut icon from assets.
+    ; Start menu + desktop shortcuts. Config/session are stored in the per-user
+    ; config dir (not cwd), so no "Start in" is needed -- NSIS core CreateShortCut
+    ; cannot set a working directory anyway. Shortcut icon from assets.
     CreateDirectory "$SMPROGRAMS\TinyNext"
-    CreateShortCut "$SMPROGRAMS\TinyNext\TinyNext.lnk" "$INSTDIR\tinynext.exe" "" "$INSTDIR\assets\icon.ico" 0 SW_SHOWNORMAL "" "" "TinyNext downloader" "$INSTDIR"
+    CreateShortCut "$SMPROGRAMS\TinyNext\TinyNext.lnk" "$INSTDIR\tinynext.exe" "" "$INSTDIR\assets\icon.ico" 0 SW_SHOWNORMAL "" "TinyNext downloader"
     CreateShortCut "$SMPROGRAMS\TinyNext\Uninstall TinyNext.lnk" "$INSTDIR\Uninstall.exe"
-    CreateShortCut "$DESKTOP\TinyNext.lnk" "$INSTDIR\tinynext.exe" "" "$INSTDIR\assets\icon.ico" 0 SW_SHOWNORMAL "" "" "TinyNext downloader" "$INSTDIR"
+    CreateShortCut "$DESKTOP\TinyNext.lnk" "$INSTDIR\tinynext.exe" "" "$INSTDIR\assets\icon.ico" 0 SW_SHOWNORMAL "" "TinyNext downloader"
 
     ; Uninstaller + Add/Remove Programs entry (per-user, HKCU).
     WriteUninstaller "$INSTDIR\Uninstall.exe"

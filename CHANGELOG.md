@@ -75,6 +75,10 @@
 - **设置页「恢复默认」改为重置全部设置**：原先只重置下载路径（主题/aria2 参数不动），
   现在一并回默认——主题回「跟随系统」并即时预览、下载路径回系统目录、aria2 参数回
   各字段默认值（仍需点「保存」落盘，与放弃/保存语义一致）。
+- **配置/会话移到 per-user 目录**：`tinynext.conf` 与 aria2 `tinynext.session` 从
+  cwd 改到 `%APPDATA%\TinyNext`（macOS/Linux 对应）——安装版经快捷方式启动时 cwd
+  可能是 System32 等不可写目录，写 cwd 会导致设置存不上、任务无法续传。exe 旁已有
+  旧配置则继续优先使用（便携版兼容）。
 
 ### 底层能力（较早实现）
 - **单实例** + **CLI 传参下载**：重复启动把 URL 写入 `<temp>/tinynext.inbox` 由主实例轮询取走；`tinynext agent` 打印 AI 用法指南。

@@ -88,6 +88,10 @@ EUI-NEO **没有**全局缩放开关（`components::button` 自带的 `.scale()`
   新下载立即生效；daemon 级参数在 aria2 daemon 已启动时需重启才生效。
 - 所有设置点「保存」落盘到 `tinynext.conf`（JSON），「放弃」回滚；左侧栏底部 ⓘ
   打开「关于」弹窗（含项目 GitHub 链接）。
+- 配置与 aria2 会话文件放在 **per-user 配置目录**（Windows `%APPDATA%\TinyNext` /
+  macOS `~/Library/Application Support/TinyNext` / Linux `$XDG_CONFIG_HOME/tinynext`，
+  回退 `~/.config/tinynext`）——安装版经快捷方式启动时 cwd 可能是 System32 等不可写
+  目录，不能依赖 cwd。若 exe 旁已存在 `tinynext.conf`（便携版旧配置）则继续用它。
 
 ## 下载引擎
 

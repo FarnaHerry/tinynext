@@ -339,10 +339,12 @@ std::vector<std::pair<std::string, std::string>> daemonExtraOpts(
     if (!a2.diskCache.empty()) add("disk-cache", a2.diskCache);
     // 会话恢复：shutdown 前用 aria2.saveSession 持久化未完成任务，下次启动用
     // --input-file 载入续传。首次运行会话文件不存在，跳过 --input-file。
-    const std::filesystem::path sessionPath =
-        std::filesystem::current_path() / "tinynext.session";
-    add("save-session", sessionPath.string());
+    // 会话文件放 per-user 配置目录：安装版经快捷方式启动时 cwd 可能是 System32
+    // （不可写），不能依赖 cwd。
+    const std::filesystem::path sessionPath = cfg::configDir() / "tinynext.session";
     std::error_code ec;
+    std::filesystem::create_directories(sessionPath.parent_path(), ec);
+    add("save-session", sessionPath.string());
     if (std::filesystem::exists(sessionPath, ec)) {
         add("input-file", sessionPath.string());
     }

@@ -26,10 +26,38 @@ namespace cfg {
 
 // ---- config file IO ----
 
+// Per-user config directory: Windows %APPDATA%\TinyNext / macOS
+// ~/Library/Application Support/TinyNext / Linux $XDG_CONFIG_HOME/tinynext
+// (fallback ~/.config/tinynext). 安装版经快捷方式启动时 cwd 可能是 System32（不可写），
+// 配置与 aria2 session 不能依赖 cwd。导出给 aria2_engine 存 session 用。
+export std::filesystem::path configDir() {
+#ifdef _WIN32
+    if (const char* a = std::getenv("APPDATA"); a && *a) {
+        return std::filesystem::path(a) / "TinyNext";
+    }
+#elif defined(__APPLE__)
+    if (const char* h = std::getenv("HOME"); h && *h) {
+        return std::filesystem::path(h) / "Library" / "Application Support" / "TinyNext";
+    }
+#else
+    if (const char* x = std::getenv("XDG_CONFIG_HOME"); x && *x) {
+        return std::filesystem::path(x) / "tinynext";
+    }
+    if (const char* h = std::getenv("HOME"); h && *h) {
+        return std::filesystem::path(h) / ".config" / "tinynext";
+    }
+#endif
+    return std::filesystem::current_path();
+}
+
 namespace {
 
 std::filesystem::path configPath() {
-    return std::filesystem::current_path() / "tinynext.conf";
+    // 便携版（exe 旁）已有配置 → 继续用它，尊重已有用户；否则用 per-user 目录。
+    std::error_code ec;
+    const std::filesystem::path cwdConf = std::filesystem::current_path() / "tinynext.conf";
+    if (std::filesystem::exists(cwdConf, ec)) return cwdConf;
+    return configDir() / "tinynext.conf";
 }
 
 nlohmann::json loadConfig() {
@@ -46,7 +74,10 @@ nlohmann::json loadConfig() {
 }
 
 void saveConfig(const nlohmann::json& j) {
-    std::ofstream out(configPath(), std::ios::trunc);
+    const std::filesystem::path path = configPath();
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);  // per-user 目录可能不存在
+    std::ofstream out(path, std::ios::trunc);
     if (out) out << j.dump(2);
 }
 
