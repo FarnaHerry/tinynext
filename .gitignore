@@ -1,5 +1,6 @@
 target/
 .mcpp/
+.cache/
 downloads/
 compile_commands.json
 dist/
