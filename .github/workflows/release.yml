@@ -74,7 +74,13 @@ jobs:
           # 官方 install.sh 只支持 linux/mac，Windows 走 xlings/subos。
           irm https://d2learn.org/xlings-install.ps1.txt | iex
           # 当前进程的 PATH 不会自动刷新，用全路径调用 xlings。
-          & "$env:USERPROFILE\.xlings\bin\xlings.exe" install mcpp -y
+          # 先刷包索引，再钉住 mcpp@2026.8.8.1：mcpp.toml 的 [resources]（版本
+          # 信息/图标直接嵌入 PE，见 mcpp.toml 注释）需要 mcpp ≥ 2026.8.7.1，xlings
+          # 索引滞后时默认解析会装到旧版，导致 CI 打出的 exe 缺版本信息（本地
+          # 2026.8.8.1 正常）。Linux/macOS 走 install.sh 的 latest（≥ 2026.8.8.1）
+          # 且 [resources] 仅 PE 生效，无需钉版。
+          & "$env:USERPROFILE\.xlings\bin\xlings.exe" update
+          & "$env:USERPROFILE\.xlings\bin\xlings.exe" install mcpp@2026.8.8.1 -y
           # mcpp 装到 subos/default/bin；写入 GITHUB_PATH 供后续步骤使用。
           "$env:USERPROFILE\.xlings\subos\default\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
