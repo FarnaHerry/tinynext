@@ -220,9 +220,9 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .build();
 
             // 从右往左摆放（place 递减 bx，先调用的在最右）。左→右阅读顺序：
-            // 进行中任务：开始/暂停在最左，接着复制链接/所在文件夹，最右是取消。
-            // 已完成任务：打开文件/复制链接/所在文件夹成组在最左，删除居中，重新
-            // 下载最右。开始/暂停用普通颜色，与同类按钮一致。
+            // 进行中任务：开始/暂停在最左，接着所在文件夹/复制链接，最右是取消。
+            // 已完成任务：打开文件/所在文件夹/复制链接成组，接着重新下载，最后删除。
+            // 全部普通颜色（无主色），与同类按钮一致。
             const float btnY = S(42.0f);
             float bx = cardWidth - kCardPad;
             const auto place = [&](const std::string& aid, unsigned int icon,
@@ -231,8 +231,12 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 drawCardAction(ui, fid + "." + aid, bx, btnY, icon, primary, theme,
                                std::move(cb));
             };
+            if (showDelete) {
+                place("delete", 0xF1F8, false,  // fa-trash（仅任务结束后显示）
+                      [task = task] { requestDelete(task); });
+            }
             if (showRetry) {
-                place("retry", 0xF01E, true,  // fa-redo
+                place("retry", 0xF01E, false,  // fa-redo（普通颜色，与同类一致）
                       [id = task.id] { g_manager->retry(id); });
             }
             if (showCancel) {
@@ -240,19 +244,15 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 place("cancel", 0xF00D, false,  // fa-times
                       [task = task] { requestDelete(task); });
             }
-            if (showDelete) {
-                place("delete", 0xF1F8, false,  // fa-trash（仅任务结束后显示）
-                      [task = task] { requestDelete(task); });
-            }
-            if (showOpenFolder) {
-                place("openfolder", 0xF07C, false,  // fa-folder-open
-                      [path = task.destPath] { openContainingFolder(path); });
-            }
             place("copy", 0xF0C1, false,  // fa-link（复制链接；fa-copy 0xF0C5 像复制文件）
                   [url = task.url] {
                       core::window::setClipboardText(url);
                       showStatus("已复制链接");
                   });
+            if (showOpenFolder) {
+                place("openfolder", 0xF07C, false,  // fa-folder-open
+                      [path = task.destPath] { openContainingFolder(path); });
+            }
             if (showOpen) {
                 // 放最后 → 最左：下载完成后的「打开文件」主入口。
                 place("open", 0xF08E, false,  // fa-external-link
