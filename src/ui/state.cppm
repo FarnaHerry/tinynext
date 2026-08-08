@@ -194,6 +194,16 @@ export bool addDownload() {
     return startDownloadFromUrl(g_urlText, opts);
 }
 
+// 任务显示名：BT/磁力优先用种子真实名（displayName，bittorrent.info.name）；
+// 否则用真实下载路径的文件名（HTTP 经 Content-Disposition 解析后的最终名，替换
+// URL 末尾 uuid 占位）；占位（magnet-N）回退 URL 文件名。
+export std::string taskDisplayName(const dl::TaskView& task) {
+    if (!task.displayName.empty()) return task.displayName;
+    const std::string fp = task.destPath.filename().string();
+    if (!fp.empty() && fp.rfind("magnet-", 0) != 0) return fp;
+    return fileNameFromUrl(task.url);
+}
+
 // 每帧检查任务状态迁移：仅当任务从进行中（排队/下载/暂停）迁移到 Done/Failed 时
 // 发系统通知（避免会话恢复等历史状态误触发）。由 app.cpp 的 onFrame 调用。
 export void checkDownloadNotifications() {
@@ -210,7 +220,7 @@ export void checkDownloadNotifications() {
                                    prev == dl::State::Downloading ||
                                    prev == dl::State::Paused;
             if (wasActive && prev != t.state) {
-                const std::string name = fileNameFromUrl(t.url);
+                const std::string name = taskDisplayName(t);
                 if (t.state == dl::State::Done) {
                     notifyDownload("下载完成", name + " 已下载完成");
                 } else if (t.state == dl::State::Failed) {
@@ -228,4 +238,34 @@ export void checkDownloadNotifications() {
             ++it;
         }
     }
+}
+
+// ---- 删除任务 ----
+// 已完成任务删除前弹框选择；未完成任务直接删记录+清缓存。
+// g_pendingDelete 非空时，下载页渲染删除确认弹窗。
+export std::optional<dl::TaskView> g_pendingDelete;
+// 删除弹窗里"同时删除源文件"复选框的状态。默认勾选（源文件移到回收站，可恢复），
+// 每次打开弹窗时在 requestDelete 里重置为默认。
+export bool g_deleteIncludeFiles = true;
+
+// 删除任务后清理 aria2 的 .aria2 控制文件（下载缓存）。best-effort，失败静默。
+// 模块私有（不 export）。
+void removeControlFile(const std::filesystem::path& destPath) {
+    std::filesystem::path control = destPath;
+    control += ".aria2";
+    std::error_code ec;
+    std::filesystem::remove(control, ec);
+}
+
+// 删除任务记录（daemon 会话 + 本地任务表）并清理下载缓存。弹窗两个选项与
+// 未完成任务的直接删除共用；不弹状态提示，由调用方决定文案。
+export void deleteTaskRecord(const dl::TaskView& task) {
+    g_manager->remove(task.id);
+    removeControlFile(task.destPath);
+}
+
+// 删除/取消按钮统一入口：X 与垃圾桶都弹确认框，问是否删除任务 + 勾选是否删源文件。
+export void requestDelete(const dl::TaskView& task) {
+    g_deleteIncludeFiles = true;  // 每次弹窗恢复默认（删除源文件 → 回收站）
+    g_pendingDelete = task;
 }

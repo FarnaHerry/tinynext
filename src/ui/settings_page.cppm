@@ -36,11 +36,17 @@ bool sameAria2Config(const cfg::Aria2Config& x, const cfg::Aria2Config& y) {
 }
 
 // 最小分片单位下拉的可选项（KB/MB；GB 对 min-split-size 过于大，不提供）。
-// 旧配置里的 G 后缀解析后按 MB 显示（sizeUnitIndex 兜底到 MB）。
+// splitSizeUnit 已把旧配置的 G 后缀统一换算成 MB，所以这里单位恒为 KB/MB。
 constexpr const char* kSizeUnits[] = {"KB", "MB"};
 int sizeUnitIndex(const std::string& unit) {
     if (unit == "KB") return 0;
     return 1;  // MB（默认）
+}
+
+// 最小分片数值输入的上限：按当前单位换算成字节后统一封顶 1GiB
+// （MB→1024、KB→1048576），保证换单位后数值不超保存校验范围。
+int minSplitMax(const std::string& unit) {
+    return static_cast<int>(1024LL * 1024 * 1024 / sizeUnitMultiplier(unit));
 }
 
 } // namespace
@@ -270,7 +276,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     buildNumberStepper(r, "st.a.minsplit.input", kLabelW, -S(2.0f),
                                        kInputW, S(26.0f), theme, g_aria2MinSplitText,
                                        [](const std::string& v) { g_aria2MinSplitText = v; },
-                                       1, 1024, 1);
+                                       1, minSplitMax(g_aria2MinSplitUnit), 1);
                     r.stack("st.a.minsplit.unit")
                         .position(kLabelW + kInputW + S(8.0f), -S(2.0f))
                         .size(S(64.0f), S(26.0f))
@@ -281,7 +287,15 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                             sizeUnitIndex(g_aria2MinSplitUnit), false,
                                             PickerField::Text,
                                             [](int i) {
-                                                g_aria2MinSplitUnit = kSizeUnits[i];
+                                                // 换单位按 1024 进制换算数值（字节量不变），
+                                                // 而不是只改单位标签。
+                                                const std::string newUnit = kSizeUnits[i];
+                                                if (newUnit != g_aria2MinSplitUnit) {
+                                                    g_aria2MinSplitText = convertSizeUnit(
+                                                        g_aria2MinSplitText,
+                                                        g_aria2MinSplitUnit, newUnit);
+                                                    g_aria2MinSplitUnit = newUnit;
+                                                }
                                             });
                         })
                         .build();
@@ -426,7 +440,8 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 maxTriesV = 0, retryWaitV = 0, concurrentV = 0;
             if (!validateInt(g_aria2SplitText, 1, 64, "分片数", splitV)) return;
             if (!validateInt(g_aria2ConnText, 1, 64, "每服务器连接", connV)) return;
-            if (!validateInt(g_aria2MinSplitText, 1, 1024, "最小分片", minSplitV)) return;
+            if (!validateInt(g_aria2MinSplitText, 1, minSplitMax(g_aria2MinSplitUnit),
+                             "最小分片", minSplitV)) return;
             if (!validateInt(g_aria2LimitText, 0, 1000000, "限速KB/s", limitV)) return;
             if (!validateInt(g_maxTriesText, 0, 100, "最大重试次数", maxTriesV)) return;
             if (!validateInt(g_retryWaitText, 0, 600, "重试等待秒", retryWaitV)) return;

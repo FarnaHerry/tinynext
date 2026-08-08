@@ -121,13 +121,24 @@ export std::int64_t parseSizeBytes(const std::string& input) {
     }
 }
 
-// 把 "1M"/"512K"/"2G" 拆成数值与显示单位（KB/MB/GB）；无/未知后缀按 MB 兜底。
+// 把 "1M"/"512K"/"2G" 拆成数值与显示单位（KB/MB）；无/未知后缀按 MB 兜底。
+// G 后缀（"2G"）不返回 GB——最小分片下拉只提供 KB/MB，统一换算成 MB 显示
+// （"2G" → value "2048"、unit "MB"），保证显示单位恒为下拉可选项，保存时不会
+// 再拼回 G 后缀。
 export void splitSizeUnit(const std::string& size, std::string& value, std::string& unit) {
     if (size.size() >= 2) {
         switch (size.back()) {
             case 'K': case 'k': value = size.substr(0, size.size() - 1); unit = "KB"; return;
             case 'M': case 'm': value = size.substr(0, size.size() - 1); unit = "MB"; return;
-            case 'G': case 'g': value = size.substr(0, size.size() - 1); unit = "GB"; return;
+            case 'G': case 'g': {
+                // g ≥ 0（解析失败按 0），无需额外夹取。
+                double g = 0.0;
+                try { g = std::stod(size.substr(0, size.size() - 1)); } catch (...) {}
+                value = std::to_string(
+                    static_cast<long long>(std::llround(g * 1024.0)));
+                unit = "MB";
+                return;
+            }
             default: break;
         }
     }
@@ -139,4 +150,23 @@ export void splitSizeUnit(const std::string& size, std::string& value, std::stri
 export std::string joinSizeUnit(const std::string& value, const std::string& unit) {
     const char suffix = unit == "KB" ? 'K' : unit == "GB" ? 'G' : 'M';
     return trimText(value) + suffix;
+}
+
+// 单位（KB/MB/GB）→ 字节倍率（1024 进制）。
+export std::int64_t sizeUnitMultiplier(const std::string& unit) {
+    if (unit == "KB") return 1024;
+    if (unit == "GB") return 1024LL * 1024 * 1024;
+    return 1024LL * 1024;  // MB
+}
+
+// 把数值文本 value（单位 fromUnit）按 1024 进制换算到 toUnit，字节量不变。
+// 换算结果若非整数则四舍五入到 ≥1 的整数（与整数步进输入对齐；min-split-size
+// 只是分片阈值，微小的取整误差无影响）。空/非法输入回退 "1"。
+export std::string convertSizeUnit(const std::string& value, const std::string& fromUnit,
+                                   const std::string& toUnit) {
+    const std::int64_t bytes = parseSizeBytes(joinSizeUnit(trimText(value), fromUnit));
+    const std::int64_t mult = sizeUnitMultiplier(toUnit);
+    if (bytes <= 0) return "1";
+    const long long v = static_cast<long long>((bytes + mult / 2) / mult);
+    return std::to_string(std::max(1LL, v));
 }

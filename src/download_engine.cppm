@@ -29,6 +29,7 @@ export struct TaskView {
     std::string error;            // empty unless Failed
     double speedBps;              // bytes/second, last measured
     int connections = 1;          // active network connections; 1 = single-connection engine
+    std::string displayName;      // 真实显示名（BT/磁力用种子的 info.name；HTTP 不用，取 destPath 文件名）
 };
 
 // Per-task start options. connections == 0 means "use the engine default from

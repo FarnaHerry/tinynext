@@ -50,8 +50,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         case SortMode::Name:
             std::stable_sort(filtered.begin(), filtered.end(),
                              [](const auto& a, const auto& b) {
-                                 return fileNameFromUrl(a.url) <
-                                        fileNameFromUrl(b.url);
+                                 return taskDisplayName(a) < taskDisplayName(b);
                              });
             break;
         case SortMode::Size:
@@ -109,11 +108,11 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
 
             components::text(ui, "sub.filter.label")
                 .position(S(9.0f), S(10.0f))
-                .size(kSubSidebarWidth - S(18.0f), S(14.0f))
+                .size(kSubSidebarWidth - S(18.0f), S(18.0f))
                 .text("任务列表")
-                .fontSize(S(10.0f))
-                .lineHeight(S(14.0f))
-                .color(theme.metaText)
+                .fontSize(S(13.0f))
+                .lineHeight(S(18.0f))
+                .color(theme.titleText)
                 .build();
 
             const float itemW = kSubSidebarWidth - S(12.0f);
@@ -198,32 +197,18 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                           });
 
     // ---- 任务列表：卡片式布局（名称/进度/信息纵向排布）----
-    if (totalCount == 0) {
-        const char* hint =
-            g_filter == Filter::All     ? "暂无下载任务 — 点击右上角 ➕ 添加下载"
-            : g_filter == Filter::Active ? "暂无下载中的任务"
-                                          : "暂无已完成的任务";
-        components::text(ui, "empty.hint")
-            .position(listX, listTop + S(16.0f))
-            .size(listW, S(24.0f))
-            .text(hint)
-            .fontSize(S(12.0f))
-            .lineHeight(S(24.0f))
-            .color(theme.hintText)
-            .build();
-    } else {
-        components::scrollView(ui, "task.list")
-            .position(listX, listTop)
-            .size(listW, listHeight)
-            .gap(kCardGap)
-            .theme(theme.components)
-            .content([&](eui::Ui& sv, float width, float viewportHeight) {
-                for (int index = start; index < end; ++index) {
-                    drawTaskCard(sv, filtered[index], width);
-                }
-            })
-            .build();
-    }
+    // 无任务时也画空 scrollView，不显示引导文案（界面更简洁，用户自会用）。
+    components::scrollView(ui, "task.list")
+        .position(listX, listTop)
+        .size(listW, listHeight)
+        .gap(kCardGap)
+        .theme(theme.components)
+        .content([&](eui::Ui& sv, float width, float viewportHeight) {
+            for (int index = start; index < end; ++index) {
+                drawTaskCard(sv, filtered[index], width);
+            }
+        })
+        .build();
 
     // ---- 翻页控件组：◀ 页码 ▶ [数字/页]，整组收进一张小卡片 ----
     // 简洁版：中间只显示当前页码数字（不再显示"第 X / Y 页"），分页大小是
@@ -467,6 +452,126 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .fontSize(S(12.0f))
                     .theme(theme.components, true)
                     .onClick([] { if (addDownload()) g_addOpen = false; })
+                    .build();
+            })
+            .build();
+    }
+
+    // ---- 删除确认弹窗（已完成任务）：复选框决定是否同时删除源文件 ----
+    // 只有已完成任务会走到这里（requestDelete 对未完成任务直接删记录）。勾选
+    // 删除源文件时走系统回收站（默认可恢复），绝不永久删除。
+    if (g_pendingDelete.has_value()) {
+        const dl::TaskView& delTask = *g_pendingDelete;
+        const std::string delName = taskDisplayName(delTask);
+        const float dlgW = S(340.0f);
+        const float dlgH = S(136.0f);
+        const float dlgX = (screen.width - dlgW) * 0.5f;
+        const float dlgY = (screen.height - dlgH) * 0.5f;
+
+        // 半透明遮罩，点击空白处关闭（=取消）。
+        ui.rect("del.backdrop")
+            .position(0, 0)
+            .size(screen.width, screen.height)
+            .zIndex(100)
+            .color({0.0f, 0.0f, 0.0f, 0.45f})
+            .onClick([] { g_pendingDelete.reset(); })
+            .build();
+
+        ui.stack("del.dialog")
+            .position(dlgX, dlgY)
+            .size(dlgW, dlgH)
+            .zIndex(101)
+            .content([&] {
+                ui.rect("del.dialog.bg")
+                    .position(0, 0)
+                    .size(dlgW, dlgH)
+                    .color(theme.components.surface)
+                    .radius(S(10.0f))
+                    .border(1.0f,
+                            components::theme::withOpacity(
+                                theme.components.border, 0.6f))
+                    .onClick([] {})  // 吞掉弹窗内部空白点击，避免穿透到遮罩关闭弹窗
+                    .build();
+
+                components::text(ui, "del.title")
+                    .position(S(16.0f), S(12.0f))
+                    .size(dlgW - S(32.0f), S(20.0f))
+                    .text("删除任务")
+                    .fontSize(S(14.0f))
+                    .lineHeight(S(20.0f))
+                    .color(theme.titleText)
+                    .build();
+
+                components::text(ui, "del.name")
+                    .position(S(16.0f), S(34.0f))
+                    .size(dlgW - S(32.0f), S(18.0f))
+                    .text("删除「" + delName + "」？")
+                    .fontSize(S(12.0f))
+                    .lineHeight(S(18.0f))
+                    .maxWidth(dlgW - S(32.0f))
+                    .color(theme.nameText)
+                    .build();
+
+                // 复选框：是否同时删除源文件。默认勾选（移到回收站，可恢复）。
+                // checkbox builder 无定位，外包 stack 定位。
+                ui.stack("del.checkbox.wrap")
+                    .position(S(16.0f), S(54.0f))
+                    .size(dlgW - S(32.0f), S(20.0f))
+                    .content([&] {
+                        components::checkbox(ui, "del.checkbox")
+                            .size(dlgW - S(32.0f), S(20.0f))
+                            .checked(g_deleteIncludeFiles)
+                            .text("同时删除源文件")
+                            .fontSize(S(11.0f))
+                            .theme(theme.components)
+                            .onChange([](bool v) { g_deleteIncludeFiles = v; })
+                            .build();
+                    })
+                    .build();
+
+                // 底部按钮行：取消 | 删除（主按钮）。
+                const float btnH = S(26.0f);
+                const float btnY = dlgH - S(36.0f);
+                const float wCancel = S(64.0f);
+                const float wDel = S(76.0f);
+                const float gap = S(8.0f);
+                const float delX = dlgW - S(16.0f) - wDel;
+                const float cancelX = delX - gap - wCancel;
+
+                components::button(ui, "del.cancel")
+                    .position(cancelX, btnY)
+                    .size(wCancel, btnH)
+                    .text("取消")
+                    .fontSize(S(11.0f))
+                    .theme(theme.components, false)
+                    .onClick([] { g_pendingDelete.reset(); })
+                    .build();
+
+                components::button(ui, "del.confirm")
+                    .position(delX, btnY)
+                    .size(wDel, btnH)
+                    .text("删除")
+                    .fontSize(S(11.0f))
+                    .theme(theme.components, true)
+                    .onClick([] {
+                        const dl::TaskView task = *g_pendingDelete;
+                        g_pendingDelete.reset();
+                        deleteTaskRecord(task);
+                        if (g_deleteIncludeFiles) {
+                            std::error_code ec;
+                            if (std::filesystem::exists(task.destPath, ec)) {
+                                if (moveToTrash(task.destPath)) {
+                                    showStatus("已删除记录，源文件已移到回收站");
+                                } else {
+                                    showStatus("已删除记录（移入回收站失败，文件保留）");
+                                }
+                            } else {
+                                showStatus("已删除记录（源文件不存在）");
+                            }
+                        } else {
+                            showStatus("已删除记录，保留源文件");
+                        }
+                    })
                     .build();
             })
             .build();

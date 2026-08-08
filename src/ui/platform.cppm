@@ -221,9 +221,29 @@ export void openFile(const std::filesystem::path& path) {
 export void openContainingFolder(const std::filesystem::path& path) {
 #ifdef _WIN32
     if (const ShellExecuteFn shellExec = shellExecFn(); shellExec) {
-        // explorer.exe 直接带 /select 参数；ShellExecuteW 拉起即返回，不等窗口关闭。
-        const std::wstring params = L"/select,\"" + path.wstring() + L"\"";
-        shellExec(nullptr, L"open", L"explorer.exe", params.c_str(), nullptr, SW_SHOWNORMAL);
+        // 归一化成绝对原生路径：destPath 可能来自 aria2 的 files[0].path（正斜杠），
+        // 或是先占位后轮询更新的猜测路径；explorer 的 /select 对无效/正斜杠路径
+        // 解析不可靠，会回落到桌面。文件真实存在时用 /select 定位它；不存在
+        // （占位/已移动）或本身是目录时直接打开目录本身。
+        std::error_code ec;
+        std::filesystem::path abs = std::filesystem::absolute(path, ec);
+        abs = abs.lexically_normal();
+        abs.make_preferred();  // / → \（Windows）
+        if (std::filesystem::exists(abs, ec)) {
+            if (std::filesystem::is_directory(abs, ec)) {
+                // 目录（如 BT 多文件根目录）：直接打开它。
+                shellExec(nullptr, L"open", abs.wstring().c_str(), nullptr, nullptr,
+                          SW_SHOWNORMAL);
+            } else {
+                const std::wstring params = L"/select,\"" + abs.wstring() + L"\"";
+                shellExec(nullptr, L"open", L"explorer.exe", params.c_str(), nullptr,
+                          SW_SHOWNORMAL);
+            }
+        } else {
+            // 文件不存在：打开其所在目录（不会回落到桌面）。
+            shellExec(nullptr, L"open", abs.parent_path().wstring().c_str(), nullptr,
+                      nullptr, SW_SHOWNORMAL);
+        }
         return;
     }
     std::system(("start \"\" explorer /select,\"" + path.string() + "\"").c_str());
@@ -248,6 +268,61 @@ export void openUrl(const std::string& url) {
     std::system(("open \"" + url + "\"").c_str());
 #else
     std::system(("xdg-open \"" + url + "\" >/dev/null 2>&1 &").c_str());
+#endif
+}
+
+// 把文件/目录移到系统回收站（默认删除方式：可恢复，不永久删除）。best-effort。
+//   Windows: SHFileOperationW + FOF_ALLOWUNDO（真正进回收站，动态加载 shell32）。
+//   macOS:   osascript 调 Finder delete（移入废纸篓；路径经 argv 传入，规避
+//            AppleScript 源码编码/转义问题）。
+//   Linux:   gio trash（trash-put 兜底）。工具缺失返回 false，绝不直接 rm。
+export bool moveToTrash(const std::filesystem::path& path) {
+#ifdef _WIN32
+    using ShFileOpFn = int(WINAPI*)(LPSHFILEOPSTRUCTW);
+    static const ShFileOpFn shFileOp = []() -> ShFileOpFn {
+        HMODULE m = LoadLibraryW(L"shell32.dll");
+        if (!m) return nullptr;
+        return reinterpret_cast<ShFileOpFn>(
+            reinterpret_cast<void*>(GetProcAddress(m, "SHFileOperationW")));
+    }();
+    if (!shFileOp) return false;
+    // pFrom 要求以双 null 结尾的宽字符串。
+    std::wstring wide = path.wstring();
+    std::vector<wchar_t> buf(wide.begin(), wide.end());
+    buf.push_back(L'\0');
+    buf.push_back(L'\0');
+    SHFILEOPSTRUCTW op{};
+    op.wFunc = FO_DELETE;
+    op.pFrom = buf.data();
+    op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI;
+    return shFileOp(&op) == 0;
+#elif defined(__APPLE__)
+    auto shq = [](const std::string& s) {
+        std::string out = "'";
+        for (char c : s) {
+            if (c == '\'') out += "'\\''";
+            else out += c;
+        }
+        out += "'";
+        return out;
+    };
+    return std::system(("osascript -e 'on run argv' "
+                        "-e 'tell application \"Finder\" to delete POSIX file (item 1 of argv)' "
+                        "-e 'end run' " + shq(path.string()) +
+                        " >/dev/null 2>&1").c_str()) == 0;
+#else
+    auto shq = [](const std::string& s) {
+        std::string out = "'";
+        for (char c : s) {
+            if (c == '\'') out += "'\\''";
+            else out += c;
+        }
+        out += "'";
+        return out;
+    };
+    return std::system(("gio trash " + shq(path.string()) +
+                        " 2>/dev/null || trash-put " + shq(path.string()) +
+                        " >/dev/null 2>&1").c_str()) == 0;
 #endif
 }
 

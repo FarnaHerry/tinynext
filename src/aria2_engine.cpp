@@ -482,6 +482,7 @@ struct Aria2Engine::Task {
     int connections = 1;          // numConnections from tellStatus
     StartOptions opts;            // 该任务的起始选项（retry 时复用）
     bool needsFinalize = false;   // WS 事件置位：下一轮 poll 补一次 tellStatus 拿最终字节/错误
+    std::string displayName;      // BT/磁力拿到元数据后的真实名（bittorrent.info.name）
 };
 
 Aria2Engine::Aria2Engine() {
@@ -532,7 +533,7 @@ bool Aria2Engine::ensureDaemon() const {
                            L"--split=" + std::to_wstring(a2.split) + L" "
                            L"--min-split-size=" + winValue(a2.minSplitSize) + L" "
                            L"--console-log-level=warn --allow-overwrite=false "
-                           L"--auto-file-renaming=false";
+                           L"--auto-file-renaming=true";
     for (const auto& [name, value] : extra) {
         cmdLine += L" --" + std::wstring(name.begin(), name.end()) + L"=" + winValue(value);
     }
@@ -555,7 +556,7 @@ bool Aria2Engine::ensureDaemon() const {
         "--split=" + std::to_string(a2.split),
         "--min-split-size=" + a2.minSplitSize,
         "--console-log-level=warn", "--allow-overwrite=false",
-        "--auto-file-renaming=false"};
+        "--auto-file-renaming=true"};
     for (const auto& [name, value] : extra) {
         args.push_back("--" + name + "=" + value);
     }
@@ -636,7 +637,16 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
     optionsJ["split"] = std::to_string(connections);
     optionsJ["max-connection-per-server"] = std::to_string(connections);
     optionsJ["min-split-size"] = a2.minSplitSize;
-    optionsJ["continue"] = "true";
+    // continue 只对 HTTP(S)/FTP 生效。仅当目标名已有 .aria2 控制文件（真正的部分
+    // 文件待续传）才开：否则一旦目录里已有同名完整文件，continue=true 会让 aria2
+    // 直接判定"已下载完"（不下载也不触发 --auto-file-renaming）——文件冲突应交给
+    // auto-file-renaming 自动改名重新下载（实测：RealName.txt → RealName.1.txt）。
+    // 续传的正式入口是 retry()（那里固定 continue=true 复用原路径），start() 只对
+    // 能按 URL 文件名找到控制文件的情况自动续传。
+    std::filesystem::path control = dir / destPath.filename();
+    control += ".aria2";
+    const bool hasControl = std::filesystem::exists(control, ec);
+    optionsJ["continue"] = hasControl ? "true" : "false";
 
     // 每任务限速已移除（无意义），统一用配置的 maxDownloadLimit。
     if (a2.maxDownloadLimit > 0) {
@@ -644,20 +654,25 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
     }
 
     // 磁力/BT：内容名由种子决定，只设 dir 不设 out；destPath 用占位，等
-    // refreshStates() 从 files[0].path 更新为真实路径。HTTP(S) 才设 out。
-    // HTTP(S) 新下载仍要走 makeUniqueDest：避免重复添加时撞上已存在的完整文件
+    // refreshStates() 从 files[0].path 更新为真实路径。
+    // 普通 HTTP(S) 且未显式重命名：同样不设 out，让 aria2 从响应头
+    // Content-Disposition 解析真实文件名——强制 out 会用 URL 末尾段命名，CDN/网盘
+    // 链接末尾是 uuid/随机串时文件就被命名成 uuid（实测：带 out 用 url 名、不带
+    // out 用 Content-Disposition 名）。重名由 daemon 的 --auto-file-renaming=true
+    // 处理（RealName.txt → RealName.1.txt）。destPath 先用 URL 文件名占位，等
+    // headers 后 applyTellStatus 从 files[0].path 更新为真实路径。
+    // 仅当用户显式重命名时才强制 out，并走 makeUniqueDest 避免撞上已存在文件
     // （aria2 有 --allow-overwrite=false，撞上会直接失败）——自动加 " (1)"。
-    // retry() 是例外，它故意复用原路径从 .aria2 续传。
     const bool magnet = url.starts_with("magnet:");
-    if (!magnet) {
-        const std::string outName = options.outputName.empty()
-            ? destPath.filename().string()
-            : options.outputName;
-        const std::filesystem::path uniqueDest = makeUniqueDest(dir / outName);
+    if (magnet) {
+        task->destPath = dir / ("magnet-" + std::to_string(task->id));
+    } else if (!options.outputName.empty()) {
+        const std::filesystem::path uniqueDest =
+            makeUniqueDest(dir / options.outputName);
         optionsJ["out"] = uniqueDest.filename().string();
         task->destPath = uniqueDest;
     } else {
-        task->destPath = dir / ("magnet-" + std::to_string(task->id));
+        task->destPath = dir / destPath.filename();
     }
 
     nlohmann::json params = nlohmann::json::array();
@@ -707,9 +722,23 @@ void Aria2Engine::remove(std::uint64_t id) {
     std::lock_guard<std::mutex> lock(tasksMutex_);
     auto task = findTask(id);
     if (!task) return;
-    if (daemonSpawned_) {
+    const std::string gid = task->gid;
+    if (daemonSpawned_ && !gid.empty()) {
+        // 活动/等待/暂停任务：forceRemove 停掉并移出队列（已完成等已停止任务会失败，
+        // 由下面的 removeDownloadResult 兜底清除）。
         try {
-            rpcCall(port_, secret_, "aria2.remove", nlohmann::json::array({task->gid}));
+            rpcCall(port_, secret_, "aria2.forceRemove", nlohmann::json::array({gid}));
+        } catch (...) {}
+        // 清掉 daemon stopped 列表里残留的 download result（完成/失败/removed），
+        // 否则会留在结果里被再次枚举到。
+        try {
+            rpcCall(port_, secret_, "aria2.removeDownloadResult",
+                    nlohmann::json::array({gid}));
+        } catch (...) {}
+        // 立即重写会话文件：已删任务不再出现在 --input-file，下次启动不会复活。
+        // （只删面板不动会话是"随便下载一个就拉起历史任务"的根因。）
+        try {
+            rpcCall(port_, secret_, "aria2.saveSession", nlohmann::json::array());
         } catch (...) {}
     }
     std::erase_if(tasks_, [&](const std::shared_ptr<Task>& t) { return t->id == id; });
@@ -804,13 +833,22 @@ void Aria2Engine::retry(std::uint64_t id) {
     optionsJ["split"] = std::to_string(connections);
     optionsJ["max-connection-per-server"] = std::to_string(connections);
     optionsJ["min-split-size"] = a2.minSplitSize;
-    optionsJ["continue"] = "true";
+    // continue 仅当确有 .aria2 控制文件（真正的部分文件待续传）时开启：失败/取消
+    // 任务续传用；已完成任务没有控制文件 → 不 continue，重新下载走 daemon 的
+    // --auto-file-renaming 改名（避免 aria2 把已存在完整文件判成"已下载完"直接完成，
+    // 那样点重新下载等于没反应）。
+    std::error_code ec;
+    std::filesystem::path control = task->destPath;
+    control += ".aria2";
+    const bool hasControl = std::filesystem::exists(control, ec);
+    optionsJ["continue"] = hasControl ? "true" : "false";
     // 每任务限速已移除（无意义），统一用配置的 maxDownloadLimit。
     if (a2.maxDownloadLimit > 0) {
         optionsJ["max-download-limit"] = std::to_string(a2.maxDownloadLimit);
     }
-    // 磁力/BT 不设 out（内容名由种子决定）。
-    if (!task->url.starts_with("magnet:")) {
+    // 磁力/BT 不设 out（内容名由种子决定）；HTTP 仅当显式重命名时才强制 out
+    // （否则重新走 Content-Disposition 解析，避免续传回来仍是 uuid 名）。
+    if (!task->url.starts_with("magnet:") && !task->opts.outputName.empty()) {
         optionsJ["out"] = task->destPath.filename().string();
     }
 
@@ -865,6 +903,11 @@ void Aria2Engine::recoverSession() const {
         if (task->url.empty() && st.contains("bittorrent") && st["bittorrent"].is_object()) {
             const std::string ih = st["bittorrent"].value("infoHash", "");
             if (!ih.empty()) task->url = "magnet:?xt=urn:btih:" + ih;
+        }
+        // BT/磁力：拿到元数据后记下种子真实名，供显示（避免展示 GID 占位名）。
+        if (st.contains("bittorrent") && st["bittorrent"].is_object() &&
+            st["bittorrent"].contains("info") && st["bittorrent"]["info"].is_object()) {
+            task->displayName = st["bittorrent"]["info"].value("name", "");
         }
         task->totalBytes = strI64(st, "totalLength");
         task->downloadedBytes = strI64(st, "completedLength");
@@ -940,6 +983,12 @@ void Aria2Engine::applyTellStatus(const std::shared_ptr<Task>& task,
         const std::string p = st["files"][0].value("path", "");
         if (!p.empty()) task->destPath = std::filesystem::path(p);
     }
+    // BT/磁力：记录种子真实名（bittorrent.info.name），供卡片/弹窗显示，
+    // 避免展示 GID/磁力占位名。
+    if (st.contains("bittorrent") && st["bittorrent"].is_object() &&
+        st["bittorrent"].contains("info") && st["bittorrent"]["info"].is_object()) {
+        task->displayName = st["bittorrent"]["info"].value("name", "");
+    }
     // aria2-next reports the field as "connections"; original aria2 uses
     // "numConnections". Accept both so the engine works with either.
     const std::string connField =
@@ -1009,7 +1058,8 @@ std::vector<TaskView> Aria2Engine::snapshot() const {
         const Task& task = **it;
         out.push_back(TaskView{task.id, task.url, task.destPath, task.state,
                                task.totalBytes, task.downloadedBytes,
-                               task.error, task.speedBps, task.connections});
+                               task.error, task.speedBps, task.connections,
+                               task.displayName});
     }
     return out;
 }

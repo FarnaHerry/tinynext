@@ -150,7 +150,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
             components::text(ui, fid + ".name")
                 .position(kCardPad, S(9.0f))
                 .size(inner - stateW - S(6.0f), S(15.0f))
-                .text(fileNameFromUrl(task.url))
+                .text(taskDisplayName(task))
                 .fontSize(S(13.0f))
                 .lineHeight(S(15.0f))
                 .maxWidth(inner - stateW - S(6.0f))
@@ -184,18 +184,28 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
             // 已暂停=继续+取消，已完成=打开+打开所在文件夹。
             const bool showPause = task.state == dl::State::Downloading;
             const bool showResume = task.state == dl::State::Paused;
+            // X（取消）：进行中（排队/下载/暂停）显示，用来取消任务。
             const bool showCancel = task.state == dl::State::Queued ||
                                     task.state == dl::State::Downloading ||
                                     task.state == dl::State::Paused;
+            // 垃圾桶（删除）：任务结束后显示，删除下载好的文件或记录。
+            // 与 showCancel 互斥（状态不重叠）。
+            const bool showDelete = task.state == dl::State::Done ||
+                                    task.state == dl::State::Failed ||
+                                    task.state == dl::State::Cancelled;
+            // 失败/已取消/已完成都提供重新下载（完成的再下走 auto-file-renaming 改名）。
             const bool showRetry = task.state == dl::State::Failed ||
-                                   task.state == dl::State::Cancelled;
+                                   task.state == dl::State::Cancelled ||
+                                   task.state == dl::State::Done;
             const bool showOpen = task.state == dl::State::Done;
-            const bool showOpenFolder = task.state == dl::State::Done;
+            // 打开所在文件夹：任何状态都显示（未完成/失败时 openContainingFolder
+            // 会回退到打开下载目录，不会报错）。
+            const bool showOpenFolder = true;
 
-            const int actionCount = 2 + (showPause || showResume ? 1 : 0) +
-                                    (showCancel ? 1 : 0) +
-                                    (showRetry ? 1 : 0) +
-                                    (showOpen ? 1 : 0) + (showOpenFolder ? 1 : 0);
+            const int actionCount = (showOpen ? 1 : 0) + (showOpenFolder ? 1 : 0) +
+                                    (showDelete ? 1 : 0) + 1 /* 复制链接恒显示 */ +
+                                    (showCancel ? 1 : 0) + (showRetry ? 1 : 0) +
+                                    (showPause || showResume ? 1 : 0);
             const float iconsW = actionCount * kCardIconW +
                                  (actionCount > 0 ? (actionCount - 1) * kCardIconGap : 0.0f);
 
@@ -209,8 +219,10 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .color(theme.metaText)
                 .build();
 
-            // 从右往左摆放：状态操作（打开所在文件夹/打开/取消/暂停）在右，
-            // 通用操作（删除/复制链接）在左，阅读顺序为左→右。
+            // 从右往左摆放（place 递减 bx，先调用的在最右）。左→右阅读顺序：
+            // 进行中任务：开始/暂停在最左，接着复制链接/所在文件夹，最右是取消。
+            // 已完成任务：打开文件/复制链接/所在文件夹成组在最左，删除居中，重新
+            // 下载最右。开始/暂停用普通颜色，与同类按钮一致。
             const float btnY = S(42.0f);
             float bx = cardWidth - kCardPad;
             const auto place = [&](const std::string& aid, unsigned int icon,
@@ -219,37 +231,42 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 drawCardAction(ui, fid + "." + aid, bx, btnY, icon, primary, theme,
                                std::move(cb));
             };
-            if (showOpenFolder) {
-                place("openfolder", 0xF07C, false,  // fa-folder-open
-                      [path = task.destPath] { openContainingFolder(path); });
-            }
-            if (showOpen) {
-                place("open", 0xF08E, false,  // fa-external-link
-                      [path = task.destPath] { openFile(path); });
-            }
-            if (showCancel) {
-                place("cancel", 0xF00D, false,  // fa-times
-                      [id = task.id] { g_manager->cancel(id); });
-            }
             if (showRetry) {
                 place("retry", 0xF01E, true,  // fa-redo
                       [id = task.id] { g_manager->retry(id); });
             }
-            if (showResume) {
-                place("resume", 0xF04B, true,  // fa-play
-                      [id = task.id] { g_manager->resume(id); });
+            if (showCancel) {
+                // X 与垃圾桶同一效果：弹删除确认框（问是否删除任务 + 勾选删源文件）。
+                place("cancel", 0xF00D, false,  // fa-times
+                      [task = task] { requestDelete(task); });
             }
-            if (showPause) {
-                place("pause", 0xF04C, true,  // fa-pause
-                      [id = task.id] { g_manager->pause(id); });
+            if (showDelete) {
+                place("delete", 0xF1F8, false,  // fa-trash（仅任务结束后显示）
+                      [task = task] { requestDelete(task); });
             }
-            place("delete", 0xF1F8, false,  // fa-trash
-                  [id = task.id] { g_manager->remove(id); });
-            place("copy", 0xF0C5, false,  // fa-copy
+            if (showOpenFolder) {
+                place("openfolder", 0xF07C, false,  // fa-folder-open
+                      [path = task.destPath] { openContainingFolder(path); });
+            }
+            place("copy", 0xF0C1, false,  // fa-link（复制链接；fa-copy 0xF0C5 像复制文件）
                   [url = task.url] {
                       core::window::setClipboardText(url);
                       showStatus("已复制链接");
                   });
+            if (showOpen) {
+                // 放最后 → 最左：下载完成后的「打开文件」主入口。
+                place("open", 0xF08E, false,  // fa-external-link
+                      [path = task.destPath] { openFile(path); });
+            }
+            if (showResume) {
+                // 放最后 → 最左：进行中任务的主操作；普通颜色与同类一致。
+                place("resume", 0xF04B, false,  // fa-play
+                      [id = task.id] { g_manager->resume(id); });
+            }
+            if (showPause) {
+                place("pause", 0xF04C, false,  // fa-pause
+                      [id = task.id] { g_manager->pause(id); });
+            }
         })
         .build();
 }
