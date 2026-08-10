@@ -44,10 +44,10 @@ export void showStatus(std::string message) {
 
 // ---- theme mode / settings pending ----
 // 主题三态：跟随系统 / 深色 / 浅色，持久化在 tinynext.conf 的 theme_mode。
-// g_dark 是当前生效的深色布尔（System 模式时由 cfg::osDark() 实时跟随）。
+// g_dark 是当前生效的深色布尔（System 模式时由 tinynext.ui.theme_watch 的事件
+// 触发，重读 cfg::osDark() 更新，事件驱动而非轮询）。
 export cfg::ThemeMode g_themeMode = cfg::themeMode();
 export bool g_dark = cfg::effectiveDark();
-export float g_systemThemeTimer = 0.0f;  // System 模式下的 OS 主题轮询计时
 // 设置页待提交的编辑值：主题/路径只在点「保存」时写入配置并生效，
 // 点「放弃」回滚到已保存值。主题在选择时即时预览（g_dark），但不落盘。
 export cfg::ThemeMode g_pendingTheme = g_themeMode;

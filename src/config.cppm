@@ -236,8 +236,8 @@ export bool osDark() {
     }
     return false;  // light
 #else
-    // Linux best-effort（从最通用到最旧的顺序）。只在 ThemeMode::System 时 ~2s 调
-    // 一次，popen 探测进程的开销可接受。
+    // Linux best-effort（从最通用到最旧的顺序）。事件驱动：由 theme_watch 在 OS
+    // 主题变化时触发调用一次（不再每 2s 轮询 spawn 探测进程）。
     auto shellOut = [](const char* c) -> std::string {
         FILE* pipe = ::popen(c, "r");
         if (!pipe) return {};

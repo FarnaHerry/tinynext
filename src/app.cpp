@@ -28,6 +28,7 @@ import std;
 import tinynext.config;
 import tinynext.cli;
 import tinynext.ui.utils;
+import tinynext.ui.theme_watch;
 import tinynext.ui.theme;
 import tinynext.ui.widgets;
 import tinynext.ui.downloads_page;
@@ -59,6 +60,13 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
         applyAppIcon();
     }
 
+    // 启动一次 OS 主题变化 watcher（后台线程阻塞在系统事件上，幂等）。
+    static bool themeWatcherStarted = false;
+    if (!themeWatcherStarted) {
+        themeWatcherStarted = true;
+        startThemeWatcher();
+    }
+
     const AppTheme& theme = currentTheme();
 
     // 根用 stack：底层铺满窗口的主题背景（clearColor 在初始化时固化、无法运行时
@@ -71,14 +79,10 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
             if (g_statusTimer > 0.0f) {
                 g_statusTimer -= deltaSeconds;
             }
-            // Follow-system mode: re-read the OS theme every ~2s so a system
-            // dark/light switch is picked up live (registry read is cheap).
-            if (g_themeMode == cfg::ThemeMode::System) {
-                g_systemThemeTimer += deltaSeconds;
-                if (g_systemThemeTimer >= 2.0f) {
-                    g_systemThemeTimer = 0.0f;
-                    g_dark = cfg::osDark();
-                }
+            // Follow-system mode: 后台 watcher 检测到 OS 主题变化时（theme_watch），
+            // 消费事件标记并重读一次 osDark()。事件驱动，不再每 2s 轮询。
+            if (themeChangePending() && g_themeMode == cfg::ThemeMode::System) {
+                g_dark = cfg::osDark();
             }
             // 单实例 inbox 轮询 + CLI 启动参数（tinynext.cli）。
             cli::handleCliAndInbox(deltaSeconds);
