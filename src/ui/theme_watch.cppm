@@ -47,13 +47,16 @@ std::atomic<bool> g_themeDirty{false};
 // 后台 watcher 线程（std::jthread：进程退出时自动请求停止并 join）。
 std::jthread g_watcher;
 
-// 把 pipe 两端设成 close-on-exec，避免泄漏给 popen 子进程。
+#if defined(__linux__) || defined(__APPLE__)
+// 把 pipe 两端设成 close-on-exec，避免泄漏给 popen 子进程。（Windows 无 POSIX
+// fcntl，走 PostThreadMessage 停止，不需要 pipe。）
 void setCloexec(int fds[2]) {
     for (int fd : {fds[0], fds[1]}) {
         const int fl = ::fcntl(fd, F_GETFD);
         if (fl >= 0) ::fcntl(fd, F_SETFD, fl | FD_CLOEXEC);
     }
 }
+#endif
 
 #if defined(__linux__)
 
