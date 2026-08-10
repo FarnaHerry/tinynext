@@ -21,8 +21,9 @@ module;
 #include <sys/inotify.h>    // inotify / struct inotify_event
 #include <unistd.h>         // pipe / read / write / close
 #elif defined(__APPLE__)
+#include <cerrno>           // errno / EINTR（宏，import std 不导出宏）
 #include <fcntl.h>          // O_EVTONLY / FD_CLOEXEC
-#include <sys/event.h>      // kqueue / kevent / EV_SET / EVFILT_VNODE
+#include <sys/event.h>      // kqueue / kevent / EV_SET / EVFILT_VNODE / NOTE_*
 #include <unistd.h>         // pipe / read / write / close
 #elif defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -165,7 +166,7 @@ void watchLoop(std::stop_token st) {
         struct kevent ev;
         EV_SET(&ev, static_cast<uintptr_t>(fd), EVFILT_VNODE,
                EV_ADD | EV_ENABLE | EV_CLEAR,
-               EV_NOTE_WRITE | EV_NOTE_DELETE | EV_NOTE_RENAME, 0, nullptr);
+               NOTE_WRITE | NOTE_DELETE | NOTE_RENAME, 0, nullptr);
         ::kevent(kq, &ev, 1, nullptr, 0, nullptr);
     }
     struct kevent evPipe;
@@ -184,14 +185,14 @@ void watchLoop(std::stop_token st) {
             if (evs[i].filter == EVFILT_VNODE) {
                 g_themeDirty.store(true);
                 // 文件被原子替换（rename/delete）：重挂 watch 到新 inode。
-                if (evs[i].fflags & (EV_NOTE_DELETE | EV_NOTE_RENAME)) {
+                if (evs[i].fflags & (NOTE_DELETE | NOTE_RENAME)) {
                     ::close(fd);
                     fd = ::open(plist.c_str(), O_EVTONLY | O_CLOEXEC);
                     if (fd >= 0) {
                         struct kevent ev;
                         EV_SET(&ev, static_cast<uintptr_t>(fd), EVFILT_VNODE,
                                EV_ADD | EV_ENABLE | EV_CLEAR,
-                               EV_NOTE_WRITE | EV_NOTE_DELETE | EV_NOTE_RENAME, 0,
+                               NOTE_WRITE | NOTE_DELETE | NOTE_RENAME, 0,
                                nullptr);
                         ::kevent(kq, &ev, 1, nullptr, 0, nullptr);
                     }
