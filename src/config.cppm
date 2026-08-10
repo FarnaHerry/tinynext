@@ -195,6 +195,23 @@ export void setThemeMode(ThemeMode mode) {
     saveConfig(j);
 }
 
+// 关闭窗口行为：true = 缩到系统托盘（eui .tray()，Windows/macOS 生效；Linux 因
+// eui-neo 配方托盘为 stub 无实际效果，X 仍直接退出）。启动时由 dslAppConfig()
+// 读取，改后重启生效。
+export bool closeToTray() {
+    const auto j = loadConfig();
+    if (j.contains("close_to_tray") && j["close_to_tray"].is_boolean()) {
+        return j["close_to_tray"].get<bool>();
+    }
+    return true;  // 默认缩托盘
+}
+
+export void setCloseToTray(bool value) {
+    auto j = loadConfig();
+    j["close_to_tray"] = value;
+    saveConfig(j);
+}
+
 // ---- OS dark-mode detection (for ThemeMode::System) ----
 
 export bool osDark() {

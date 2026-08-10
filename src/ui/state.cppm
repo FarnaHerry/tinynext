@@ -48,6 +48,9 @@ export void showStatus(std::string message) {
 // 触发，重读 cfg::osDark() 更新，事件驱动而非轮询）。
 export cfg::ThemeMode g_themeMode = cfg::themeMode();
 export bool g_dark = cfg::effectiveDark();
+// 关闭窗口行为（缩托盘开关）待提交值；点「保存」落盘（cfg::setCloseToTray），
+// 重启后生效（dslAppConfig 启动时读取）。
+export bool g_closeToTray = cfg::closeToTray();
 // 设置页待提交的编辑值：主题/路径只在点「保存」时写入配置并生效，
 // 点「放弃」回滚到已保存值。主题在选择时即时预览（g_dark），但不落盘。
 export cfg::ThemeMode g_pendingTheme = g_themeMode;

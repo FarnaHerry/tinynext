@@ -200,6 +200,27 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 }
             });
 
+            // ---- 关闭窗口行为：缩到托盘（Windows/macOS 生效；Linux 的 eui
+            //      托盘为 stub 无效果）。改后重启生效（dslAppConfig 启动时读取）。
+            row("close.tray", kFieldH, [&](eui::Ui& r, float) {
+                components::text(r, "st.close.tray.label")
+                    .position(0, 0)
+                    .size(kLabelW, kFieldH)
+                    .text("关闭时缩到托盘")
+                    .fontSize(S(11.0f))
+                    .lineHeight(kFieldH)
+                    .color(theme.metaText)
+                    .build();
+                components::button(r, "st.close.tray.toggle")
+                    .position(kLabelW, -S(1.0f))
+                    .size(S(48.0f), S(24.0f))
+                    .text(g_closeToTray ? "开" : "关")
+                    .fontSize(S(11.0f))
+                    .theme(theme.components, g_closeToTray)
+                    .onClick([] { g_closeToTray = !g_closeToTray; })
+                    .build();
+            });
+
             // ---- 下载路径：输入框 + 系统文件夹选择器 ----
             row("path", kFieldH, [&](eui::Ui& r, float w) {
                 components::text(r, "st.path.label")
@@ -464,6 +485,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             }
             cfg::setThemeMode(g_pendingTheme);
 
+            // 关闭行为：落盘（重启后生效，dslAppConfig 启动时读取）。
+            const bool trayChanged = cfg::closeToTray() != g_closeToTray;
+            cfg::setCloseToTray(g_closeToTray);
+
             // aria2 参数：用已校验值落盘。
             const cfg::Aria2Config cur = cfg::aria2Config();
             cfg::Aria2Config a2;
@@ -502,7 +527,11 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             cfg::setDownloadDir(g_downloadDirText);
 
             // 汇总提示：aria2 daemon 已启动时，参数保存后需重启才生效。
-            if (a2Changed && g_manager->engineActive()) {
+            if (trayChanged) {
+                showStatus(a2Changed && g_manager->engineActive()
+                    ? "设置已保存（重启后生效）"
+                    : "关闭行为将在重启后生效");
+            } else if (a2Changed && g_manager->engineActive()) {
                 showStatus("aria2 参数将在重启后生效");
             } else {
                 showStatus("设置已保存");
@@ -522,6 +551,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_downloadDirText = cfg::downloadDir().string();
             g_themeMode = g_pendingTheme;
             g_dark = cfg::effectiveDark();
+            g_closeToTray = cfg::closeToTray();
             const cfg::Aria2Config a2 = cfg::aria2Config();
             g_aria2SplitText = std::to_string(a2.split);
             g_aria2ConnText = std::to_string(a2.maxConnectionPerServer);
