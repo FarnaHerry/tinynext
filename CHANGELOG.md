@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.9（2026-08-10）
+
+### 主题
+- **深色模式改为事件驱动**：跟随系统主题不再每 2s 轮询 spawn `gsettings`/`kreadconfig6`
+  探测进程，改为后台线程阻塞在 OS 主题变化通知上（Linux inotify / Windows
+  WM_SETTINGCHANGE / macOS kqueue），系统切换深浅色即时生效、零轮询。
+- 修复：macOS kqueue 用 `NOTE_*`（非 `EV_NOTE_*`）并补 `<cerrno>`；Windows 的
+  `setCloexec` 只在 POSIX 编译。
+
+### 设置
+- **「关闭时缩到托盘」开关**（配置键 `close_to_tray`）：开启后关闭窗口缩到系统托盘
+  （托盘菜单「显示/退出」），重启生效。仅 Windows/macOS 有效；Linux 因 eui-neo
+  配方托盘为 stub 无实际效果（X 仍直接退出）。
+
+### CI / 构建
+- `mcpp.lock` 重新解析（compat glx/x11 包，私有 glibc 2.39→2.44）。
+
 ## 0.2.7（2026-08-08）
 
 ### 下载
