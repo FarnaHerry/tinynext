@@ -41,6 +41,25 @@ aria2），让 mcpp / xlings 等其他包管理器「直接复用 TinyNext 作�
 `decorated` 配置 + `setWindowPos` / 最小化 / 最大化 API），再自绘标题栏 + 拖动区 +
 最小化/最大化/关闭三个按钮。
 
+### 标题栏关闭事件（close 钩子）不可自定义（2026-08 评估，保持现状）
+
+**结论：放弃，保持 `close_to_tray` 现状**（X = 缩托盘 / 退出二选一）。用户曾想
+自定义点 X 后的行为（退出 / 缩托盘 / 最小化 / 先弹确认框），但 eui-neo 0.5.6 没有
+可自定义的关闭钩子：
+
+- **限制不在标题栏**：应用用 GLFW 原生窗口 + 系统原生标题栏（非自绘，DWM 深色），
+  X 是系统原生按钮（WM_CLOSE → GLFW close 事件）；缺的是**事件处理**扩展点。
+- **eui 硬编码关闭逻辑**：`glfw_app_main.cpp:452` 的 `glfwSetWindowCloseCallback`
+  写死「有弹窗 → 聚焦弹窗并取消关闭；tray 可用 → 缩托盘；否则退出」。公开 API
+  （`app.h` / `dsl_app.h`）无任何 close/exit 钩子；应用侧唯一开关是 `.tray(bool)`
+  —— 即 `close_to_tray`，只给「缩托盘 or 退出」两种。
+- **要自定义只能非常规手段**：① 首帧 compose 用 `glfwSetWindowCloseCallback`
+  （GLFW 返回上一个回调）包一层 eui 原回调、存下并委派回去，可加「最小化」
+  （`glfwIconifyWindow`）或「确认框」（关闭回调里不能同步弹 eui 弹窗，需挂起 +
+  下次 compose 弹 + 状态机）；② fork 改 `glfw_app_main.cpp`（最重）。
+- **何时再考虑**：真需要「X = 最小化」或「X 前确认」时用「包一层回调」（eui-neo 锁
+  0.5.6，封装点稳定）；若 eui 日后加关闭钩子/配置项，直接迁移过去。
+
 ### eui-neo 版本声明与 C++23 构建兼容性（2026-08 发现，已解决）
 
 - `mcpp.toml` 曾声明 `eui-neo = 0.5.5`，但 mcpp 包索引一度没有 0.5.5，实际装的是
