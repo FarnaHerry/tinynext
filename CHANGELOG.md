@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.1（2026-08-11）
+
+### UI
+- **关闭标题栏调试统计**：0.3.0 开发期开的 `showDebugStatsInTitle(true)`（窗口标题显示
+  FPS / CPU / GPU 等调试数据）本版起关闭，标题保持干净的「TinyNext 下载器」。排障时
+  再开。
+
+### 工程
+- **版本升 0.3.1**（`mcpp.toml` `[package].version`，`src/versions.generated.h` 重新生成）。
+- 修复 `scripts/gen-versions.ps1` 在本机 Windows PowerShell 5.1 下**写入不落盘**的隐性
+  bug：脚本含中文注释（UTF-8 无 BOM），PS 5.1 按 ANSI 解码后字节被破坏成引号字符，
+  干扰解析导致写入失效（与 `make-dist.ps1` 顶部"保持 ASCII-only"警告同源）。改为纯
+  ASCII 注释 + `[IO.File]::WriteAllText`（精确 LF / UTF-8 无 BOM），与
+  `gen-versions.sh` 交叉幂等。
+
 ## 0.3.0（2026-08-11）
 
 > 跳大版本：本版是一次能力升级（下载类型扩展 + 配置体系 + 设置页改版）。

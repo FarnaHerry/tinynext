@@ -54,7 +54,9 @@ const DslAppConfig& dslAppConfig() {
         // 最大帧率写 0 = 自动匹配显示器刷新率（eui 的 updateFrameInterval 在
         // limit<=0 时直接用 getWindowRefreshRate）。
         .fps(0.0)
-        .showDebugStatsInTitle(true)
+        // 0.3.0 开发期开过标题栏调试统计（FPS/CPU/GPU），0.3.1 起关闭——窗口标题
+        // 保持干净的「TinyNext 下载器」。需要排障时再开。
+        .showDebugStatsInTitle(false)
         .textFont("NotoSansSC-Regular.ttf")
         .iconFont("FontAwesome7.otf")
         // 系统托盘：配置 close_to_tray 决定 X 是否缩到托盘（不退出），托盘菜单
