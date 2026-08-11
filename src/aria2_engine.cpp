@@ -375,6 +375,13 @@ std::vector<std::pair<std::string, std::string>> daemonExtraOpts(
     // ---- 完整性校验 ----
     if (a2.checkIntegrity) add("check-integrity", "true");
     if (!a2.checksum.empty()) add("checksum", a2.checksum);
+    // ---- ED2K（aria2-next 原生支持电驴：ed2k:// 链接 / 服务器发现）----
+    if (!a2.ed2kServers.empty()) add("ed2k-server", a2.ed2kServers);
+    if (!a2.ed2kListenPort.empty()) add("ed2k-listen-port", a2.ed2kListenPort);
+    if (!a2.ed2kUdpListenPort.empty()) add("ed2k-udp-listen-port", a2.ed2kUdpListenPort);
+    if (a2.ed2kUploadSlots > 0) {
+        add("ed2k-upload-slots", std::to_string(a2.ed2kUploadSlots));
+    }
     // 会话恢复：shutdown 前用 aria2.saveSession 持久化未完成任务，下次启动用
     // --input-file 载入续传。首次运行会话文件不存在，跳过 --input-file。
     // 会话文件放 per-user 配置目录：安装版经快捷方式启动时 cwd 可能是 System32

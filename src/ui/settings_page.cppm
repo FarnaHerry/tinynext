@@ -46,7 +46,11 @@ bool sameAria2Config(const cfg::Aria2Config& x, const cfg::Aria2Config& y) {
            x.autoFileRenaming == y.autoFileRenaming &&
            x.allowOverwrite == y.allowOverwrite &&
            x.checkIntegrity == y.checkIntegrity &&
-           x.checksum == y.checksum;
+           x.checksum == y.checksum &&
+           x.ed2kServers == y.ed2kServers &&
+           x.ed2kListenPort == y.ed2kListenPort &&
+           x.ed2kUdpListenPort == y.ed2kUdpListenPort &&
+           x.ed2kUploadSlots == y.ed2kUploadSlots;
 }
 
 // 最小分片单位下拉的可选项（KB/MB；GB 对 min-split-size 过于大，不提供）。
@@ -106,11 +110,14 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 .build();
 
             struct TabItem { const char* label; unsigned int icon; SettingsTab tab; };
+            // 对齐 MotrixNext 的设置分组（ed2k 由 aria2-next 原生支持）。
             static const TabItem kTabs[] = {
                 {"通用", 0xF013, SettingsTab::General},
-                {"下载任务", 0xF0AC, SettingsTab::Task},
+                {"下载", 0xF0AC, SettingsTab::Download},
+                {"BitTorrent", 0xF0E7, SettingsTab::BitTorrent},
+                {"ED2K", 0xF0C0, SettingsTab::Ed2k},
                 {"网络", 0xF0D7, SettingsTab::Network},
-                {"种子与文件", 0xF0E7, SettingsTab::SeedFile},
+                {"高级", 0xF085, SettingsTab::Advanced},
             };
             const float itemW = kSubSidebarWidth - 12.0f;
             float itemY = 28.0f;
@@ -327,8 +334,8 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
 
             }  // 全局 tab 结束（主题 / 关闭行为 / 下载路径）
 
-            // ============== 下载任务 tab（分片 / 连接 / 限速 / 并发 / 重试 / 缓存）==============
-            if (g_settingsTab == SettingsTab::Task) {
+            // ============== 下载 tab（分片 / 连接 / 限速 / 并发 / 重试 / 缓存）==============
+            if (g_settingsTab == SettingsTab::Download) {
                 row("a.split", kFieldH, [&](eui::Ui& r, float) {
                     numericField(r, "a.split", "分片数", 0, kInputW, g_aria2SplitText,
                                  [](const std::string& v) { g_aria2SplitText = v; },
@@ -428,7 +435,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                           [](const std::string& v) { g_diskCacheText = v; },
                           "如 16M，空=aria2 默认");
                 });
-            }  // 下载任务 tab 结束
+            }  // 下载 tab 结束
 
             // ============== 网络 tab（代理 / UA / Referer / 请求头 / Cookie）==============
             if (g_settingsTab == SettingsTab::Network) {
@@ -481,8 +488,8 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 });
             }  // 网络 tab 结束
 
-            // ============== 种子与文件 tab（BitTorrent / 文件处理 / 完整性校验）==============
-            if (g_settingsTab == SettingsTab::SeedFile) {
+            // ============== BitTorrent tab ===============
+            if (g_settingsTab == SettingsTab::BitTorrent) {
                 row("bt.header", 18.0f, [&](eui::Ui& r, float w) {
                     components::text(r, "st.bt.header")
                         .position(0, 0)
@@ -530,7 +537,43 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .onClick([] { g_btEnableLpd = !g_btEnableLpd; })
                         .build();
                 });
+            }  // BitTorrent tab 结束
 
+            // ============== ED2K tab（电驴；aria2-next 原生支持）==============
+            if (g_settingsTab == SettingsTab::Ed2k) {
+                row("ed2k.header", 18.0f, [&](eui::Ui& r, float w) {
+                    components::text(r, "st.ed2k.header")
+                        .position(0, 0)
+                        .size(w, 18.0f)
+                        .text("ED2K（电驴）")
+                        .fontSize(11.0f)
+                        .lineHeight(18.0f)
+                        .color(theme.statusText)
+                        .build();
+                });
+                row("ed2k.ports", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "ed2k.listen", "监听端口TCP", 0, kInputW, g_ed2kListenPortText,
+                          [](const std::string& v) { g_ed2kListenPortText = v; },
+                          "空=默认 4662");
+                    field(r, "ed2k.udp", "UDP端口", kCol2X, kInputW, g_ed2kUdpPortText,
+                          [](const std::string& v) { g_ed2kUdpPortText = v; },
+                          "空=默认 4672");
+                });
+                row("ed2k.servers", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "ed2k.servers", "ED2K服务器", 0, fullW, g_ed2kServersText,
+                          [](const std::string& v) { g_ed2kServersText = v; },
+                          "host:port,host:port（逗号分隔）；空=默认");
+                });
+                row("ed2k.slots", kFieldH, [&](eui::Ui& r, float) {
+                    numericField(r, "ed2k.slots", "上传槽位", 0, kInputW,
+                                 g_ed2kUploadSlotsText,
+                                 [](const std::string& v) { g_ed2kUploadSlotsText = v; },
+                                 0, 100, 1);
+                });
+            }  // ED2K tab 结束
+
+            // ============== 高级 tab（文件处理 / 完整性校验）==============
+            if (g_settingsTab == SettingsTab::Advanced) {
                 row("file.header", 18.0f, [&](eui::Ui& r, float w) {
                     components::text(r, "st.file.header")
                         .position(0, 0)
@@ -634,7 +677,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                           [](const std::string& v) { g_checksumText = v; },
                           "如 sha-1=<hex>");
                 });
-            }  // 种子与文件 tab 结束
+            }  // 高级 tab 结束
         })
         .build();
 
@@ -681,6 +724,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_allowOverwrite = d.allowOverwrite;
             g_checkIntegrity = d.checkIntegrity;
             g_checksumText = d.checksum;
+            g_ed2kServersText = d.ed2kServers;
+            g_ed2kListenPortText = d.ed2kListenPort;
+            g_ed2kUdpPortText = d.ed2kUdpListenPort;
+            g_ed2kUploadSlotsText = std::to_string(d.ed2kUploadSlots);
             showStatus("已恢复默认（点「保存」生效）");
         })
         .build();
@@ -734,10 +781,11 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             if (!validateInt(g_retryWaitText, 0, 600, "重试等待秒", retryWaitV)) return;
             if (!validateInt(g_maxConcurrentText, 1, 64, "最大同时下载数", concurrentV)) return;
             // 新增项校验：做种时间/最大Peers/全局限速 整数范围；做种比率 浮点。
-            int seedTimeV = 0, btMaxPeersV = 0, overallLimitV = 0;
+            int seedTimeV = 0, btMaxPeersV = 0, overallLimitV = 0, ed2kSlotsV = 0;
             if (!validateInt(g_seedTimeText, 0, 100000, "做种时间秒", seedTimeV)) return;
             if (!validateInt(g_btMaxPeersText, 0, 10000, "最大Peers", btMaxPeersV)) return;
             if (!validateInt(g_overallLimitText, 0, 1000000, "全局限速KB/s", overallLimitV)) return;
+            if (!validateInt(g_ed2kUploadSlotsText, 0, 100, "ED2K上传槽位", ed2kSlotsV)) return;
             double seedRatioV = 0.0;
             const std::string seedRatioStr = trimText(g_seedRatioText);
             if (!seedRatioStr.empty()) {
@@ -805,6 +853,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             a2.allowOverwrite = g_allowOverwrite;
             a2.checkIntegrity = g_checkIntegrity;
             a2.checksum = trimText(g_checksumText);
+            a2.ed2kServers = trimText(g_ed2kServersText);
+            a2.ed2kListenPort = trimText(g_ed2kListenPortText);
+            a2.ed2kUdpListenPort = trimText(g_ed2kUdpPortText);
+            a2.ed2kUploadSlots = ed2kSlotsV;
 
             const bool a2Changed = !sameAria2Config(cur, a2);
             cfg::setAria2Config(a2);
@@ -835,6 +887,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_allowOverwrite = a2.allowOverwrite;
             g_checkIntegrity = a2.checkIntegrity;
             g_checksumText = a2.checksum;
+            g_ed2kServersText = a2.ed2kServers;
+            g_ed2kListenPortText = a2.ed2kListenPort;
+            g_ed2kUdpPortText = a2.ed2kUdpListenPort;
+            g_ed2kUploadSlotsText = std::to_string(a2.ed2kUploadSlots);
 
             // 下载路径。
             cfg::setDownloadDir(g_downloadDirText);
@@ -894,6 +950,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_allowOverwrite = a2.allowOverwrite;
             g_checkIntegrity = a2.checkIntegrity;
             g_checksumText = a2.checksum;
+            g_ed2kServersText = a2.ed2kServers;
+            g_ed2kListenPortText = a2.ed2kListenPort;
+            g_ed2kUdpPortText = a2.ed2kUdpListenPort;
+            g_ed2kUploadSlotsText = std::to_string(a2.ed2kUploadSlots);
             showStatus("已放弃更改");
         })
         .build();

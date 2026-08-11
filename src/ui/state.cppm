@@ -120,12 +120,17 @@ export bool g_autoFileRenaming = cfg::aria2Config().autoFileRenaming;
 export bool g_allowOverwrite = cfg::aria2Config().allowOverwrite;
 export bool g_checkIntegrity = cfg::aria2Config().checkIntegrity;
 export std::string g_checksumText = cfg::aria2Config().checksum;
+// ---- ED2K 配置项（daemon 级，待提交值；aria2-next 原生支持电驴）----
+export std::string g_ed2kServersText = cfg::aria2Config().ed2kServers;
+export std::string g_ed2kListenPortText = cfg::aria2Config().ed2kListenPort;
+export std::string g_ed2kUdpPortText = cfg::aria2Config().ed2kUdpListenPort;
+export std::string g_ed2kUploadSlotsText =
+    std::to_string(cfg::aria2Config().ed2kUploadSlots);
 
 // 设置页左侧配置分组：每组一个独立"子页面"，避免全部参数挤在一屏滚动过长。
-// 按实体归组：应用通用 / 下载任务 / 网络 / 种子与文件（取代旧的按 aria2 功能域分
-// 的 General/BitTorrent/Http/Behavior/Integrity——后者把同实体参数拆散、Http 还被
-// 拆成两段）。
-export enum class SettingsTab { General, Task, Network, SeedFile };
+// 分组对齐 MotrixNext：通用 / 下载 / BitTorrent / ED2K / 网络 / 高级（MotrixNext
+// 同为 aria2-next 引擎，其分组是此类下载器的标准布局）。
+export enum class SettingsTab { General, Download, BitTorrent, Ed2k, Network, Advanced };
 export SettingsTab g_settingsTab = SettingsTab::General;
 // 添加下载弹窗的每任务连接数（默认 = 配置 split 值；空/0 = 配置默认）。
 export std::string g_addConnectionsText = std::to_string(cfg::aria2Config().split);

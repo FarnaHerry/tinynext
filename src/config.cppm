@@ -368,6 +368,11 @@ export struct Aria2Config {
     // ---- 完整性校验（daemon 级）----
     bool checkIntegrity = false;         // --check-integrity
     std::string checksum = "";           // --checksum（"sha-1=<hex>"）
+    // ---- ED2K（daemon 级；aria2-next 原生支持电驴）----
+    std::string ed2kServers = "";        // --ed2k-server；逗号分隔 HOST:PORT，空=默认
+    std::string ed2kListenPort = "";     // --ed2k-listen-port；TCP，空=默认 4662
+    std::string ed2kUdpListenPort = "";  // --ed2k-udp-listen-port；Kad，空=默认 4672
+    int ed2kUploadSlots = 0;             // --ed2k-upload-slots；0=默认 3
 };
 
 export Aria2Config aria2Config() {
@@ -465,6 +470,18 @@ export Aria2Config aria2Config() {
         if (a.contains("checksum") && a["checksum"].is_string()) {
             c.checksum = a["checksum"].get<std::string>();
         }
+        if (a.contains("ed2k_servers") && a["ed2k_servers"].is_string()) {
+            c.ed2kServers = a["ed2k_servers"].get<std::string>();
+        }
+        if (a.contains("ed2k_listen_port") && a["ed2k_listen_port"].is_string()) {
+            c.ed2kListenPort = a["ed2k_listen_port"].get<std::string>();
+        }
+        if (a.contains("ed2k_udp_listen_port") && a["ed2k_udp_listen_port"].is_string()) {
+            c.ed2kUdpListenPort = a["ed2k_udp_listen_port"].get<std::string>();
+        }
+        if (a.contains("ed2k_upload_slots") && a["ed2k_upload_slots"].is_number_integer()) {
+            c.ed2kUploadSlots = a["ed2k_upload_slots"].get<int>();
+        }
     }
     c.split = std::clamp(c.split, 1, 64);
     c.maxConnectionPerServer = std::clamp(c.maxConnectionPerServer, 1, 64);
@@ -476,6 +493,7 @@ export Aria2Config aria2Config() {
     if (!(c.seedRatio > 0.0)) c.seedRatio = 0.0;  // 负数/NaN 归 0
     c.btMaxPeers = std::clamp(c.btMaxPeers, 0, 10000);
     if (c.maxOverallDownloadLimit < 0) c.maxOverallDownloadLimit = 0;
+    c.ed2kUploadSlots = std::clamp(c.ed2kUploadSlots, 0, 100);
     return c;
 }
 
@@ -511,6 +529,10 @@ export void setAria2Config(const Aria2Config& c) {
     a["allow_overwrite"] = c.allowOverwrite;
     a["check_integrity"] = c.checkIntegrity;
     a["checksum"] = c.checksum;
+    a["ed2k_servers"] = c.ed2kServers;
+    a["ed2k_listen_port"] = c.ed2kListenPort;
+    a["ed2k_udp_listen_port"] = c.ed2kUdpListenPort;
+    a["ed2k_upload_slots"] = std::clamp(c.ed2kUploadSlots, 0, 100);
     j["aria2"] = a;
     saveConfig(j);
 }

@@ -2,20 +2,24 @@
 
 ## 0.3.2（2026-08-11）
 
-### 设置页按实体重排（5 组 → 4 组）
-- **按实体属性归组**，取代旧的按 aria2 功能域分组（旧的把同实体参数拆散，且 HTTP
-  tab 被拆成两段渲染）。新 4 组：
+### 设置页对齐 MotrixNext 分组（6 组）+ 新增 ED2K 支持
+- **设置页按 MotrixNext 布局重排**（同为 aria2-next 引擎，其分组是此类下载器的标准
+  布局）：通用 / 下载 / BitTorrent / ED2K / 网络 / 高级。取代旧的按 aria2 功能域分
+  组（把同实体参数拆散、HTTP tab 被拆两段）。
   - **通用**：主题 / 关闭时缩到托盘 / 下载路径
-  - **下载任务**：分片数 / 每服务器连接 / 最小分片 / 每任务限速 / 全局限速 / 最大
-    同时下载数 / 最大重试次数 / 重试等待 / 磁盘缓存 / 文件分配
+  - **下载**：分片数 / 每服务器连接 / 最小分片 / 每任务限速 / 全局限速 / 最大同时
+    下载数 / 最大重试次数 / 重试等待 / 磁盘缓存 / 文件分配
+  - **BitTorrent**：做种时间 / 做种比率 / 最大 Peers / 监听端口 / 局域网发现
+  - **ED2K**（新增）：监听端口 TCP / UDP 端口 / ED2K 服务器 / 上传槽位
   - **网络**：代理地址 / 不使用代理 / User-Agent / Referer / 请求头 / Cookie 载入 /
     Cookie 保存
-  - **种子与文件**：做种时间 / 做种比率 / 最大 Peers / 监听端口 / 局域网发现 /
-    自动改名 / 允许覆盖 / 移除控制文件 / 完成后命令 / 检查完整性 / 校验和
-- 种子与文件组内分「BitTorrent / 文件处理 / 完整性校验」三个小节标题；下载任务组把
-  全局限速与文件分配放同一行（与每任务限速同屏对照）。
-- `SettingsTab` 枚举从 `General/BitTorrent/Http/Behavior/Integrity` 改为
-  `General/Task/Network/SeedFile`；所有配置项保底逻辑（恢复默认/保存/放弃）不变。
+  - **高级**：自动改名 / 允许覆盖 / 移除控制文件 / 完成后命令 / 检查完整性 / 校验和
+- **ED2K（电驴）支持**：aria2-next 原生支持 `ed2k://` 链接（`--ed2k-server` /
+  `--ed2k-listen-port` / `--ed2k-udp-listen-port` / `--ed2k-upload-slots`，daemon 级
+  配置）。新配置键：`ed2k_servers` / `ed2k_listen_port` / `ed2k_udp_listen_port` /
+  `ed2k_upload_slots`。端到端验证：配置后 daemon 启动带全部 ed2k 参数。
+- `SettingsTab` 枚举改为 `General/Download/BitTorrent/Ed2k/Network/Advanced`；所有
+  配置项保底逻辑（恢复默认/保存/放弃）不变。
 
 ### 脚本模式 `tinynext --headless <url>`
 - **不开窗、按 TinyNext 自身配置下载完退出**：复用 aria2_engine 的 daemon + JSON-RPC，
