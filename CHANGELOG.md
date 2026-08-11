@@ -31,6 +31,15 @@
   「EUI-NEO 0.5.3」旧版本号。说明：mcpp 无法在编译期注入版本宏，故 eui 版本仍需
   在 `config.cppm` 维护（与 `mcpp.toml` 依赖版本同步）。
 
+### 修复
+- **输入框文字过大 + 字体混用**：eui `components::input` 内部默认
+  `metrics_.typography.input = 17`、`fontFamily = "Microsoft YaHei"`。改 uiScale
+  原生缩放后 app 自己的字号已回到设计值（标签 11-12），但 input 内部这个 17 仍按
+  设计值放大 → 设置页/添加弹窗输入框文字被放得比标签大 ~60%（比「设置」标题还大），
+  Windows 上还混用雅黑。修复：主题里把 `metrics.typography.input` 覆写为设计值 13
+  （比标签略大、小于标题），所有输入框显式 `fontFamily("")` 改用应用字体
+  （Noto Sans SC），与标签一致。
+
 ### CI / 构建
 - `mcpp.lock` 重新解析（eui-neo 0.5.6）。
 

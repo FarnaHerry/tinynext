@@ -143,6 +143,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .size(inputW, 26.0f)
                     .placeholder(placeholder)
                     .value(value)
+                    .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                     .theme(theme.components)
                     .onChange(onChange)
                     .build();
@@ -238,6 +239,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .size(pathInputW, 26.0f)
                     .placeholder("下载保存目录")
                     .value(g_downloadDirText)
+                    .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                     .theme(theme.components)
                     .onChange([](const std::string& value) { g_downloadDirText = value; })
                     .build();

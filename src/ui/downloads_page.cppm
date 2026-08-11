@@ -364,6 +364,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .multiline(true)  // 多行：长链接完整可见，滚轮可滚动
                     .placeholder("https://… 或 magnet:…")
                     .value(g_urlText)
+                    .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                     .theme(theme.components)
                     .onChange([](const std::string& value) { g_urlText = value; })
                     .onEnter([] { if (addDownload()) g_addOpen = false; })
@@ -397,6 +398,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .size(dlgW - inputX - 16.0f, 28.0f)
                     .placeholder("可选")
                     .value(g_addRenameText)
+                    .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                     .theme(theme.components)
                     .onChange([](const std::string& value) { g_addRenameText = value; })
                     .onEnter([] { if (addDownload()) g_addOpen = false; })
@@ -416,6 +418,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .size(dlgW - inputX - 16.0f - 60.0f - 8.0f, 28.0f)
                     .placeholder("留空=全局")
                     .value(g_addDirText)
+                    .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                     .theme(theme.components)
                     .onChange([](const std::string& value) { g_addDirText = value; })
                     .onEnter([] { if (addDownload()) g_addOpen = false; })

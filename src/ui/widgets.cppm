@@ -269,6 +269,7 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
         .position(x + btnSize + gap, y)
         .size(inputW, height)
         .value(value)
+        .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
         .theme(tokens)
         .onChange([onChange](const std::string& v) {
             // 只保留数字：手输字母/符号会被滤掉（eui input 每帧用 value() 覆盖
