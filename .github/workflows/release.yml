@@ -167,7 +167,9 @@ jobs:
           merge-multiple: true
 
       - name: Publish Release
-        uses: softprops/action-gh-release@v2
+        # v3 = node24 运行时（v2 还在 node20，已淘汰）。tag_name/name/draft/body/files
+        # 输入与 v2 兼容；draft: true 语义不变（创建 draft release，人工发布）。
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: TinyNext ${{ github.ref_name }}

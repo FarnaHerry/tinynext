@@ -47,6 +47,12 @@
   版本只在 `mcpp.toml` 维护，升级后跑一次生成脚本（`make-dist` 打包前自动跑）。
   说明：mcpp 本身无编译期版本注入，生成脚本是"编译时读 mcpp.toml"的最贴近实现。
 
+### CI
+- **GitHub Actions 全面升到 node24 运行时**：`softprops/action-gh-release` v2 → **v3**
+  （v2 还在 node20，已淘汰）。核对全工作流：`checkout@v7` / `cache@v6` /
+  `upload-artifact@v7` / `download-artifact@v8` / `action-gh-release@v3` 全部 node24，
+  无残留 node20/18/16 的 action。
+
 ### 多 URL 镜像合一（实验性）
 - 添加弹窗新增「多行URL合并为镜像」开关：URL 框多行 + 勾选后，首行为主 URL、其余为
   同一任务的镜像源，`aria2.addUri` 一次传入多源数组——aria2 从多源并发分段下载
