@@ -84,6 +84,9 @@ export std::string cardInfoText(const dl::TaskView& task) {
     if (task.connections > 0) {
         push(std::format("{} 连接", task.connections));
     }
+    if (task.mirrorCount > 0) {
+        push(std::format("镜像 ×{}", task.mirrorCount));
+    }
     if (task.totalBytes > 0) {
         push(std::format("{} / {}", formatBytes(task.downloadedBytes),
                          formatBytes(task.totalBytes)));

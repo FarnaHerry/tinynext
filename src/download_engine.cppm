@@ -30,6 +30,7 @@ export struct TaskView {
     double speedBps;              // bytes/second, last measured
     int connections = 1;          // active network connections; 1 = single-connection engine
     std::string displayName;      // 真实显示名（BT/磁力用种子的 info.name；HTTP 不用，取 destPath 文件名）
+    int mirrorCount = 0;          // 镜像源数（0 = 单源）；aria2 多源任务为除主 URL 外的源数
 };
 
 // Per-task start options. connections == 0 means "use the engine default from

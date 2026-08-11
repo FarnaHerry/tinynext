@@ -575,13 +575,32 @@ bool Aria2Engine::ensureDaemon() const {
         cmdLine += L" --" + std::wstring(name.begin(), name.end()) + L"=" + winValue(value);
     }
 
+    // 重定向 daemon 的 stdout/stderr 到日志文件，避免 aria2 的进度摘要 / 错误刷进
+    // 应用终端（headless 下尤其吵，GUI 下 nohup 也会被污染）。日志与 session 同级。
+    const std::filesystem::path logPath = cfg::configDir() / "tinynext-aria2.log";
+    std::error_code lsec;
+    std::filesystem::create_directories(logPath.parent_path(), lsec);
+    const HANDLE logFile = CreateFileW(logPath.c_str(), FILE_APPEND_DATA,
+                                       FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                       nullptr, OPEN_ALWAYS,
+                                       FILE_ATTRIBUTE_NORMAL, nullptr);
+
     STARTUPINFOW si{};
     si.cb = sizeof(si);
+    if (logFile != INVALID_HANDLE_VALUE) {
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+        si.hStdOutput = logFile;
+        si.hStdError = logFile;
+    }
     PROCESS_INFORMATION pi{};
-    if (!CreateProcessW(wExe.c_str(), &cmdLine[0], nullptr, nullptr, FALSE,
+    // STARTF_USESTDHANDLES 时子进程需继承这些句柄，bInheritHandles 必须 TRUE。
+    if (!CreateProcessW(wExe.c_str(), &cmdLine[0], nullptr, nullptr, TRUE,
                         CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+        if (logFile != INVALID_HANDLE_VALUE) CloseHandle(logFile);
         return false;
     }
+    if (logFile != INVALID_HANDLE_VALUE) CloseHandle(logFile);
     CloseHandle(pi.hThread);
     processHandle_ = pi.hProcess;
 #else
@@ -601,10 +620,28 @@ bool Aria2Engine::ensureDaemon() const {
     for (auto& a : args) argv.push_back(a.data());
     argv.push_back(nullptr);
 
+    // 同 Windows 分支：daemon 输出重定向到 configDir/tinynext-aria2.log。
+    const std::filesystem::path logPath = cfg::configDir() / "tinynext-aria2.log";
+    std::error_code lsec;
+    std::filesystem::create_directories(logPath.parent_path(), lsec);
+    const int logFd = ::open(logPath.c_str(), O_CREAT | O_WRONLY | O_APPEND, 0644);
+
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    if (logFd >= 0) {
+        // adddup2 到 stdout/stderr 会清掉 CLOEXEC，子进程正确继承。
+        posix_spawn_file_actions_adddup2(&fa, logFd, STDOUT_FILENO);
+        posix_spawn_file_actions_adddup2(&fa, logFd, STDERR_FILENO);
+    }
+
     pid_t pid = -1;
-    if (::posix_spawn(&pid, exe.c_str(), nullptr, nullptr, argv.data(), environ) != 0) {
+    if (::posix_spawn(&pid, exe.c_str(), &fa, nullptr, argv.data(), environ) != 0) {
+        if (logFd >= 0) ::close(logFd);
+        posix_spawn_file_actions_destroy(&fa);
         return false;
     }
+    posix_spawn_file_actions_destroy(&fa);
+    if (logFd >= 0) ::close(logFd);
     processHandle_ = reinterpret_cast<void*>(static_cast<std::intptr_t>(pid));
 #endif
 
@@ -986,6 +1023,17 @@ void Aria2Engine::recoverSession() const {
             task->destPath = std::filesystem::path(file.value("path", ""));
             if (file.contains("uris") && file["uris"].is_array() && !file["uris"].empty()) {
                 task->url = file["uris"][0].value("uri", "");
+                // 镜像源随会话恢复：files[0].uris 是 aria2 去重后的全部源（实测顺序
+                // 不稳定，首条不一定是原主 URL），除主 URL 外的唯一源还给
+                // opts.mirrors——重下（retry）复用 opts 时多源不丢，卡片也能显示镜像数。
+                for (std::size_t i = 1; i < file["uris"].size(); ++i) {
+                    const std::string u = file["uris"][i].value("uri", "");
+                    if (!u.empty() && u != task->url &&
+                        std::ranges::find(task->opts.mirrors, u) ==
+                            task->opts.mirrors.end()) {
+                        task->opts.mirrors.push_back(u);
+                    }
+                }
             }
         }
         // 磁力任务没有可用 uri 时用 infoHash 拼回显。
@@ -1148,7 +1196,8 @@ std::vector<TaskView> Aria2Engine::snapshot() const {
         out.push_back(TaskView{task.id, task.url, task.destPath, task.state,
                                task.totalBytes, task.downloadedBytes,
                                task.error, task.speedBps, task.connections,
-                               task.displayName});
+                               task.displayName,
+                               static_cast<int>(task.opts.mirrors.size())});
     }
     return out;
 }

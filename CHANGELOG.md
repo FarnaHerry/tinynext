@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.2（2026-08-11）
+
+### 脚本模式 `tinynext --headless <url>`
+- **不开窗、按 TinyNext 自身配置下载完退出**：复用 aria2_engine 的 daemon + JSON-RPC，
+  不依赖 eui / UI 状态。`exit 0` = 全部成功，`exit 1` = 任一失败或引擎不可用。适合
+  脚本 / 定时任务（定位是 TinyNext 用户的脚本工具，roadmap 项落地）。
+- 支持多 URL（逐个任务）；接受 http(s)/ftp(s)/sftp / magnet: / 本地 .torrent。
+  失败任务保留在会话文件（下次 GUI 启动 aria2 控制文件续传，符合断点续传语义）。
+- **daemon 输出重定向**：aria2-next 的进度摘要 / 错误日志不再刷进应用终端，写入
+  `configDir/tinynext-aria2.log`（Windows CreateProcess / POSIX posix_spawn 都重定向
+  stdout/stderr；GUI 与 headless 共用）。
+
+### 镜像多源补完（0.3.0 实验性的收尾）
+- **任务卡显示镜像数**：镜像任务的卡片信息区显示「镜像 ×N」（N = 除主 URL 外的
+  镜像源数），一眼看出是否多源。
+- **CLI `--mirror` 开关**：`tinynext --mirror url1 url2 ...` 把所有 URL 合并为一个
+  多源任务（首 URL 为主、其余为镜像源），与添加弹窗的「多行URL合并为镜像」等价。
+  跨进程保留：单实例转发 / inbox 回退用 `mirror:` 前缀单行编码，主实例收到后重建
+  多源任务。要求全部为普通 http(s)/ftp(s)/sftp 链接（磁力/种子无多源概念，混入则
+  退回逐条任务）。
+- **镜像随会话恢复**：会话恢复时从 `files[0].uris` 重建 `opts.mirrors`——重启后
+  多源不丢（retry 复用 opts 时带上镜像），任务卡继续显示镜像数。注意 aria2 返回的
+  uris 顺序不稳定，恢复后主 URL 可能不是原来的第一个，但多源完整保留。
+
 ## 0.3.1（2026-08-11）
 
 ### UI

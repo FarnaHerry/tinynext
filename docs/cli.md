@@ -14,6 +14,15 @@ tinynext ./some.torrent
 # 一次添加多个
 tinynext https://a.example.com/1.zip https://b.example.com/2.bin
 
+# 多 URL 合并为一个镜像任务：首 URL 为主，其余为同一文件的镜像源
+# （aria2 多源并发分段下载、源挂自动切换，只产出一个文件）
+tinynext --mirror https://fast.example.com/big.iso https://slow.example.org/big.iso
+
+# 脚本模式：不开窗，按 TinyNext 自身配置下载完退出（exit 0 = 成功 / 1 = 失败）
+# 适合脚本 / 定时任务；不依赖 GUI，可被 cron 等调用
+tinynext --headless https://example.com/file.zip
+echo "exit code: $?"   # 0 = 全部成功，1 = 任一失败或引擎不可用
+
 # 应用没在运行时：自动启动应用并加入下载列表
 # 应用已在运行时：把链接转发给已运行实例，它自动添加；Windows 上还会把窗口切到前台
 
@@ -38,6 +47,9 @@ tinynext agent
 - 主实例的后台监听线程**阻塞在 accept 上**（队列空就挂起，零轮询），收到 URL 后
   唤醒 UI 线程，由 `startDownloadFromUrl` 逐个加入下载列表（URL 校验与「添加下载」
   弹窗一致：http(s)/ftp(s)/sftp 链接、magnet: 磁力、本地 .torrent，http 不做升级）。
+- `--mirror` 模式跨进程保留：第二实例转发时把 `--mirror url1 url2 ...` 编码成单行
+  `mirror:<主URL> <镜像1> <镜像2> ...`（URL 不含空格，空格分隔安全），socket / inbox
+  两路都不被拆开；主实例解码后重建多源任务（`dl::StartOptions::mirrors`）。
 - URL 前缀白名单统一在 `utils::isDownloadableSource`（`src/ui/utils.cppm`）一处维护。
 
 ## 实现位置
