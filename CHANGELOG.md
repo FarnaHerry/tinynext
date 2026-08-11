@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.2（2026-08-11）
+
+### 修复
+- **缩托盘后重开 app 唤不醒**（Windows + `close_to_tray`）：eui 隐藏到托盘后主循环停在
+  `hiddenToTray` 分支（不渲染也不跑 compose，转发的 URL 会一直积压）；第二实例握手
+  `forwardToRunningInstance` 又只做 `SetForegroundWindow`（对隐藏窗口无效），URL 为空时
+  更是直接 return。现在：即使没有 URL 也把窗口带回来；窗口隐藏时给主实例托盘窗口发
+  `WM_COMMAND` + Show 菜单项 ID，触发 eui `restoreWindowFromTray`（glfwRestore +
+  glfwShow + glfwFocus），恢复后 compose 随即 drain 积压的转发 URL、下载正常开始。
+  实现见 `src/cli.cppm`（依赖 eui-neo 0.5.6 托盘窗口类名 "TRAY" 与 `ID_TRAY_FIRST`=1000）。
+
+### 工程
+- **版本升 0.3.2**（`mcpp.toml` `[package].version`，`src/versions.generated.h` 重新生成）。
+
 ## 0.3.1（2026-08-11）
 
 ### UI

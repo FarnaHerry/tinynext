@@ -3,7 +3,7 @@
 //   powershell -File scripts/gen-versions.ps1   (or  bash scripts/gen-versions.sh)
 #pragma once
 
-#define TINY_APP_VERSION "0.3.1"
+#define TINY_APP_VERSION "0.3.2"
 #define TINY_EUI_VERSION "0.5.6"
 #define TINY_WS_VERSION "12.0.1"
 #define TINY_JSON_VERSION "3.12.0"

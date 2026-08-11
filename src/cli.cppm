@@ -316,20 +316,33 @@ export bool acquireSingleInstance() {
 
 // Best-effort hand-off to a running primary instance. 首选 TCP loopback socket
 // 直连（事件驱动，主实例收到即处理）；socket 未就绪（主实例还在启动）时回退写
-// inbox 文件，主实例下次唤醒会 drain。最后把已有窗口切到前台（仅 Windows）。
+// inbox 文件，主实例下次唤醒会 drain。
+//
+// 即使没有任何 URL（用户只是重新点开 app），也要把主实例窗口带回来（仅 Windows）：
+// - 窗口可见/最小化 → SetForegroundWindow 前置即可；
+// - 窗口已缩到托盘（close_to_tray：eui glfwHideWindow 隐藏，主循环停在 hiddenToTray
+//   分支，不渲染也不跑 compose，转发的 URL 会积压）→ SetForegroundWindow 无效，必须
+//   触发主实例的托盘「显示」。做法是给 eui 的托盘 message-only 窗口发
+//   WM_COMMAND + Show 菜单项 ID：主实例 pollTray 消费 g_show_requested 后走
+//   restoreWindowFromTray（glfwRestore + glfwShow + glfwFocus），随即恢复渲染并
+//   drain 积压的转发 URL。eui-neo 已锁定 0.5.6，托盘窗口类名 "TRAY" 与首项 Show 的
+//   ID_TRAY_FIRST=1000 见 EUI-NEO 0.5.6 的 3rd/tray（TRAY_WINAPI）。
 export void forwardToRunningInstance(const std::vector<std::string>& urls) {
-    if (urls.empty()) return;
-    if (!trySendUrls(urls)) {
-        std::ofstream out(inboxPath(), std::ios::app);
-        if (out) {
-            for (const auto& u : urls) {
-                if (!u.empty()) out << u << '\n';
+    if (!urls.empty()) {
+        if (!trySendUrls(urls)) {
+            std::ofstream out(inboxPath(), std::ios::app);
+            if (out) {
+                for (const auto& u : urls) {
+                    if (!u.empty()) out << u << '\n';
+                }
             }
         }
     }
 #ifdef _WIN32
     using FindWindowFn = HWND(WINAPI*)(LPCWSTR, LPCWSTR);
     using SetForegroundFn = BOOL(WINAPI*)(HWND);
+    using IsVisibleFn = BOOL(WINAPI*)(HWND);
+    using PostMessageFn = BOOL(WINAPI*)(HWND, UINT, WPARAM, LPARAM);
     static const FindWindowFn findWindow = []() -> FindWindowFn {
         HMODULE m = LoadLibraryW(L"user32.dll");
         if (!m) return nullptr;
@@ -342,8 +355,33 @@ export void forwardToRunningInstance(const std::vector<std::string>& urls) {
         return reinterpret_cast<SetForegroundFn>(
             reinterpret_cast<void*>(GetProcAddress(m, "SetForegroundWindow")));
     }();
-    if (findWindow && setForeground) {
+    static const IsVisibleFn isVisible = []() -> IsVisibleFn {
+        HMODULE m = LoadLibraryW(L"user32.dll");
+        if (!m) return nullptr;
+        return reinterpret_cast<IsVisibleFn>(
+            reinterpret_cast<void*>(GetProcAddress(m, "IsWindowVisible")));
+    }();
+    static const PostMessageFn postMessage = []() -> PostMessageFn {
+        HMODULE m = LoadLibraryW(L"user32.dll");
+        if (!m) return nullptr;
+        return reinterpret_cast<PostMessageFn>(
+            reinterpret_cast<void*>(GetProcAddress(m, "PostMessageW")));
+    }();
+    if (findWindow && setForeground && isVisible && postMessage) {
         if (HWND h = findWindow(nullptr, L"TinyNext 下载器")) {
+            // 主窗口被托盘隐藏（不可见）时，窗口必然伴随托盘（eui 只有
+            // hideWindowToTray 会 glfwHideWindow，而它要求 trayAvailable）。隐藏 ⟺
+            // 托盘窗口存在，所以这里能找到 "TRAY" 类窗口就触发恢复；找不到说明没缩
+            // 托盘，仅 SetForegroundWindow 前置即可。
+            if (!isVisible(h)) {
+                // eui 3rd/tray (TRAY_WINAPI)：托盘窗口类名 "TRAY"，菜单
+                // {"Show","-","Exit"} 首项 id = ID_TRAY_FIRST = 1000。给托盘窗口
+                // PostMessage WM_COMMAND 会走 _tray_wnd_proc → eui_tray_show →
+                // g_show_requested，主实例下一轮 pollTray 消费并 restoreWindowFromTray。
+                if (HWND tray = findWindow(L"TRAY", nullptr)) {
+                    postMessage(tray, WM_COMMAND, 1000 /* ID_TRAY_FIRST: Show */, 0);
+                }
+            }
             setForeground(h);
         }
     }
