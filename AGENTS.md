@@ -27,7 +27,9 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
 
 - **单实例**：重复启动不弹新窗口——第二实例经 TCP loopback socket 把 URL 直发
   主实例（回退写 `<temp>/tinynext.inbox`，Windows 上还会聚焦窗口）后退出。
-- 只有 `http://` / `https://` 开头的参数会被当作下载；非 URL 参数忽略。
+- 可下载源：`http(s)://` / `ftp(s)://` / `sftp://` 链接、`magnet:` 磁力、`.torrent`
+  本地路径；白名单统一在 `utils::isDownloadableSource`（`src/ui/utils.cppm`）。非下载
+  参数忽略。
 - `agent` / `--agent` / `help` 参数会打印 CLI 使用教学并退出（不进 GUI）——AI
   不知道用法时先跑 `tinynext agent`。
 - 详细：`docs/cli.md`。

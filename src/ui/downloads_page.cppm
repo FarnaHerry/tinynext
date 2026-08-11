@@ -181,14 +181,13 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                           0xF067, true, theme,
                           [] {
                               // 打开弹窗：恢复默认选项——连接数填配置的 split 值，下载目录填配置
-                              // 的默认下载目录；其余清空。若剪贴板是 http(s)/magnet 链接则预填 URL。
+                              // 的默认下载目录；其余清空。若剪贴板是可下载源则预填 URL。
                               g_urlText.clear();
+                              g_addTorrentPath.clear();
+                              g_addMirror = false;
                               const std::string clip = trimText(getClipboardText());
-                              if (!clip.empty()) {
-                                  if (clip.starts_with("http://") || clip.starts_with("https://") ||
-                                      clip.starts_with("magnet:")) {
-                                      g_urlText = clip;
-                                  }
+                              if (!clip.empty() && isDownloadableSource(clip)) {
+                                  g_urlText = clip;
                               }
                               g_addConnectionsText = std::to_string(cfg::aria2Config().split);
                               g_addRenameText.clear();
@@ -311,17 +310,19 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     // ---- 添加下载弹窗（模态）：链接 + 每任务高级选项 ----
     if (g_addOpen) {
         const float dlgW = 320.0f;
-        const float dlgH = 244.0f;
+        const float dlgH = 316.0f;
         const float dlgX = (screen.width - dlgW) * 0.5f;
         const float dlgY = (screen.height - dlgH) * 0.5f;
         const float labelX = 16.0f;
         const float labelW = 56.0f;
         const float inputX = 74.0f;
         const float urlH = 48.0f;      // URL 多行输入高度（长链接可见）
-        const float splitY = 96.0f;    // 分片数（独立一行）
-        const float row3Y = 132.0f;    // 重命名
-        const float row4Y = 168.0f;    // 下载目录
-        const float btnY = 206.0f;
+        const float torrentY = 96.0f;  // 种子文件（URL 下方独立一行）
+        const float mirrorY = 132.0f;  // 镜像多源开关
+        const float splitY = 168.0f;   // 分片数（独立一行）
+        const float row3Y = 204.0f;    // 重命名
+        const float row4Y = 240.0f;    // 下载目录
+        const float btnY = 276.0f;
 
         // 半透明遮罩，点击空白处关闭。zIndex 高于侧边栏/翻页，
         // 保证整个窗口都被盖住。
@@ -362,12 +363,62 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .position(labelX, 40.0f)
                     .size(dlgW - 32.0f, urlH)
                     .multiline(true)  // 多行：长链接完整可见，滚轮可滚动
-                    .placeholder("https://… 或 magnet:…")
+                    .placeholder("https://… / magnet:… / ftp://… 或留空用种子文件")
                     .value(g_urlText)
                     .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                     .theme(theme.components)
                     .onChange([](const std::string& value) { g_urlText = value; })
                     .onEnter([] { if (addDownload()) g_addOpen = false; })
+                    .build();
+
+                // ---- 本地 .torrent 种子文件（选了就以种子为源，URL 可留空）----
+                components::text(ui, "add.torrent.label")
+                    .position(labelX, torrentY)
+                    .size(labelW, 28.0f)
+                    .text("种子文件")
+                    .fontSize(12.0f)
+                    .lineHeight(28.0f)
+                    .color(theme.metaText)
+                    .build();
+                components::input(ui, "add.torrent")
+                    .position(inputX, torrentY - 2.0f)
+                    .size(dlgW - inputX - 16.0f - 60.0f - 8.0f, 28.0f)
+                    .placeholder("可选")
+                    .value(g_addTorrentPath)
+                    .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
+                    .theme(theme.components)
+                    .onChange([](const std::string& value) { g_addTorrentPath = value; })
+                    .build();
+                components::button(ui, "add.torrent.browse")
+                    .position(inputX + (dlgW - inputX - 16.0f - 60.0f - 8.0f) + 8.0f,
+                              torrentY - 2.0f)
+                    .size(60.0f, 26.0f)
+                    .text("浏览…")
+                    .fontSize(12.0f)
+                    .theme(theme.components, false)
+                    .onClick([] {
+                        const auto picked = pickTorrentFile();
+                        if (!picked.empty()) g_addTorrentPath = picked.string();
+                    })
+                    .build();
+
+                // ---- 镜像多源：勾选时 URL 框多行 → 首行为主 URL，其余为镜像源
+                //      （aria2 多源并发下载同一文件，源挂自动切换；实验性）----
+                components::text(ui, "add.mirror.label")
+                    .position(labelX, mirrorY)
+                    .size(dlgW - 16.0f - 60.0f, 28.0f)
+                    .text("多行URL合并为镜像")
+                    .fontSize(12.0f)
+                    .lineHeight(28.0f)
+                    .color(theme.metaText)
+                    .build();
+                components::button(ui, "add.mirror.toggle")
+                    .position(dlgW - 16.0f - 48.0f, mirrorY)
+                    .size(48.0f, 26.0f)
+                    .text(g_addMirror ? "开" : "关")
+                    .fontSize(11.0f)
+                    .theme(theme.components, g_addMirror)
+                    .onClick([] { g_addMirror = !g_addMirror; })
                     .build();
 
                 // ---- 分片数（0=配置默认；仅 aria2 生效）----

@@ -42,6 +42,7 @@ export module tinynext.cli;
 
 import std;
 import tinynext.ui.state;
+import tinynext.ui.utils;  // isDownloadableSource（下载源白名单，一处维护）
 
 namespace cli {
 
@@ -215,14 +216,15 @@ export std::vector<std::string> commandLineArgs() {
     return cached;
 }
 
-// Command-line arguments that look like download URLs (https:// or http://),
-// in order. Parsed once and cached.
+// Command-line arguments that look like download sources (http(s)/ftp(s)/sftp
+// URLs, magnet:, or a local .torrent path), in order. Parsed once and cached.
+// Note: magnet was filtered out here before (a bug) — a second instance passing
+// a magnet URL must forward it to the primary just like http(s).
 export std::vector<std::string> commandLineUrls() {
     static const std::vector<std::string> cached = [] {
         auto args = commandLineArgs();
-        // Keep only arguments that look like download URLs.
         std::erase_if(args, [](const std::string& a) {
-            return !(a.starts_with("https://") || a.starts_with("http://"));
+            return !(isDownloadableSource(a) || a.ends_with(".torrent"));
         });
         return args;
     }();
@@ -248,11 +250,13 @@ USAGE
   tinynext agent                          Print this usage guide (what you are reading now).
 
 RULES
-  - Only arguments starting with http:// or https:// are treated as downloads; ignore the rest.
-  - Single-instance: if TinyNext is already running, the URLs are forwarded to the running
-    instance and this process exits immediately — a new window is NOT opened. The running
-    instance adds the tasks itself.
-  - HTTP, HTTPS and magnet: links are supported; http is used as-is (not upgraded).
+  - http://, https://, ftp://, sftp://, ftps:// URLs, magnet: links, and local .torrent
+    file paths are treated as downloads; other arguments are ignored.
+  - Single-instance: if TinyNext is already running, the sources are forwarded to the
+    running instance and this process exits immediately — a new window is NOT opened.
+    The running instance adds the tasks itself.
+  - http is used as-is (not upgraded to https). Multiple URLs create separate tasks
+    (mirror merging is a UI feature in the add dialog).
   - Files land in the configured download directory (default: the system Downloads folder).
   - The filename is taken from the last path segment of the URL.
 

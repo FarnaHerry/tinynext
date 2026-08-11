@@ -32,7 +32,21 @@ bool sameAria2Config(const cfg::Aria2Config& x, const cfg::Aria2Config& y) {
            x.onDownloadComplete == y.onDownloadComplete &&
            x.userAgent == y.userAgent &&
            x.referer == y.referer &&
-           x.diskCache == y.diskCache;
+           x.diskCache == y.diskCache &&
+           x.seedTime == y.seedTime &&
+           x.seedRatio == y.seedRatio &&
+           x.btMaxPeers == y.btMaxPeers &&
+           x.listenPort == y.listenPort &&
+           x.btEnableLpd == y.btEnableLpd &&
+           x.header == y.header &&
+           x.loadCookies == y.loadCookies &&
+           x.saveCookies == y.saveCookies &&
+           x.maxOverallDownloadLimit == y.maxOverallDownloadLimit &&
+           x.fileAllocation == y.fileAllocation &&
+           x.autoFileRenaming == y.autoFileRenaming &&
+           x.allowOverwrite == y.allowOverwrite &&
+           x.checkIntegrity == y.checkIntegrity &&
+           x.checksum == y.checksum;
 }
 
 // 最小分片单位下拉的可选项（KB/MB；GB 对 min-split-size 过于大，不提供）。
@@ -41,6 +55,16 @@ constexpr const char* kSizeUnits[] = {"KB", "MB"};
 int sizeUnitIndex(const std::string& unit) {
     if (unit == "KB") return 0;
     return 1;  // MB（默认）
+}
+
+// 文件分配方式下拉：""（aria2 默认=none）/ none / trunc / falloc。
+constexpr const char* kFileAllocLabels[] = {"默认", "none", "trunc", "falloc"};
+constexpr const char* kFileAllocValues[] = {"", "none", "trunc", "falloc"};
+int fileAllocationIndex(const std::string& v) {
+    for (int i = 0; i < 4; ++i) {
+        if (v == kFileAllocValues[i]) return i;
+    }
+    return 0;  // 默认
 }
 
 // 最小分片数值输入的上限：按当前单位换算成字节后统一封顶 1GiB
@@ -52,18 +76,54 @@ int minSplitMax(const std::string& unit) {
 } // namespace
 
 // ===================== 设置页 =====================
-// 设置页没有任务列表子侧边栏，内容区紧跟图标栏右侧。
+// 岛屿卡片风：配置分组子侧边栏 + 内容大卡两张浮岛（镜像下载页的任务列表子侧边栏）。
+// 每组配置单独一个"子页面"，避免全部参数挤在一屏滚动过长。底部操作行固定在大卡底部。
 export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
-    // 岛屿卡片风：设置页整块是一张悬浮圆角大卡（标题 + 表单 + 底部操作行都收在卡内）。
-    // 图标栏占满左缘（不套卡片），这张卡紧贴它右侧起排（无间隙）；上下各留
-    // kIslandVInset 空隙（卡片感）。
     const float islandTop = kIslandVInset;
     const float islandH = screen.height - 2.0f * kIslandVInset;
-    const float contentX = kRailWidth;
+    const float subX = kRailWidth;
+    const float contentX = subX + kSubSidebarWidth + kIslandGap;
     const float contentW = screen.width - contentX - kRightMargin;
     const float pad = kPanelPad;
     const float infoX = contentX + pad;
     const float innerW = contentW - 2.0f * pad;
+
+    // ---- 配置分组子侧边栏（独立岛卡片，镜像下载页的任务列表子侧边栏）----
+    ui.stack("settings.sub")
+        .position(subX, islandTop)
+        .size(kSubSidebarWidth, islandH)
+        .zIndex(4)
+        .content([&] {
+            drawPanel(ui, "settings.sub.bg", 0, 0, kSubSidebarWidth, islandH, theme);
+
+            components::text(ui, "settings.sub.label")
+                .position(9.0f, 10.0f)
+                .size(kSubSidebarWidth - 18.0f, 18.0f)
+                .text("配置")
+                .fontSize(13.0f)
+                .lineHeight(18.0f)
+                .color(theme.titleText)
+                .build();
+
+            struct TabItem { const char* label; unsigned int icon; SettingsTab tab; };
+            static const TabItem kTabs[] = {
+                {"通用", 0xF013, SettingsTab::General},
+                {"BitTorrent", 0xF0E7, SettingsTab::BitTorrent},
+                {"HTTP", 0xF0AC, SettingsTab::Http},
+                {"下载行为", 0xF0D7, SettingsTab::Behavior},
+                {"完整性校验", 0xF00C, SettingsTab::Integrity},
+            };
+            const float itemW = kSubSidebarWidth - 12.0f;
+            float itemY = 28.0f;
+            for (const auto& item : kTabs) {
+                drawSidebarItem(ui, "settings.tab." + std::string(item.label),
+                               6.0f, itemY, itemW, 22.0f, item.label, item.icon,
+                               g_settingsTab == item.tab, theme,
+                               [tab = item.tab] { g_settingsTab = tab; });
+                itemY += 27.0f;
+            }
+        })
+        .build();
 
     drawPanel(ui, "settings.panel", contentX, islandTop, contentW, islandH, theme);
 
@@ -103,6 +163,11 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         .theme(theme.components)
         .content([&](eui::Ui& sv, float width, float) {
             const float rowW = width;
+            // 双列 numericField 共用常量：所有配置 tab 都要用（各自独立 if 分支）。
+            constexpr float kCol2X = 86.0f + 90.0f + 20.0f;  // 第二列起点
+            constexpr float kInputW = 90.0f;
+            const float fullW =
+                std::max(160.0f, rowW - 16.0f - kLabelW - 8.0f);
 
             // 顶部占位行：把第一个表单行往下推一点，避免其顶边贴住滚动区上缘被裁掉。
             sv.stack("st.top.pad")
@@ -167,6 +232,8 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                    inputW, 26.0f, theme, value, onChange, min, max, step);
             };
 
+            // ===== 通用：主题 / 关闭行为 / 下载路径 + aria2 通用参数 =====
+            if (g_settingsTab == SettingsTab::General) {
             // ---- 主题：跟随系统 / 深色 / 浅色 ----
             row("theme", kFieldH, [&](eui::Ui& r, float) {
                 components::text(r, "st.theme.label")
@@ -259,13 +326,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .build();
             });
 
-            // ---- aria2 参数 ----
-            {
-                constexpr float kCol2X = 86.0f + 90.0f + 20.0f;  // 第二列起点
-                constexpr float kInputW = 90.0f;
-                const float fullW =
-                    std::max(160.0f, rowW - 16.0f - kLabelW - 8.0f);
-
+            // ---- aria2 通用参数（通用 tab）----
                 row("aria2.header", 18.0f, [&](eui::Ui& r, float w) {
                     components::text(r, "st.aria2.header")
                         .position(0, 0)
@@ -384,6 +445,217 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                           [](const std::string& v) { g_diskCacheText = v; },
                           "如 16M，空=aria2 默认");
                 });
+            }  // 通用 tab 结束
+
+            // ================= BitTorrent tab =================
+            if (g_settingsTab == SettingsTab::BitTorrent) {
+                row("bt.header", 18.0f, [&](eui::Ui& r, float w) {
+                    components::text(r, "st.bt.header")
+                        .position(0, 0)
+                        .size(w, 18.0f)
+                        .text("BitTorrent")
+                        .fontSize(11.0f)
+                        .lineHeight(18.0f)
+                        .color(theme.statusText)
+                        .build();
+                });
+                row("bt.seedtime", kFieldH, [&](eui::Ui& r, float) {
+                    numericField(r, "bt.seedtime", "做种时间秒", 0, kInputW, g_seedTimeText,
+                                 [](const std::string& v) { g_seedTimeText = v; },
+                                 0, 100000, 60);
+                    numericField(r, "bt.maxpeers", "最大Peers", kCol2X, kInputW,
+                                 g_btMaxPeersText,
+                                 [](const std::string& v) { g_btMaxPeersText = v; },
+                                 0, 10000, 10);
+                });
+                row("bt.seedratio", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "bt.seedratio", "做种比率", 0, fullW, g_seedRatioText,
+                          [](const std::string& v) { g_seedRatioText = v; },
+                          "如 1.0；空=不限");
+                });
+                row("bt.port", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "bt.port", "监听端口", 0, fullW, g_listenPortText,
+                          [](const std::string& v) { g_listenPortText = v; },
+                          "如 6881-6999；空=默认");
+                });
+                row("bt.lpd", kFieldH, [&](eui::Ui& r, float) {
+                    components::text(r, "st.bt.lpd.label")
+                        .position(0, 0)
+                        .size(kLabelW, kFieldH)
+                        .text("局域网发现")
+                        .fontSize(11.0f)
+                        .lineHeight(kFieldH)
+                        .color(theme.metaText)
+                        .build();
+                    components::button(r, "st.bt.lpd.toggle")
+                        .position(kLabelW, -1.0f)
+                        .size(48.0f, 24.0f)
+                        .text(g_btEnableLpd ? "开" : "关")
+                        .fontSize(11.0f)
+                        .theme(theme.components, g_btEnableLpd)
+                        .onClick([] { g_btEnableLpd = !g_btEnableLpd; })
+                        .build();
+                });
+            }  // BitTorrent tab 结束
+
+            // ================= HTTP tab =================
+            if (g_settingsTab == SettingsTab::Http) {
+                row("http.header", 18.0f, [&](eui::Ui& r, float w) {
+                    components::text(r, "st.http.header")
+                        .position(0, 0)
+                        .size(w, 18.0f)
+                        .text("HTTP")
+                        .fontSize(11.0f)
+                        .lineHeight(18.0f)
+                        .color(theme.statusText)
+                        .build();
+                });
+                // 请求头：多行输入（每行一个 --header），行高放大到 52 容纳两行。
+                row("http.headers", 52.0f, [&](eui::Ui& r, float w) {
+                    components::text(r, "st.http.headers.label")
+                        .position(0, 0)
+                        .size(kLabelW, 52.0f)
+                        .text("请求头")
+                        .fontSize(11.0f)
+                        .lineHeight(52.0f)
+                        .color(theme.metaText)
+                        .build();
+                    components::input(r, "st.http.headers.input")
+                        .position(kLabelW, -2.0f)
+                        .size(std::max(160.0f, w - 16.0f - kLabelW - 8.0f), 52.0f)
+                        .multiline(true)
+                        .placeholder("每行一个，如：Authorization: Bearer xxx")
+                        .value(g_headerText)
+                        .fontFamily("")
+                        .theme(theme.components)
+                        .onChange([](const std::string& v) { g_headerText = v; })
+                        .build();
+                });
+                row("http.loadcookie", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "http.loadcookie", "Cookie文件", 0, fullW, g_loadCookiesText,
+                          [](const std::string& v) { g_loadCookiesText = v; },
+                          "netscape 格式路径；空=不加载");
+                });
+                row("http.savecookie", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "http.savecookie", "保存Cookie", 0, fullW, g_saveCookiesText,
+                          [](const std::string& v) { g_saveCookiesText = v; },
+                          "保存到该文件；空=不保存");
+                });
+            }  // HTTP tab 结束
+
+            // ================= 下载行为 tab =================
+            if (g_settingsTab == SettingsTab::Behavior) {
+                row("beh.header", 18.0f, [&](eui::Ui& r, float w) {
+                    components::text(r, "st.beh.header")
+                        .position(0, 0)
+                        .size(w, 18.0f)
+                        .text("下载行为")
+                        .fontSize(11.0f)
+                        .lineHeight(18.0f)
+                        .color(theme.statusText)
+                        .build();
+                });
+                row("beh.overall", kFieldH, [&](eui::Ui& r, float) {
+                    numericField(r, "beh.overall", "全局限速KB/s", 0, kInputW,
+                                 g_overallLimitText,
+                                 [](const std::string& v) { g_overallLimitText = v; },
+                                 0, 1000000, 100);
+                    components::text(r, "st.beh.allocation.label")
+                        .position(kCol2X, 0)
+                        .size(kLabelW, kFieldH)
+                        .text("文件分配")
+                        .fontSize(11.0f)
+                        .lineHeight(kFieldH)
+                        .color(theme.metaText)
+                        .build();
+                    r.stack("st.beh.allocation.pick")
+                        .position(kCol2X + kLabelW, -2.0f)
+                        .size(84.0f, 26.0f)
+                        .zIndex(30)
+                        .content([&] {
+                            buildListPicker(r, "beh.allocation", 84.0f, 26.0f, theme,
+                                            g_fileAllocationOpen, kFileAllocLabels, 4,
+                                            fileAllocationIndex(g_fileAllocation), false,
+                                            PickerField::Text,
+                                            [](int i) {
+                                                g_fileAllocation = kFileAllocValues[i];
+                                            });
+                        })
+                        .build();
+                }, 100);  // 行 zIndex：文件分配下拉展开时盖过后面各行
+                row("beh.rename", kFieldH, [&](eui::Ui& r, float) {
+                    components::text(r, "st.beh.rename.label")
+                        .position(0, 0)
+                        .size(kLabelW, kFieldH)
+                        .text("自动改名")
+                        .fontSize(11.0f)
+                        .lineHeight(kFieldH)
+                        .color(theme.metaText)
+                        .build();
+                    components::button(r, "st.beh.rename.toggle")
+                        .position(kLabelW, -1.0f)
+                        .size(48.0f, 24.0f)
+                        .text(g_autoFileRenaming ? "开" : "关")
+                        .fontSize(11.0f)
+                        .theme(theme.components, g_autoFileRenaming)
+                        .onClick([] { g_autoFileRenaming = !g_autoFileRenaming; })
+                        .build();
+                });
+                row("beh.overwrite", kFieldH, [&](eui::Ui& r, float) {
+                    components::text(r, "st.beh.overwrite.label")
+                        .position(0, 0)
+                        .size(kLabelW, kFieldH)
+                        .text("允许覆盖")
+                        .fontSize(11.0f)
+                        .lineHeight(kFieldH)
+                        .color(theme.metaText)
+                        .build();
+                    components::button(r, "st.beh.overwrite.toggle")
+                        .position(kLabelW, -1.0f)
+                        .size(48.0f, 24.0f)
+                        .text(g_allowOverwrite ? "开" : "关")
+                        .fontSize(11.0f)
+                        .theme(theme.components, g_allowOverwrite)
+                        .onClick([] { g_allowOverwrite = !g_allowOverwrite; })
+                        .build();
+                });
+            }  // 下载行为 tab 结束
+
+            // ================= 完整性校验 tab =================
+            if (g_settingsTab == SettingsTab::Integrity) {
+                row("chk.header", 18.0f, [&](eui::Ui& r, float w) {
+                    components::text(r, "st.chk.header")
+                        .position(0, 0)
+                        .size(w, 18.0f)
+                        .text("完整性校验")
+                        .fontSize(11.0f)
+                        .lineHeight(18.0f)
+                        .color(theme.statusText)
+                        .build();
+                });
+                row("chk.integrity", kFieldH, [&](eui::Ui& r, float) {
+                    components::text(r, "st.chk.integrity.label")
+                        .position(0, 0)
+                        .size(kLabelW, kFieldH)
+                        .text("检查完整性")
+                        .fontSize(11.0f)
+                        .lineHeight(kFieldH)
+                        .color(theme.metaText)
+                        .build();
+                    components::button(r, "st.chk.integrity.toggle")
+                        .position(kLabelW, -1.0f)
+                        .size(48.0f, 24.0f)
+                        .text(g_checkIntegrity ? "开" : "关")
+                        .fontSize(11.0f)
+                        .theme(theme.components, g_checkIntegrity)
+                        .onClick([] { g_checkIntegrity = !g_checkIntegrity; })
+                        .build();
+                });
+                row("chk.checksum", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "chk.checksum", "校验和", 0, fullW, g_checksumText,
+                          [](const std::string& v) { g_checksumText = v; },
+                          "如 sha-1=<hex>");
+                });
             }
         })
         .build();
@@ -417,6 +689,20 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_userAgentText = d.userAgent;
             g_refererText = d.referer;
             g_diskCacheText = d.diskCache;
+            g_seedTimeText = std::to_string(d.seedTime);
+            g_seedRatioText = "";
+            g_btMaxPeersText = std::to_string(d.btMaxPeers);
+            g_listenPortText = d.listenPort;
+            g_btEnableLpd = d.btEnableLpd;
+            g_headerText = d.header;
+            g_loadCookiesText = d.loadCookies;
+            g_saveCookiesText = d.saveCookies;
+            g_overallLimitText = std::to_string(d.maxOverallDownloadLimit / 1024);
+            g_fileAllocation = d.fileAllocation;
+            g_autoFileRenaming = d.autoFileRenaming;
+            g_allowOverwrite = d.allowOverwrite;
+            g_checkIntegrity = d.checkIntegrity;
+            g_checksumText = d.checksum;
             showStatus("已恢复默认（点「保存」生效）");
         })
         .build();
@@ -469,6 +755,25 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             if (!validateInt(g_maxTriesText, 0, 100, "最大重试次数", maxTriesV)) return;
             if (!validateInt(g_retryWaitText, 0, 600, "重试等待秒", retryWaitV)) return;
             if (!validateInt(g_maxConcurrentText, 1, 64, "最大同时下载数", concurrentV)) return;
+            // 新增项校验：做种时间/最大Peers/全局限速 整数范围；做种比率 浮点。
+            int seedTimeV = 0, btMaxPeersV = 0, overallLimitV = 0;
+            if (!validateInt(g_seedTimeText, 0, 100000, "做种时间秒", seedTimeV)) return;
+            if (!validateInt(g_btMaxPeersText, 0, 10000, "最大Peers", btMaxPeersV)) return;
+            if (!validateInt(g_overallLimitText, 0, 1000000, "全局限速KB/s", overallLimitV)) return;
+            double seedRatioV = 0.0;
+            const std::string seedRatioStr = trimText(g_seedRatioText);
+            if (!seedRatioStr.empty()) {
+                try {
+                    seedRatioV = std::stod(seedRatioStr);
+                } catch (...) {
+                    showStatus("做种比率必须是数字");
+                    return;
+                }
+                if (seedRatioV < 0.0) {
+                    showStatus("做种比率不能为负");
+                    return;
+                }
+            }
 
             // 最小分片：数值 + 单位合成后必须 ≥ 1M（aria2 下限）。
             const std::string minSplitCombined =
@@ -508,6 +813,20 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             a2.userAgent = trimText(g_userAgentText);
             a2.referer = trimText(g_refererText);
             a2.diskCache = trimText(g_diskCacheText);
+            a2.seedTime = seedTimeV;
+            a2.seedRatio = seedRatioV;
+            a2.btMaxPeers = btMaxPeersV;
+            a2.listenPort = trimText(g_listenPortText);
+            a2.btEnableLpd = g_btEnableLpd;
+            a2.header = trimText(g_headerText);
+            a2.loadCookies = trimText(g_loadCookiesText);
+            a2.saveCookies = trimText(g_saveCookiesText);
+            a2.maxOverallDownloadLimit = static_cast<std::int64_t>(overallLimitV) * 1024;
+            a2.fileAllocation = g_fileAllocation;
+            a2.autoFileRenaming = g_autoFileRenaming;
+            a2.allowOverwrite = g_allowOverwrite;
+            a2.checkIntegrity = g_checkIntegrity;
+            a2.checksum = trimText(g_checksumText);
 
             const bool a2Changed = !sameAria2Config(cur, a2);
             cfg::setAria2Config(a2);
@@ -524,6 +843,20 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_userAgentText = a2.userAgent;
             g_refererText = a2.referer;
             g_diskCacheText = a2.diskCache;
+            g_seedTimeText = std::to_string(a2.seedTime);
+            g_seedRatioText = a2.seedRatio > 0.0 ? std::format("{}", a2.seedRatio) : "";
+            g_btMaxPeersText = std::to_string(a2.btMaxPeers);
+            g_listenPortText = a2.listenPort;
+            g_btEnableLpd = a2.btEnableLpd;
+            g_headerText = a2.header;
+            g_loadCookiesText = a2.loadCookies;
+            g_saveCookiesText = a2.saveCookies;
+            g_overallLimitText = std::to_string(a2.maxOverallDownloadLimit / 1024);
+            g_fileAllocation = a2.fileAllocation;
+            g_autoFileRenaming = a2.autoFileRenaming;
+            g_allowOverwrite = a2.allowOverwrite;
+            g_checkIntegrity = a2.checkIntegrity;
+            g_checksumText = a2.checksum;
 
             // 下载路径。
             cfg::setDownloadDir(g_downloadDirText);
@@ -569,6 +902,20 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_userAgentText = a2.userAgent;
             g_refererText = a2.referer;
             g_diskCacheText = a2.diskCache;
+            g_seedTimeText = std::to_string(a2.seedTime);
+            g_seedRatioText = a2.seedRatio > 0.0 ? std::format("{}", a2.seedRatio) : "";
+            g_btMaxPeersText = std::to_string(a2.btMaxPeers);
+            g_listenPortText = a2.listenPort;
+            g_btEnableLpd = a2.btEnableLpd;
+            g_headerText = a2.header;
+            g_loadCookiesText = a2.loadCookies;
+            g_saveCookiesText = a2.saveCookies;
+            g_overallLimitText = std::to_string(a2.maxOverallDownloadLimit / 1024);
+            g_fileAllocation = a2.fileAllocation;
+            g_autoFileRenaming = a2.autoFileRenaming;
+            g_allowOverwrite = a2.allowOverwrite;
+            g_checkIntegrity = a2.checkIntegrity;
+            g_checksumText = a2.checksum;
             showStatus("已放弃更改");
         })
         .build();

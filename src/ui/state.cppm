@@ -99,11 +99,39 @@ export std::string g_onCompleteText = cfg::aria2Config().onDownloadComplete;
 export std::string g_userAgentText = cfg::aria2Config().userAgent;
 export std::string g_refererText = cfg::aria2Config().referer;
 export std::string g_diskCacheText = cfg::aria2Config().diskCache;
+// ---- 新增 aria2 配置项（daemon 级，待提交值；见 settings_page 的 BitTorrent /
+//      HTTP / 下载行为 / 完整性校验 四组）----
+export std::string g_seedTimeText = std::to_string(cfg::aria2Config().seedTime);
+export std::string g_seedRatioText = [] {
+    const double r = cfg::aria2Config().seedRatio;
+    return r > 0.0 ? std::format("{}", r) : "";  // 空 = 0 = 不限
+}();
+export std::string g_btMaxPeersText = std::to_string(cfg::aria2Config().btMaxPeers);
+export std::string g_listenPortText = cfg::aria2Config().listenPort;
+export bool g_btEnableLpd = cfg::aria2Config().btEnableLpd;
+export std::string g_headerText = cfg::aria2Config().header;
+export std::string g_loadCookiesText = cfg::aria2Config().loadCookies;
+export std::string g_saveCookiesText = cfg::aria2Config().saveCookies;
+export std::string g_overallLimitText =
+    std::to_string(cfg::aria2Config().maxOverallDownloadLimit / 1024);  // KB/s
+export std::string g_fileAllocation = cfg::aria2Config().fileAllocation;  // ""/none/trunc/falloc
+export bool g_fileAllocationOpen = false;
+export bool g_autoFileRenaming = cfg::aria2Config().autoFileRenaming;
+export bool g_allowOverwrite = cfg::aria2Config().allowOverwrite;
+export bool g_checkIntegrity = cfg::aria2Config().checkIntegrity;
+export std::string g_checksumText = cfg::aria2Config().checksum;
+
+// 设置页左侧配置分组：每组一个独立"子页面"，避免全部参数挤在一屏滚动过长。
+export enum class SettingsTab { General, BitTorrent, Http, Behavior, Integrity };
+export SettingsTab g_settingsTab = SettingsTab::General;
 // 添加下载弹窗的每任务连接数（默认 = 配置 split 值；空/0 = 配置默认）。
 export std::string g_addConnectionsText = std::to_string(cfg::aria2Config().split);
-// 添加下载弹窗的每任务高级选项：重命名、目录。
+// 添加下载弹窗的每任务高级选项：重命名、目录、本地 .torrent 文件路径（空=无）、
+// 镜像多源（勾选时多行 URL 首行为主、其余为同一任务的镜像源）。
 export std::string g_addRenameText;
 export std::string g_addDirText;
+export std::string g_addTorrentPath;
+export bool g_addMirror = false;
 
 // ---- list filter / pagination / sort ----
 
@@ -160,9 +188,11 @@ export bool startDownloadFromUrl(std::string url, const dl::StartOptions& opts) 
     }
 
     const bool magnet = url.starts_with("magnet:");
-    // aria2 原生支持 http/https/magnet；http 不再强制升级为 https（那是 tinyhttps 的限制）。
-    if (!url.starts_with("http://") && !url.starts_with("https://") && !magnet) {
-        showStatus("仅支持 http(s) 链接或 magnet: 磁力链接");
+    // aria2 原生支持 http/https/ftp/sftp/magnet；http 不再强制升级为 https（那是
+    // tinyhttps 的限制）。本地 .torrent 文件路径也放行（.torrent 走 addTorrent）。
+    const bool torrentFile = url.ends_with(".torrent") && std::filesystem::exists(url);
+    if (!isDownloadableSource(url) && !torrentFile) {
+        showStatus("仅支持 http(s) / ftp(s) / sftp 链接、magnet: 磁力链接或本地 .torrent 文件");
         return false;
     }
     // 下载目录：opts.dirOverride 覆盖（相对路径按配置目录解析）。
@@ -173,11 +203,12 @@ export bool startDownloadFromUrl(std::string url, const dl::StartOptions& opts) 
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
 
-    // 文件名：优先重命名；磁力没有 URL 文件名，用占位名（拿到元数据后引擎会更新）。
+    // 文件名：优先重命名；磁力 / .torrent 没有可用的 URL 文件名，用占位名
+    // （拿到元数据后引擎会从 files[0].path 更新为种子真实名）。
     std::string name = opts.outputName.empty()
-        ? (magnet ? "magnet" : fileNameFromUrl(url))
+        ? (torrentFile ? "torrent" : (magnet ? "magnet" : fileNameFromUrl(url)))
         : opts.outputName;
-    if (name.empty()) name = "magnet";
+    if (name.empty()) name = "torrent";
 
     const std::filesystem::path dest = dir / name;
     const std::uint64_t id = g_manager->start(url, dest, opts);
@@ -196,7 +227,7 @@ export bool startDownloadFromUrl(std::string url, int connections) {
     return startDownloadFromUrl(std::move(url), opts);
 }
 
-// “添加下载”弹窗提交：URL + 每任务高级选项（连接数/重命名/目录）。
+// “添加下载”弹窗提交：URL/种子文件 + 每任务高级选项（连接数/重命名/目录）。
 export bool addDownload() {
     dl::StartOptions opts;
     std::string t = g_addConnectionsText;
@@ -209,7 +240,29 @@ export bool addDownload() {
     }
     opts.outputName = trimText(g_addRenameText);
     opts.dirOverride = trimText(g_addDirText);
-    return startDownloadFromUrl(g_urlText, opts);
+    std::string url = g_urlText;
+    const std::string torrent = trimText(g_addTorrentPath);
+    if (!torrent.empty()) {
+        // 有本地 .torrent 时以种子为下载源（URL 框可留空），startDownloadFromUrl 按
+        // 扩展名识别走 .torrent 分支。
+        opts.torrentPath = torrent;
+        url = torrent;
+    } else if (g_addMirror) {
+        // 镜像多源：URL 框多行 → 首行为主 URL，其余为同一任务的镜像源（aria2 从
+        // 多源并发分段下载同一文件、源挂自动切换）。
+        std::vector<std::string> lines;
+        std::istringstream ss(url);
+        std::string line;
+        while (std::getline(ss, line)) {
+            const std::string t = trimText(line);
+            if (!t.empty()) lines.push_back(t);
+        }
+        if (lines.size() > 1) {
+            url = lines[0];
+            opts.mirrors.assign(lines.begin() + 1, lines.end());
+        }
+    }
+    return startDownloadFromUrl(url, opts);
 }
 
 // 任务显示名：BT/磁力优先用种子真实名（displayName，bittorrent.info.name）；

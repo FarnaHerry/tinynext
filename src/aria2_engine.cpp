@@ -47,6 +47,7 @@ extern char** environ;
 // （aria2.onDownloadStart/Complete/Error/...）。必须放在全局模块片段（普通 C++11 header）。
 #include <ixwebsocket/IXWebSocket.h>
 #include <ixwebsocket/IXNetSystem.h>  // ix::initNetSystem（IXWebSocket.h 不会间接包含它）
+#include <ixwebsocket/IXBase64.h>     // macaron::Base64::Encode（.torrent → base64 → aria2.addTorrent）
 
 // eui 的 UI 唤醒：WS 推送事件改了任务状态后让 UI 重绘一帧（IXWebSocket 后台线程
 // 调用，跨线程安全）。
@@ -341,6 +342,39 @@ std::vector<std::pair<std::string, std::string>> daemonExtraOpts(
     if (!a2.userAgent.empty()) add("user-agent", a2.userAgent);
     if (!a2.referer.empty()) add("referer", a2.referer);
     if (!a2.diskCache.empty()) add("disk-cache", a2.diskCache);
+    // ---- BitTorrent ----
+    if (a2.seedTime > 0) add("seed-time", std::to_string(a2.seedTime));
+    if (a2.seedRatio > 0.0) add("seed-ratio", std::to_string(a2.seedRatio));
+    if (a2.btMaxPeers > 0) add("bt-max-peers", std::to_string(a2.btMaxPeers));
+    if (!a2.listenPort.empty()) add("listen-port", a2.listenPort);
+    if (a2.btEnableLpd) add("bt-enable-lpd", "true");
+    // ---- HTTP ----
+    // --header 每条一个 flag：配置里多行 → 拆成多个 --header 参数。
+    if (!a2.header.empty()) {
+        std::size_t pos = 0;
+        while (pos <= a2.header.size()) {
+            const std::size_t nl = a2.header.find('\n', pos);
+            const std::size_t end = nl == std::string::npos ? a2.header.size() : nl;
+            std::string line = a2.header.substr(pos, end - pos);
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (!line.empty()) add("header", line);
+            if (nl == std::string::npos) break;
+            pos = nl + 1;
+        }
+    }
+    if (!a2.loadCookies.empty()) add("load-cookies", a2.loadCookies);
+    if (!a2.saveCookies.empty()) add("save-cookies", a2.saveCookies);
+    // ---- 下载行为 ----
+    if (a2.maxOverallDownloadLimit > 0) {
+        add("max-overall-download-limit", std::to_string(a2.maxOverallDownloadLimit));
+    }
+    if (!a2.fileAllocation.empty()) add("file-allocation", a2.fileAllocation);
+    // 从硬编码命令行移过来的可配项（默认值与原来一致：自动改名开、覆盖关）。
+    add("auto-file-renaming", a2.autoFileRenaming ? "true" : "false");
+    add("allow-overwrite", a2.allowOverwrite ? "true" : "false");
+    // ---- 完整性校验 ----
+    if (a2.checkIntegrity) add("check-integrity", "true");
+    if (!a2.checksum.empty()) add("checksum", a2.checksum);
     // 会话恢复：shutdown 前用 aria2.saveSession 持久化未完成任务，下次启动用
     // --input-file 载入续传。首次运行会话文件不存在，跳过 --input-file。
     // 会话文件放 per-user 配置目录：安装版经快捷方式启动时 cwd 可能是 System32
@@ -536,8 +570,7 @@ bool Aria2Engine::ensureDaemon() const {
                                std::to_wstring(a2.maxConnectionPerServer) + L" "
                            L"--split=" + std::to_wstring(a2.split) + L" "
                            L"--min-split-size=" + winValue(a2.minSplitSize) + L" "
-                           L"--console-log-level=warn --allow-overwrite=false "
-                           L"--auto-file-renaming=true";
+                           L"--console-log-level=warn";
     for (const auto& [name, value] : extra) {
         cmdLine += L" --" + std::wstring(name.begin(), name.end()) + L"=" + winValue(value);
     }
@@ -559,8 +592,7 @@ bool Aria2Engine::ensureDaemon() const {
         "--max-connection-per-server=" + std::to_string(a2.maxConnectionPerServer),
         "--split=" + std::to_string(a2.split),
         "--min-split-size=" + a2.minSplitSize,
-        "--console-log-level=warn", "--allow-overwrite=false",
-        "--auto-file-renaming=true"};
+        "--console-log-level=warn"};
     for (const auto& [name, value] : extra) {
         args.push_back("--" + name + "=" + value);
     }
@@ -667,24 +699,53 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
     // headers 后 applyTellStatus 从 files[0].path 更新为真实路径。
     // 仅当用户显式重命名时才强制 out，并走 makeUniqueDest 避免撞上已存在文件
     // （aria2 有 --allow-overwrite=false，撞上会直接失败）——自动加 " (1)"。
-    const bool magnet = url.starts_with("magnet:");
-    if (magnet) {
-        task->destPath = dir / ("magnet-" + std::to_string(task->id));
-    } else if (!options.outputName.empty()) {
-        const std::filesystem::path uniqueDest =
-            makeUniqueDest(dir / options.outputName);
-        optionsJ["out"] = uniqueDest.filename().string();
-        task->destPath = uniqueDest;
+    nlohmann::json params;
+    std::string method = "aria2.addUri";
+
+    if (!options.torrentPath.empty()) {
+        // 本地 .torrent 文件：读文件 → base64 → aria2.addTorrent。内容名由种子决定，
+        // 只设 dir 不设 out；destPath 用占位，等 refreshStates() 更新为真实路径。
+        task->destPath = dir / ("torrent-" + std::to_string(task->id));
+        std::ifstream in(options.torrentPath, std::ios::binary);
+        const std::string bytes((std::istreambuf_iterator<char>(in)),
+                                std::istreambuf_iterator<char>());
+        if (bytes.empty()) {
+            std::lock_guard<std::mutex> lock(tasksMutex_);
+            task->state = State::Failed;
+            task->error = "种子文件读取失败或为空：" + options.torrentPath.string();
+            tasks_.push_back(task);
+            return task->id;
+        }
+        params = nlohmann::json::array();
+        params.push_back(macaron::Base64::Encode(bytes));
+        params.push_back(nlohmann::json::array());  // urls：附加源/tracker，留空
+        params.push_back(optionsJ);
+        method = "aria2.addTorrent";
     } else {
-        task->destPath = dir / destPath.filename();
+        const bool magnet = url.starts_with("magnet:");
+        if (magnet) {
+            task->destPath = dir / ("magnet-" + std::to_string(task->id));
+        } else if (!options.outputName.empty()) {
+            const std::filesystem::path uniqueDest =
+                makeUniqueDest(dir / options.outputName);
+            optionsJ["out"] = uniqueDest.filename().string();
+            task->destPath = uniqueDest;
+        } else {
+            task->destPath = dir / destPath.filename();
+        }
+        // 镜像多源：首 URL + mirrors 一起作为 addUri 的 URIs 数组（aria2 多源并发、
+        // 源挂自动切换）。有镜像时不设 out（除非显式重命名），文件名以首个响应的
+        // 源为准，applyTellStatus 从 files[0].path 更新。
+        nlohmann::json uriArray = nlohmann::json::array();
+        uriArray.push_back(url);
+        for (const auto& m : options.mirrors) uriArray.push_back(m);
+        params = nlohmann::json::array();
+        params.push_back(std::move(uriArray));
+        params.push_back(optionsJ);
     }
 
-    nlohmann::json params = nlohmann::json::array();
-    params.push_back(nlohmann::json::array({url}));
-    params.push_back(optionsJ);
-
     try {
-        const nlohmann::json result = rpcCall(port_, secret_, "aria2.addUri", params);
+        const nlohmann::json result = rpcCall(port_, secret_, method, params);
         task->gid = result.get<std::string>();
     } catch (const std::exception& e) {
         // task 尚未进入 tasks_，WS 线程看不到它，只需在 push 时持锁。
@@ -852,15 +913,39 @@ void Aria2Engine::retry(std::uint64_t id) {
     }
     // 磁力/BT 不设 out（内容名由种子决定）；HTTP 仅当显式重命名时才强制 out
     // （否则重新走 Content-Disposition 解析，避免续传回来仍是 uuid 名）。
-    if (!task->url.starts_with("magnet:") && !task->opts.outputName.empty()) {
-        optionsJ["out"] = task->destPath.filename().string();
-    }
+    nlohmann::json params;
+    std::string method = "aria2.addUri";
 
-    nlohmann::json params = nlohmann::json::array();
-    params.push_back(nlohmann::json::array({task->url}));
-    params.push_back(optionsJ);
+    if (!task->opts.torrentPath.empty()) {
+        // 本地 .torrent 重下：同 start()，读文件 → addTorrent。destPath 是
+        // refreshStates 更新后的真实路径，dir 取它父目录即可。
+        std::ifstream in(task->opts.torrentPath, std::ios::binary);
+        const std::string bytes((std::istreambuf_iterator<char>(in)),
+                                std::istreambuf_iterator<char>());
+        if (bytes.empty()) {
+            task->state = State::Failed;
+            task->error = "种子文件读取失败或为空：" + task->opts.torrentPath.string();
+            return;
+        }
+        params = nlohmann::json::array();
+        params.push_back(macaron::Base64::Encode(bytes));
+        params.push_back(nlohmann::json::array());  // urls：附加源/tracker，留空
+        params.push_back(optionsJ);
+        method = "aria2.addTorrent";
+    } else {
+        if (!task->url.starts_with("magnet:") && !task->opts.outputName.empty()) {
+            optionsJ["out"] = task->destPath.filename().string();
+        }
+        // 重下同样带上镜像源（opts.mirrors 从原任务复用）。
+        nlohmann::json uriArray = nlohmann::json::array();
+        uriArray.push_back(task->url);
+        for (const auto& m : task->opts.mirrors) uriArray.push_back(m);
+        params = nlohmann::json::array();
+        params.push_back(std::move(uriArray));
+        params.push_back(optionsJ);
+    }
     try {
-        const nlohmann::json result = rpcCall(port_, secret_, "aria2.addUri", params);
+        const nlohmann::json result = rpcCall(port_, secret_, method, params);
         task->gid = result.get<std::string>();
         task->state = State::Queued;
         task->error.clear();

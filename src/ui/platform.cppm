@@ -19,6 +19,7 @@ extern "C" const char* glfwGetClipboardString(GLFWwindow* window);
 #include <shlobj.h>  // BROWSEINFOW for the folder picker
 #include <shellapi.h>  // Shell_NotifyIconW / NIM_* / NIF_*（原生通知）
 #include <dwmapi.h>    // DwmSetWindowAttribute（标题栏沉浸式深色模式）
+#include <commdlg.h>   // GetOpenFileNameW（.torrent 文件选择器）
 extern "C" HWND glfwGetWin32Window(GLFWwindow* window);
 #endif
 #include <cstdio>  // popen/fgets/pclose (POSIX) — before import std
@@ -190,6 +191,49 @@ export std::filesystem::path pickDownloadFolder() {
     cmd = "if command -v zenity >/dev/null 2>&1; then "
           "zenity --file-selection --directory 2>/dev/null; "
           "else kdialog --getexistingdirectory 2>/dev/null; fi";
+#endif
+    FILE* pipe = ::popen(cmd, "r");
+    if (!pipe) return {};
+    std::string out;
+    char buf[4096];
+    while (::fgets(buf, sizeof(buf), pipe)) out += buf;
+    ::pclose(pipe);
+    while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
+    if (out.empty()) return {};
+    return std::filesystem::path(out);
+#endif
+}
+
+// 打开文件选择器选一个 .torrent 种子文件；用户取消返回空路径。
+//   Windows: GetOpenFileNameW（comdlg32 已链）
+//   Linux:   zenity --file-selection（kdialog --getopenfilename 兜底）
+//   macOS:   osascript 'choose file'
+export std::filesystem::path pickTorrentFile() {
+#ifdef _WIN32
+    HWND parent = nullptr;
+    if (GLFWwindow* ctx = glfwGetCurrentContext()) {
+        parent = glfwGetWin32Window(ctx);
+    }
+    wchar_t szFile[MAX_PATH]{};
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = parent;
+    ofn.lpstrFilter = L"BitTorrent 种子 (*.torrent)\0*.torrent\0所有文件 (*.*)\0*.*\0\0";
+    ofn.lpstrFile = szFile;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrTitle = L"选择种子文件";
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY | OFN_PATHMUSTEXIST;
+    if (!GetOpenFileNameW(&ofn)) return {};
+    return std::filesystem::path(szFile);
+#else
+    const char* cmd = nullptr;
+#ifdef __APPLE__
+    cmd = "osascript -e 'POSIX path of (choose file with prompt \"选择种子文件\")' 2>/dev/null";
+#else
+    // 与 pickDownloadFolder 同策略：先探测 zenity，缺失才回退 kdialog。
+    cmd = "if command -v zenity >/dev/null 2>&1; then "
+          "zenity --file-selection --file-filter='BitTorrent种子 *.torrent' 2>/dev/null; "
+          "else kdialog --getopenfilename . '*.torrent' 2>/dev/null; fi";
 #endif
     FILE* pipe = ::popen(cmd, "r");
     if (!pipe) return {};

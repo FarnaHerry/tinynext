@@ -29,7 +29,7 @@ namespace cfg {
 //   mcpp.toml [package].version（exe 资源 FILEVERSION 用它）+ 本文件的 kAppVersion；
 //   mcpp.toml eui-neo 依赖版本 + 本文件的 kEuiVersion。
 // 无法自动注入：mcpp 的 defines 不支持变量插值、也不暴露包版本宏；eui 无版本宏。
-export constexpr std::string_view kAppVersion = "0.2.10";
+export constexpr std::string_view kAppVersion = "0.3.0";
 export constexpr std::string_view kEuiVersion = "0.5.6";
 
 // ---- config file IO ----
@@ -345,6 +345,24 @@ export struct Aria2Config {
     std::string userAgent = "";         // --user-agent；空 = aria2 默认
     std::string referer = "";           // --referer；空 = 无
     std::string diskCache = "";         // --disk-cache；空 = aria2 默认 16M
+    // ---- BitTorrent（daemon 级）----
+    int seedTime = 0;                    // --seed-time（秒）；0 = 不限
+    double seedRatio = 0.0;              // --seed-ratio；0 = 不限（aria2 默认 1.0）
+    int btMaxPeers = 0;                  // --bt-max-peers；0 = aria2 默认
+    std::string listenPort = "";         // --listen-port；空 = aria2 默认 6881-6999
+    bool btEnableLpd = false;            // --bt-enable-lpd（局域网发现）
+    // ---- HTTP（daemon 级）----
+    std::string header = "";             // --header；多行 → 拆成多个 --header
+    std::string loadCookies = "";        // --load-cookies 文件路径
+    std::string saveCookies = "";        // --save-cookies 文件路径
+    // ---- 下载行为（daemon 级）----
+    std::int64_t maxOverallDownloadLimit = 0;  // --max-overall-download-limit bytes/s；0=不限
+    std::string fileAllocation = "";     // --file-allocation（none/trunc/falloc）；空=aria2 默认
+    bool autoFileRenaming = true;        // --auto-file-renaming（曾硬编码 true）
+    bool allowOverwrite = false;         // --allow-overwrite（曾硬编码 false）
+    // ---- 完整性校验（daemon 级）----
+    bool checkIntegrity = false;         // --check-integrity
+    std::string checksum = "";           // --checksum（"sha-1=<hex>"）
 };
 
 export Aria2Config aria2Config() {
@@ -399,6 +417,49 @@ export Aria2Config aria2Config() {
         if (a.contains("disk_cache") && a["disk_cache"].is_string()) {
             c.diskCache = a["disk_cache"].get<std::string>();
         }
+        if (a.contains("seed_time") && a["seed_time"].is_number_integer()) {
+            c.seedTime = a["seed_time"].get<int>();
+        }
+        if (a.contains("seed_ratio") && a["seed_ratio"].is_number()) {
+            c.seedRatio = a["seed_ratio"].get<double>();
+        }
+        if (a.contains("bt_max_peers") && a["bt_max_peers"].is_number_integer()) {
+            c.btMaxPeers = a["bt_max_peers"].get<int>();
+        }
+        if (a.contains("listen_port") && a["listen_port"].is_string()) {
+            c.listenPort = a["listen_port"].get<std::string>();
+        }
+        if (a.contains("bt_enable_lpd") && a["bt_enable_lpd"].is_boolean()) {
+            c.btEnableLpd = a["bt_enable_lpd"].get<bool>();
+        }
+        if (a.contains("header") && a["header"].is_string()) {
+            c.header = a["header"].get<std::string>();
+        }
+        if (a.contains("load_cookies") && a["load_cookies"].is_string()) {
+            c.loadCookies = a["load_cookies"].get<std::string>();
+        }
+        if (a.contains("save_cookies") && a["save_cookies"].is_string()) {
+            c.saveCookies = a["save_cookies"].get<std::string>();
+        }
+        if (a.contains("max_overall_download_limit") &&
+            a["max_overall_download_limit"].is_number_integer()) {
+            c.maxOverallDownloadLimit = a["max_overall_download_limit"].get<std::int64_t>();
+        }
+        if (a.contains("file_allocation") && a["file_allocation"].is_string()) {
+            c.fileAllocation = a["file_allocation"].get<std::string>();
+        }
+        if (a.contains("auto_file_renaming") && a["auto_file_renaming"].is_boolean()) {
+            c.autoFileRenaming = a["auto_file_renaming"].get<bool>();
+        }
+        if (a.contains("allow_overwrite") && a["allow_overwrite"].is_boolean()) {
+            c.allowOverwrite = a["allow_overwrite"].get<bool>();
+        }
+        if (a.contains("check_integrity") && a["check_integrity"].is_boolean()) {
+            c.checkIntegrity = a["check_integrity"].get<bool>();
+        }
+        if (a.contains("checksum") && a["checksum"].is_string()) {
+            c.checksum = a["checksum"].get<std::string>();
+        }
     }
     c.split = std::clamp(c.split, 1, 64);
     c.maxConnectionPerServer = std::clamp(c.maxConnectionPerServer, 1, 64);
@@ -406,6 +467,10 @@ export Aria2Config aria2Config() {
     c.retryWait = std::clamp(c.retryWait, 0, 600);
     c.maxConcurrentDownloads = std::clamp(c.maxConcurrentDownloads, 1, 64);
     if (c.maxDownloadLimit < 0) c.maxDownloadLimit = 0;
+    c.seedTime = std::clamp(c.seedTime, 0, 100000);
+    if (!(c.seedRatio > 0.0)) c.seedRatio = 0.0;  // 负数/NaN 归 0
+    c.btMaxPeers = std::clamp(c.btMaxPeers, 0, 10000);
+    if (c.maxOverallDownloadLimit < 0) c.maxOverallDownloadLimit = 0;
     return c;
 }
 
@@ -426,6 +491,21 @@ export void setAria2Config(const Aria2Config& c) {
     a["user_agent"] = c.userAgent;
     a["referer"] = c.referer;
     a["disk_cache"] = c.diskCache;
+    a["seed_time"] = std::clamp(c.seedTime, 0, 100000);
+    a["seed_ratio"] = c.seedRatio > 0.0 ? c.seedRatio : 0.0;
+    a["bt_max_peers"] = std::clamp(c.btMaxPeers, 0, 10000);
+    a["listen_port"] = c.listenPort;
+    a["bt_enable_lpd"] = c.btEnableLpd;
+    a["header"] = c.header;
+    a["load_cookies"] = c.loadCookies;
+    a["save_cookies"] = c.saveCookies;
+    a["max_overall_download_limit"] = c.maxOverallDownloadLimit < 0
+        ? 0 : c.maxOverallDownloadLimit;
+    a["file_allocation"] = c.fileAllocation;
+    a["auto_file_renaming"] = c.autoFileRenaming;
+    a["allow_overwrite"] = c.allowOverwrite;
+    a["check_integrity"] = c.checkIntegrity;
+    a["checksum"] = c.checksum;
     j["aria2"] = a;
     saveConfig(j);
 }

@@ -39,8 +39,9 @@ tinynext agent                           # 打印 CLI 使用教学（给 AI 用�
 - **单实例**：第二实例经 TCP loopback socket 把 URL 直发主实例（回退写
   `<temp>/tinynext.inbox`；主实例后台线程阻塞 accept，收到即唤醒 UI），Windows 上
   还聚焦窗口）后退出，不弹新窗口。
-- 只接受 `http://` / `https://` 开头或 `magnet:` 的参数；其他参数忽略。http 不强制
-  升级 https（那是已移除的 tinyhttps 的限制）。
+- 接受 `http://` / `https://` / `ftp://` / `ftps://` / `sftp://` 前缀、`magnet:` 磁力、
+  或以 `.torrent` 结尾的本地文件路径；其他参数忽略。http 不强制升级 https。白名单
+  统一在 `utils::isDownloadableSource`（`src/ui/utils.cppm`）。
 - 不记得用法时先跑 `tinynext agent`。详细见 `docs/cli.md`。
 
 ## 架构

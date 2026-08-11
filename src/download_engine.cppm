@@ -39,6 +39,8 @@ export struct StartOptions {
     int connections = 0;                  // 0 = 引擎按配置默认
     std::string outputName;               // 重命名；空 = 取 URL 文件名
     std::filesystem::path dirOverride;    // 覆盖下载目录；空 = 配置目录（相对按配置目录解析）
+    std::filesystem::path torrentPath;    // 本地 .torrent 文件；空 = 普通 URL 下载
+    std::vector<std::string> mirrors;     // 镜像源（同一任务多源）；空 = 单 URL
     // 限速不在这里：每任务单独限速已移除（无意义），统一走配置的 maxDownloadLimit。
 };
 

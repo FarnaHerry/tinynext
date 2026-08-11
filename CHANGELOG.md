@@ -1,6 +1,56 @@
 # Changelog
 
-## 0.2.10（2026-08-11）
+## 0.3.0（2026-08-11）
+
+> 跳大版本：本版是一次能力升级（下载类型扩展 + 配置体系 + 设置页改版）。
+> 0.2.10 的 eui 升级 / uiScale 缩放 / 性能修复等内容并入本版本（0.2.10 标签虽已
+> 推送但因 CI 失败未发布，此处不再单列）。
+
+### 下载类型扩展
+- **本地 .torrent 种子文件**：添加弹窗新增「种子文件」行（文件选择器 + 只读路径），
+  走 `aria2.addTorrent`（base64，复用 IXWebSocket 的 `macaron::Base64::Encode`）；
+  有种子时 URL 框可留空，任务名以种子真实名为准。CLI 也接受 `.torrent` 路径参数。
+- **FTP / SFTP / FTPS 链接**：`startDownloadFromUrl` / CLI / 剪贴板预填 白名单统一
+  放开 `ftp://`、`sftp://`、`ftps://`（aria2 原生支持，纯过滤扩展）。注意 SFTP 依赖
+  `~/.ssh/known_hosts`，首次连未知主机可能失败（可用 `--ssh-host-key-md`，本期未做成
+  配置项）。
+- **修复 CLI 丢弃 magnet**：`commandLineUrls()` 只保留 http(s)，连 magnet 都被过滤
+  （与文档不符）。CLI 现在接受 http(s)/ftp(s)/sftp/magnet/.torrent。URL 前缀白名单
+  收敛到 `utils::isDownloadableSource` 一处维护。
+
+### 配置项（设置页新增 13 个 aria2 参数）
+- **BitTorrent**：做种时间（`--seed-time`）、做种比率（`--seed-ratio`，空=不限）、
+  最大 peers（`--bt-max-peers`）、监听端口（`--listen-port`）、局域网发现
+  （`--bt-enable-lpd`）。
+- **HTTP**：自定义请求头（`--header`，多行 → 多个 flag）、Cookie 载入/保存
+  （`--load-cookies` / `--save-cookies`）。
+- **下载行为**：全局限速（`--max-overall-download-limit`，区别于每任务限速）、文件
+  分配（`--file-allocation`：默认/none/trunc/falloc）、自动改名与允许覆盖
+  （原硬编码在 daemon 命令行的 `--auto-file-renaming` / `--allow-overwrite` 放开为
+  配置项，默认值不变）。
+- **完整性校验**：`--check-integrity`、`--checksum`。
+- 全部为 daemon 级参数（重启生效，与现有行为一致）；设置页 aria2 区按子节归类。
+
+### 设置页改版
+- **配置分组子侧边栏**：镜像下载页的任务列表子侧边栏，设置页左侧新增「配置」分组
+  （通用 / BitTorrent / HTTP / 下载行为 / 完整性校验），每组配置独立成页，避免全部
+  参数挤在一屏滚动过长。底部「恢复默认/保存/放弃」操作行跨组固定可见。
+
+### 多 URL 镜像合一（实验性）
+- 添加弹窗新增「多行URL合并为镜像」开关：URL 框多行 + 勾选后，首行为主 URL、其余为
+  同一任务的镜像源，`aria2.addUri` 一次传入多源数组——aria2 从多源并发分段下载
+  同一文件、源挂自动切换，只产出一个文件。重下（retry）复用镜像源。
+- **实验性**：任务卡/会话恢复仍以首 URL 为准，镜像不随会话恢复；CLI `--mirror`
+  开关、镜像数显示等留到下版完善。
+
+### 修复
+- **输入框文字过大 + 字体混用**：eui `components::input` 内部默认
+  `metrics_.typography.input = 17`、`fontFamily = "Microsoft YaHei"`。改 uiScale
+  原生缩放后 app 自己的字号已回到设计值（标签 11-12），但 input 内部这个 17 仍按
+  设计值放大 → 设置页/添加弹窗输入框文字被放得比标签大 ~60%（比「设置」标题还大），
+  Windows 上还混用雅黑。修复：主题里把 `metrics.typography.input` 覆写为设计值 13
+  （比标签略大、小于标题），所有输入框显式 `fontFamily("")` 改用应用字体
+  （Noto Sans SC），与标签一致。
 
 ### UI 框架
 - **eui-neo 升到 0.5.6**（索引已收录，sha256 `0df8d798…`）：上游新增

@@ -6,8 +6,10 @@ TinyNext 是单实例 GUI 下载器，但也可以从命令行发起下载。CLI
 ## 用法
 
 ```bash
-# 添加一个下载（HTTP(S)）
+# 添加一个下载（HTTP(S) / FTP(S) / SFTP / 磁力 / 本地 .torrent）
 tinynext https://example.com/file.zip
+tinynext 'magnet:?xt=urn:btih:...'
+tinynext ./some.torrent
 
 # 一次添加多个
 tinynext https://a.example.com/1.zip https://b.example.com/2.bin
@@ -19,7 +21,8 @@ tinynext https://a.example.com/1.zip https://b.example.com/2.bin
 tinynext agent
 ```
 
-非 URL 参数（不以 `http://` / `https://` 开头）会被忽略；第一个参数若是
+可下载源前缀：`http://` / `https://` / `ftp://` / `ftps://` / `sftp://` 或
+`magnet:`；另接受以 `.torrent` 结尾的本地文件路径。其他参数会被忽略；第一个参数若是
 `agent` / `--agent` / `help` / `--help` / `-h`，则打印上面的教学文本并退出。
 
 ## 单实例规则
@@ -34,7 +37,8 @@ tinynext agent
   4. 立即退出（`exit 0`，不闪窗口）。
 - 主实例的后台监听线程**阻塞在 accept 上**（队列空就挂起，零轮询），收到 URL 后
   唤醒 UI 线程，由 `startDownloadFromUrl` 逐个加入下载列表（URL 校验与「添加下载」
-  弹窗一致：http(s) 链接或 magnet: 磁力链接，http 不做升级）。
+  弹窗一致：http(s)/ftp(s)/sftp 链接、magnet: 磁力、本地 .torrent，http 不做升级）。
+- URL 前缀白名单统一在 `utils::isDownloadableSource`（`src/ui/utils.cppm`）一处维护。
 
 ## 实现位置
 
@@ -55,4 +59,4 @@ tinynext agent
 
 - 转发没生效？先看主实例是否在跑；再看 `%TEMP%\tinynext.port`（Windows）里有没有端口、
   `%TEMP%\tinynext.inbox` 里有没有回退写入的 URL。
-- 加了 URL 但没下载？URL 必须以 `http://` 或 `https://` 开头；文件名取自 URL 最后一段。
+- 加了 URL 但没下载？确认是上述可下载源前缀之一（或 `.torrent` 路径）；文件名取自 URL 最后一段。

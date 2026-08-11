@@ -55,6 +55,15 @@ export std::string percentDecode(std::string s) {
     return out;
 }
 
+// 可下载源的 URL 前缀白名单：http(s) / ftp(s) / sftp 直链 + magnet 磁力。
+// CLI / startDownloadFromUrl / 添加弹窗剪贴板预填 共用（一处维护，避免三处漂移）。
+// 本地 .torrent 文件路径不在这里（它不是 URL），由各调用方按扩展名单独放行。
+export bool isDownloadableSource(const std::string& s) {
+    return s.starts_with("http://") || s.starts_with("https://") ||
+           s.starts_with("ftp://") || s.starts_with("ftps://") ||
+           s.starts_with("sftp://") || s.starts_with("magnet:");
+}
+
 export std::string fileNameFromUrl(const std::string& url) {
     const std::size_t cut = url.find_first_of("?#");
     const std::string base = cut == std::string::npos ? url : url.substr(0, cut);
