@@ -24,6 +24,14 @@ import nlohmann.json;
 
 namespace cfg {
 
+// ---- 版本信息（单一代码源）----
+// 关于弹窗从这里读版本，不要再在别处硬编码。升级时同步：
+//   mcpp.toml [package].version（exe 资源 FILEVERSION 用它）+ 本文件的 kAppVersion；
+//   mcpp.toml eui-neo 依赖版本 + 本文件的 kEuiVersion。
+// 无法自动注入：mcpp 的 defines 不支持变量插值、也不暴露包版本宏；eui 无版本宏。
+export constexpr std::string_view kAppVersion = "0.2.10";
+export constexpr std::string_view kEuiVersion = "0.5.6";
+
 // ---- config file IO ----
 
 // Per-user config directory: Windows %APPDATA%\TinyNext / macOS

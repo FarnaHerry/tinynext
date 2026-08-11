@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.2.10（2026-08-11）
+
+### UI 框架
+- **eui-neo 升到 0.5.6**（索引已收录，sha256 `0df8d798…`）：上游新增
+  `core/window/window_input_backend.cpp`（输入/IME 事件泵独立成 TU），`-fno-char8_t`
+  保留（u8string 问题未修）。0.5.6 起 `eui_neo.h` 不再包含 `dsl_app_impl.h`，入口
+  机制挪进 `app-main` 的 `glfw_app_main.cpp` 内部，对本项目无影响。
+
+### 缩放
+- **改用 eui 原生 `uiScale`，删除 `utils::S()`**：`DslAppConfig::uiScale(kUI)` 按
+  `dpiScale × uiScale` 放大整个逻辑坐标系（布局+字号）。276 处 `S(x)` 调用改回设计
+  值；`kUI=1.4` 保留为唯一缩放旋钮。窗口物理尺寸 = 设计尺寸 × `kUI`。渲染输出与
+  0.5.5 像素级一致（100% / 150% DPI 均验证）。
+- **最大帧率改 `fps(0)` 自动匹配显示器刷新率**（不再写死 90）。
+
+### 性能修复
+- **修复挂机时 GPU 占用持续跳动**：根因是根 stack 挂了 `.onFrame`——eui 会把挂
+  onFrame 的元素当成「每帧都在动」，无条件每帧重绘，空闲也 90 FPS 满帧。改为去
+  onFrame + 后台线程事件驱动，只在真有事时唤醒 UI 一帧：
+  - CLI 转发改 **TCP loopback socket**（后台线程阻塞 accept，零轮询；回退 inbox 文件）；
+  - 新增 `housekeep` 后台线程：状态消息 4s 过期 / 下载完成失败通知 / 活动任务进度
+    刷新，有变化才唤醒；
+  - 主题变化（theme_watch）与 WS 状态事件（aria2 完成/失败）直接唤醒。
+  - 结果：空闲 `0 FPS / 0% CPU / 0% GPU`。
+
+### 关于
+- **关于弹窗版本不再硬编码**：应用版本（`cfg::kAppVersion`）与 eui 版本
+  （`cfg::kEuiVersion`）集中到 `config.cppm`，升级只改配置。修复了界面上残留的
+  「EUI-NEO 0.5.3」旧版本号。说明：mcpp 无法在编译期注入版本宏，故 eui 版本仍需
+  在 `config.cppm` 维护（与 `mcpp.toml` 依赖版本同步）。
+
+### CI / 构建
+- `mcpp.lock` 重新解析（eui-neo 0.5.6）。
+
 ## 0.2.9（2026-08-10）
 
 ### 主题

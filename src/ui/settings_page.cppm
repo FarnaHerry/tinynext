@@ -68,23 +68,23 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     drawPanel(ui, "settings.panel", contentX, islandTop, contentW, islandH, theme);
 
     // 标题距卡片顶留足空间（避免被顶部圆角/窗口边缘截到第一行）。
-    const float titleY = islandTop + S(16.0f);
+    const float titleY = islandTop + 16.0f;
     components::text(ui, "settings.title")
         .position(infoX, titleY)
-        .size(innerW, S(24.0f))
+        .size(innerW, 24.0f)
         .text("设置")
-        .fontSize(S(17.0f))
-        .lineHeight(S(24.0f))
+        .fontSize(17.0f)
+        .lineHeight(24.0f)
         .color(theme.titleText)
         .build();
 
     // ---- 布局常量 ----
-    constexpr float kLabelW = S(90.0f);
-    constexpr float kFieldH = S(26.0f);
-    constexpr float kActionH = S(26.0f);
+    constexpr float kLabelW = 90.0f;
+    constexpr float kFieldH = 26.0f;
+    constexpr float kActionH = 26.0f;
     const float actionY = islandTop + islandH - pad - kActionH;
-    const float scrollTop = titleY + S(24.0f) + S(12.0f);
-    const float scrollHeight = std::max(0.0f, actionY - S(10.0f) - scrollTop);
+    const float scrollTop = titleY + 24.0f + 12.0f;
+    const float scrollHeight = std::max(0.0f, actionY - 10.0f - scrollTop);
 
     // 主题按钮用的固定选项表。
     struct ThemeChoice { const char* label; cfg::ThemeMode mode; };
@@ -99,7 +99,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     components::scrollView(ui, "settings.scroll")
         .position(infoX, scrollTop)
         .size(innerW, scrollHeight)
-        .gap(S(6.0f))
+        .gap(6.0f)
         .theme(theme.components)
         .content([&](eui::Ui& sv, float width, float) {
             const float rowW = width;
@@ -107,7 +107,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             // 顶部占位行：把第一个表单行往下推一点，避免其顶边贴住滚动区上缘被裁掉。
             sv.stack("st.top.pad")
                 .width(rowW)
-                .height(S(3.0f))
+                .height(3.0f)
                 .content([&] {})
                 .build();
 
@@ -134,13 +134,13 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .position(x, 0)
                     .size(kLabelW, kFieldH)
                     .text(label)
-                    .fontSize(S(11.0f))
+                    .fontSize(11.0f)
                     .lineHeight(kFieldH)
                     .color(theme.metaText)
                     .build();
                 components::input(r, "st." + id + ".input")
-                    .position(x + kLabelW, -S(2.0f))
-                    .size(inputW, S(26.0f))
+                    .position(x + kLabelW, -2.0f)
+                    .size(inputW, 26.0f)
                     .placeholder(placeholder)
                     .value(value)
                     .theme(theme.components)
@@ -158,12 +158,12 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .position(x, 0)
                     .size(kLabelW, kFieldH)
                     .text(label)
-                    .fontSize(S(11.0f))
+                    .fontSize(11.0f)
                     .lineHeight(kFieldH)
                     .color(theme.metaText)
                     .build();
-                buildNumberStepper(r, "st." + id + ".input", x + kLabelW, -S(2.0f),
-                                   inputW, S(26.0f), theme, value, onChange, min, max, step);
+                buildNumberStepper(r, "st." + id + ".input", x + kLabelW, -2.0f,
+                                   inputW, 26.0f, theme, value, onChange, min, max, step);
             };
 
             // ---- 主题：跟随系统 / 深色 / 浅色 ----
@@ -172,18 +172,18 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .position(0, 0)
                     .size(kLabelW, kFieldH)
                     .text("主题")
-                    .fontSize(S(12.0f))
+                    .fontSize(12.0f)
                     .lineHeight(kFieldH)
                     .color(theme.metaText)
                     .build();
-                float bx = kLabelW + S(8.0f);
+                float bx = kLabelW + 8.0f;
                 for (std::size_t i = 0; i < 3; ++i) {
                     const bool active = g_pendingTheme == kThemeChoices[i].mode;
                     components::button(r, std::format("st.theme.{}", i))
-                        .position(bx, -S(1.0f))
-                        .size(S(76.0f), S(24.0f))
+                        .position(bx, -1.0f)
+                        .size(76.0f, 24.0f)
                         .text(kThemeChoices[i].label)
-                        .fontSize(S(12.0f))
+                        .fontSize(12.0f)
                         .theme(theme.components, active)
                         .onClick([mode = kThemeChoices[i].mode] {
                             // 选择即预览；「保存」才落盘。
@@ -196,7 +196,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                             }
                         })
                         .build();
-                    bx += S(84.0f);
+                    bx += 84.0f;
                 }
             });
 
@@ -207,15 +207,15 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .position(0, 0)
                     .size(kLabelW, kFieldH)
                     .text("关闭时缩到托盘")
-                    .fontSize(S(11.0f))
+                    .fontSize(11.0f)
                     .lineHeight(kFieldH)
                     .color(theme.metaText)
                     .build();
                 components::button(r, "st.close.tray.toggle")
-                    .position(kLabelW, -S(1.0f))
-                    .size(S(48.0f), S(24.0f))
+                    .position(kLabelW, -1.0f)
+                    .size(48.0f, 24.0f)
                     .text(g_closeToTray ? "开" : "关")
-                    .fontSize(S(11.0f))
+                    .fontSize(11.0f)
                     .theme(theme.components, g_closeToTray)
                     .onClick([] { g_closeToTray = !g_closeToTray; })
                     .build();
@@ -227,25 +227,25 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .position(0, 0)
                     .size(kLabelW, kFieldH)
                     .text("下载路径")
-                    .fontSize(S(12.0f))
+                    .fontSize(12.0f)
                     .lineHeight(kFieldH)
                     .color(theme.metaText)
                     .build();
                 const float pathInputW =
-                    std::max(S(160.0f), w - S(16.0f) - kLabelW - S(8.0f) - S(60.0f));
+                    std::max(160.0f, w - 16.0f - kLabelW - 8.0f - 60.0f);
                 components::input(r, "st.path.input")
-                    .position(kLabelW, -S(2.0f))
-                    .size(pathInputW, S(26.0f))
+                    .position(kLabelW, -2.0f)
+                    .size(pathInputW, 26.0f)
                     .placeholder("下载保存目录")
                     .value(g_downloadDirText)
                     .theme(theme.components)
                     .onChange([](const std::string& value) { g_downloadDirText = value; })
                     .build();
                 components::button(r, "st.path.browse")
-                    .position(kLabelW + pathInputW + S(8.0f), -S(2.0f))
-                    .size(S(60.0f), S(26.0f))
+                    .position(kLabelW + pathInputW + 8.0f, -2.0f)
+                    .size(60.0f, 26.0f)
                     .text("浏览…")
-                    .fontSize(S(12.0f))
+                    .fontSize(12.0f)
                     .theme(theme.components, false)
                     .onClick([] {
                         // 只填待提交值，点「保存」才写入配置。
@@ -259,18 +259,18 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
 
             // ---- aria2 参数 ----
             {
-                constexpr float kCol2X = S(86.0f) + S(90.0f) + S(20.0f);  // 第二列起点
-                constexpr float kInputW = S(90.0f);
+                constexpr float kCol2X = 86.0f + 90.0f + 20.0f;  // 第二列起点
+                constexpr float kInputW = 90.0f;
                 const float fullW =
-                    std::max(S(160.0f), rowW - S(16.0f) - kLabelW - S(8.0f));
+                    std::max(160.0f, rowW - 16.0f - kLabelW - 8.0f);
 
-                row("aria2.header", S(18.0f), [&](eui::Ui& r, float w) {
+                row("aria2.header", 18.0f, [&](eui::Ui& r, float w) {
                     components::text(r, "st.aria2.header")
                         .position(0, 0)
-                        .size(w, S(18.0f))
+                        .size(w, 18.0f)
                         .text("aria2 参数")
-                        .fontSize(S(11.0f))
-                        .lineHeight(S(18.0f))
+                        .fontSize(11.0f)
+                        .lineHeight(18.0f)
                         .color(theme.statusText)
                         .build();
                 });
@@ -290,20 +290,20 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .position(0, 0)
                         .size(kLabelW, kFieldH)
                         .text("最小分片")
-                        .fontSize(S(11.0f))
+                        .fontSize(11.0f)
                         .lineHeight(kFieldH)
                         .color(theme.metaText)
                         .build();
-                    buildNumberStepper(r, "st.a.minsplit.input", kLabelW, -S(2.0f),
-                                       kInputW, S(26.0f), theme, g_aria2MinSplitText,
+                    buildNumberStepper(r, "st.a.minsplit.input", kLabelW, -2.0f,
+                                       kInputW, 26.0f, theme, g_aria2MinSplitText,
                                        [](const std::string& v) { g_aria2MinSplitText = v; },
                                        1, minSplitMax(g_aria2MinSplitUnit), 1);
                     r.stack("st.a.minsplit.unit")
-                        .position(kLabelW + kInputW + S(8.0f), -S(2.0f))
-                        .size(S(64.0f), S(26.0f))
+                        .position(kLabelW + kInputW + 8.0f, -2.0f)
+                        .size(64.0f, 26.0f)
                         .zIndex(30)
                         .content([&] {
-                            buildListPicker(r, "a.minsplit.unit", S(64.0f), S(26.0f),
+                            buildListPicker(r, "a.minsplit.unit", 64.0f, 26.0f,
                                             theme, g_minSplitUnitOpen, kSizeUnits, 2,
                                             sizeUnitIndex(g_aria2MinSplitUnit), false,
                                             PickerField::Text,
@@ -353,15 +353,15 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .position(0, 0)
                         .size(kLabelW, kFieldH)
                         .text("移除控制文件")
-                        .fontSize(S(11.0f))
+                        .fontSize(11.0f)
                         .lineHeight(kFieldH)
                         .color(theme.metaText)
                         .build();
                     components::button(r, "st.a.remctrl.toggle")
-                        .position(kLabelW, -S(1.0f))
-                        .size(S(48.0f), S(24.0f))
+                        .position(kLabelW, -1.0f)
+                        .size(48.0f, 24.0f)
                         .text(g_removeControlFile ? "开" : "关")
-                        .fontSize(S(11.0f))
+                        .fontSize(11.0f)
                         .theme(theme.components, g_removeControlFile)
                         .onClick([] { g_removeControlFile = !g_removeControlFile; })
                         .build();
@@ -389,9 +389,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     // ---- 操作行（固定窗口底部）：恢复默认路径 / 保存全部设置 / 放弃修改 ----
     components::button(ui, "settings.path.reset")
         .position(infoX + kLabelW, actionY)
-        .size(S(76.0f), S(26.0f))
+        .size(76.0f, 26.0f)
         .text("恢复默认")
-        .fontSize(S(12.0f))
+        .fontSize(12.0f)
         .theme(theme.components, false)
         .onClick([] {
             // 全部设置回默认：主题回「跟随系统」（并即时预览）、路径回系统下载目录、
@@ -420,10 +420,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         .build();
 
     components::button(ui, "settings.save")
-        .position(infoX + kLabelW + S(8.0f) + S(76.0f), actionY)
-        .size(S(76.0f), S(26.0f))
+        .position(infoX + kLabelW + 8.0f + 76.0f, actionY)
+        .size(76.0f, 26.0f)
         .text("保存")
-        .fontSize(S(12.0f))
+        .fontSize(12.0f)
         .theme(theme.components, true)
         .onClick([] {
             const std::string t = trimText(g_downloadDirText);
@@ -540,10 +540,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         .build();
 
     components::button(ui, "settings.discard")
-        .position(infoX + kLabelW + S(8.0f) + S(76.0f) + S(8.0f) + S(76.0f), actionY)
-        .size(S(76.0f), S(26.0f))
+        .position(infoX + kLabelW + 8.0f + 76.0f + 8.0f + 76.0f, actionY)
+        .size(76.0f, 26.0f)
         .text("放弃")
-        .fontSize(S(12.0f))
+        .fontSize(12.0f)
         .theme(theme.components, false)
         .onClick([] {
             // 回滚到已保存值。

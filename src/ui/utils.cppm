@@ -1,34 +1,33 @@
-// ui/utils.cppm — pure helpers + the shared UI scale factor (kUI / S()).
+// ui/utils.cppm — pure helpers + the shared UI scale factor (kUI).
 // No EUI dependency: std only.
 export module tinynext.ui.utils;
 
 import std;
 
 // ---- UI 缩放 ----
-// eui 没有全局缩放开关（components::button 自带 .scale() 但只作用于组件按钮，
-// 覆盖不了大量自绘控件），所以这里用一个统一系数放大所有尺寸/字号/间距。
-// 想整体改大改小，只调 kUI 这一个数。
+// eui-neo 0.5.6 起 DslAppConfig::uiScale(kUI) 原生放大整个逻辑坐标系（布局+字号），
+// 本项目不再自乘系数。所有尺寸按“设计逻辑像素”直接书写，由 eui 按
+// dpiScale*uiScale 统一放大；kUI 仍是唯一的缩放旋钮（传给 uiScale + 决定窗口物理尺寸）。
 export constexpr float kUI = 1.4f;
-export constexpr float S(float v) { return v * kUI; }
 
-// 布局尺寸都按“逻辑像素”（= 窗口屏幕像素）设计，经 S() 放大 kUI 倍，
-// 并尽量用 screen.width/height 推算，随窗口缩放自适应。
+// 布局尺寸都按“设计逻辑像素”书写，并尽量用 screen.width/height 推算，
+// 随窗口缩放自适应。
 // 当前仅卡片的右边缘与窗口边之间留 kRightMargin（图标栏占满左缘、卡片顶/底贴齐）。
-export constexpr float kRightMargin = S(6.0f);
-export constexpr float kInputHeight = S(26.0f);
-export constexpr float kPagerHeight = S(24.0f);        // 翻页行高
-export constexpr float kCardHeight = S(68.0f);         // 卡片高
-export constexpr float kCardPad = S(10.0f);
-export constexpr float kCardGap = S(6.0f);
-export constexpr float kCardIconW = S(22.0f);          // 卡片操作图标按钮边长
-export constexpr float kCardIconGap = S(4.0f);
-export constexpr float kRailWidth = S(40.0f);          // 大侧边栏（图标栏）宽
-export constexpr float kSubSidebarWidth = S(96.0f);    // 下载页内任务列表子侧边栏宽
+export constexpr float kRightMargin = 6.0f;
+export constexpr float kInputHeight = 26.0f;
+export constexpr float kPagerHeight = 24.0f;        // 翻页行高
+export constexpr float kCardHeight = 68.0f;         // 卡片高
+export constexpr float kCardPad = 10.0f;
+export constexpr float kCardGap = 6.0f;
+export constexpr float kCardIconW = 22.0f;          // 卡片操作图标按钮边长
+export constexpr float kCardIconGap = 4.0f;
+export constexpr float kRailWidth = 40.0f;          // 大侧边栏（图标栏）宽
+export constexpr float kSubSidebarWidth = 96.0f;    // 下载页内任务列表子侧边栏宽
 // 岛屿卡片布局：外层"岛"卡片之间的间距 / 大卡内边距 / 岛卡片圆角。
-export constexpr float kIslandGap = S(2.0f);
-export constexpr float kIslandVInset = S(6.0f);   // 岛卡距窗口上/下的空隙（卡片感）
-export constexpr float kPanelPad = S(10.0f);
-export constexpr float kIslandRadius = S(10.0f);
+export constexpr float kIslandGap = 2.0f;
+export constexpr float kIslandVInset = 6.0f;   // 岛卡距窗口上/下的空隙（卡片感）
+export constexpr float kPanelPad = 10.0f;
+export constexpr float kIslandRadius = 10.0f;
 
 // ---- string / number helpers ----
 

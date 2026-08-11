@@ -91,8 +91,8 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const float pad = kPanelPad;
     const float toolY = islandTop + pad;
     const float pagerY = islandTop + islandH - pad - kPagerHeight;
-    const float listTop = toolY + kInputHeight + S(8.0f);
-    const float listHeight = std::max(0.0f, pagerY - listTop - S(4.0f));
+    const float listTop = toolY + kInputHeight + 8.0f;
+    const float listHeight = std::max(0.0f, pagerY - listTop - 4.0f);
     const float listX = contentX + pad;
     const float listW = contentW - 2.0f * pad;
 
@@ -107,33 +107,33 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             drawPanel(ui, "sub.filter.bg", 0, 0, kSubSidebarWidth, islandH, theme);
 
             components::text(ui, "sub.filter.label")
-                .position(S(9.0f), S(10.0f))
-                .size(kSubSidebarWidth - S(18.0f), S(18.0f))
+                .position(9.0f, 10.0f)
+                .size(kSubSidebarWidth - 18.0f, 18.0f)
                 .text("任务列表")
-                .fontSize(S(13.0f))
-                .lineHeight(S(18.0f))
+                .fontSize(13.0f)
+                .lineHeight(18.0f)
                 .color(theme.titleText)
                 .build();
 
-            const float itemW = kSubSidebarWidth - S(12.0f);
-            float itemY = S(28.0f);
-            drawSidebarItem(ui, "filter.all", S(6.0f), itemY, itemW, S(22.0f),
+            const float itemW = kSubSidebarWidth - 12.0f;
+            float itemY = 28.0f;
+            drawSidebarItem(ui, "filter.all", 6.0f, itemY, itemW, 22.0f,
                             "所有", 0xF03A, g_filter == Filter::All, theme,
                             [] { g_filter = Filter::All; g_page = 1; });
-            itemY += S(27.0f);
-            drawSidebarItem(ui, "filter.active", S(6.0f), itemY, itemW, S(22.0f),
+            itemY += 27.0f;
+            drawSidebarItem(ui, "filter.active", 6.0f, itemY, itemW, 22.0f,
                             "下载中", 0xF019, g_filter == Filter::Active, theme,
                             [] { g_filter = Filter::Active; g_page = 1; });
-            itemY += S(27.0f);
-            drawSidebarItem(ui, "filter.done", S(6.0f), itemY, itemW, S(22.0f),
+            itemY += 27.0f;
+            drawSidebarItem(ui, "filter.done", 6.0f, itemY, itemW, 22.0f,
                             "已完成", 0xF00C, g_filter == Filter::Done, theme,
                             [] { g_filter = Filter::Done; g_page = 1; });
         })
         .build();
 
     // ---- 顶部工具栏（右对齐，收在内容大卡内）：全部暂停 / 全部继续 / 排序 / 添加 ----
-    const float toolW = S(28.0f);
-    const float toolGap = S(4.0f);
+    const float toolW = 28.0f;
+    const float toolGap = 4.0f;
     const float toolRight = contentX + contentW - pad;
     const float addX = toolRight - toolW;
     const float sortX = addX - toolGap - toolW;
@@ -156,7 +156,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                                 g_sort = static_cast<SortMode>(i);
                                 g_page = 1;
                             },
-                            S(96.0f));  // 字段是图标，弹层加宽容纳文字
+                            96.0f);  // 字段是图标，弹层加宽容纳文字
         })
         .build();
 
@@ -213,12 +213,12 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     // ---- 翻页控件组：◀ 页码 ▶ [数字/页]，整组收进一张小卡片 ----
     // 简洁版：中间只显示当前页码数字（不再显示"第 X / Y 页"），分页大小是
     // 无边框的纯文本"数字/页"。整组控件包在一张圆角小卡里（岛内小岛）。
-    constexpr float kChevWidth = S(20.0f);  // 正方形 → components::button 默认 radius 钳成纯圆
-    constexpr float kPageLabelWidth = S(28.0f);   // 仅当前页码
-    constexpr float kPageSizeWidth = S(52.0f);    // "数字/页" 纯文本
-    constexpr float kPagerGap = S(4.0f);
-    constexpr float kPagerPadH = S(10.0f);        // 卡片水平内边距
-    constexpr float kPagerPadV = S(3.0f);         // 卡片垂直内边距
+    constexpr float kChevWidth = 20.0f;  // 正方形 → components::button 默认 radius 钳成纯圆
+    constexpr float kPageLabelWidth = 28.0f;   // 仅当前页码
+    constexpr float kPageSizeWidth = 52.0f;    // "数字/页" 纯文本
+    constexpr float kPagerGap = 4.0f;
+    constexpr float kPagerPadH = 10.0f;        // 卡片水平内边距
+    constexpr float kPagerPadV = 3.0f;         // 卡片垂直内边距
     const float groupWidth = kChevWidth + kPagerGap + kPageLabelWidth +
                              kPagerGap + kChevWidth + kPagerGap +
                              kPageSizeWidth;
@@ -237,9 +237,9 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 .position(0, 0)
                 .size(pagerCardW, pagerCardH)
                 .color(theme.components.surface)
-                .radius(S(8.0f))
+                .radius(8.0f)
                 .border(1.0f, components::theme::withOpacity(theme.components.border, 0.55f))
-                .shadow(S(8.0f), S(2.0f),
+                .shadow(8.0f, 2.0f,
                         theme.components.dark
                             ? core::Color{0.0f, 0.0f, 0.0f, 0.18f}
                             : core::Color{0.10f, 0.14f, 0.22f, 0.08f})
@@ -255,7 +255,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .size(kChevWidth, kChevWidth)
                         .icon(0xF053)  // chevron-left
                         .text("")
-                        .iconSize(S(11.0f))
+                        .iconSize(11.0f)
                         .theme(theme.components, false)
                         .disabled(g_page <= 1)
                         .onClick([] { if (g_page > 1) --g_page; })
@@ -264,7 +264,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     components::text(ui, "pager.label")
                         .size(kPageLabelWidth, kPagerHeight)
                         .text(std::format("{}", g_page))
-                        .fontSize(S(11.0f))
+                        .fontSize(11.0f)
                         .lineHeight(kPagerHeight)
                         .horizontalAlign(core::HorizontalAlign::Center)
                         .verticalAlign(core::VerticalAlign::Center)
@@ -275,7 +275,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .size(kChevWidth, kChevWidth)
                         .icon(0xF054)  // chevron-right
                         .text("")
-                        .iconSize(S(11.0f))
+                        .iconSize(11.0f)
                         .theme(theme.components, false)
                         .disabled(g_page >= totalPages)
                         .onClick([totalPages] { if (g_page < totalPages) ++g_page; })
@@ -299,29 +299,29 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     // ---- 状态消息（短暂显示，翻页行上方）----
     if (g_statusTimer > 0.0f && !g_statusMessage.empty()) {
         components::text(ui, "status")
-            .position(listX, pagerY - S(24.0f))
-            .size(listW, S(18.0f))
+            .position(listX, pagerY - 24.0f)
+            .size(listW, 18.0f)
             .text(g_statusMessage)
-            .fontSize(S(12.0f))
-            .lineHeight(S(18.0f))
+            .fontSize(12.0f)
+            .lineHeight(18.0f)
             .color(theme.statusText)
             .build();
     }
 
     // ---- 添加下载弹窗（模态）：链接 + 每任务高级选项 ----
     if (g_addOpen) {
-        const float dlgW = S(320.0f);
-        const float dlgH = S(244.0f);
+        const float dlgW = 320.0f;
+        const float dlgH = 244.0f;
         const float dlgX = (screen.width - dlgW) * 0.5f;
         const float dlgY = (screen.height - dlgH) * 0.5f;
-        const float labelX = S(16.0f);
-        const float labelW = S(56.0f);
-        const float inputX = S(74.0f);
-        const float urlH = S(48.0f);      // URL 多行输入高度（长链接可见）
-        const float splitY = S(96.0f);    // 分片数（独立一行）
-        const float row3Y = S(132.0f);    // 重命名
-        const float row4Y = S(168.0f);    // 下载目录
-        const float btnY = S(206.0f);
+        const float labelX = 16.0f;
+        const float labelW = 56.0f;
+        const float inputX = 74.0f;
+        const float urlH = 48.0f;      // URL 多行输入高度（长链接可见）
+        const float splitY = 96.0f;    // 分片数（独立一行）
+        const float row3Y = 132.0f;    // 重命名
+        const float row4Y = 168.0f;    // 下载目录
+        const float btnY = 206.0f;
 
         // 半透明遮罩，点击空白处关闭。zIndex 高于侧边栏/翻页，
         // 保证整个窗口都被盖住。
@@ -342,7 +342,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .position(0, 0)
                     .size(dlgW, dlgH)
                     .color(theme.components.surface)
-                    .radius(S(10.0f))
+                    .radius(10.0f)
                     .border(1.0f,
                             components::theme::withOpacity(
                                 theme.components.border, 0.6f))
@@ -350,17 +350,17 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .build();
 
                 components::text(ui, "add.dialog.title")
-                    .position(labelX, S(12.0f))
-                    .size(dlgW - S(32.0f), S(20.0f))
+                    .position(labelX, 12.0f)
+                    .size(dlgW - 32.0f, 20.0f)
                     .text("添加下载")
-                    .fontSize(S(14.0f))
-                    .lineHeight(S(20.0f))
+                    .fontSize(14.0f)
+                    .lineHeight(20.0f)
                     .color(theme.titleText)
                     .build();
 
                 components::input(ui, "add.url")
-                    .position(labelX, S(40.0f))
-                    .size(dlgW - S(32.0f), urlH)
+                    .position(labelX, 40.0f)
+                    .size(dlgW - 32.0f, urlH)
                     .multiline(true)  // 多行：长链接完整可见，滚轮可滚动
                     .placeholder("https://… 或 magnet:…")
                     .value(g_urlText)
@@ -372,29 +372,29 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 // ---- 分片数（0=配置默认；仅 aria2 生效）----
                 components::text(ui, "add.conn.label")
                     .position(labelX, splitY)
-                    .size(labelW, S(28.0f))
+                    .size(labelW, 28.0f)
                     .text("分片数")
-                    .fontSize(S(12.0f))
-                    .lineHeight(S(28.0f))
+                    .fontSize(12.0f)
+                    .lineHeight(28.0f)
                     .color(theme.metaText)
                     .build();
-                buildNumberStepper(ui, "add.conn", inputX, splitY - S(2.0f),
-                                   S(84.0f), S(28.0f), theme, g_addConnectionsText,
+                buildNumberStepper(ui, "add.conn", inputX, splitY - 2.0f,
+                                   84.0f, 28.0f, theme, g_addConnectionsText,
                                    [](const std::string& v) { g_addConnectionsText = v; },
                                    0, 64, 1);  // 0=用配置默认
 
                 // ---- 重命名（可选，留空=URL 文件名）----
                 components::text(ui, "add.rename.label")
                     .position(labelX, row3Y)
-                    .size(labelW, S(28.0f))
+                    .size(labelW, 28.0f)
                     .text("重命名")
-                    .fontSize(S(12.0f))
-                    .lineHeight(S(28.0f))
+                    .fontSize(12.0f)
+                    .lineHeight(28.0f)
                     .color(theme.metaText)
                     .build();
                 components::input(ui, "add.rename")
-                    .position(inputX, row3Y - S(2.0f))
-                    .size(dlgW - inputX - S(16.0f), S(28.0f))
+                    .position(inputX, row3Y - 2.0f)
+                    .size(dlgW - inputX - 16.0f, 28.0f)
                     .placeholder("可选")
                     .value(g_addRenameText)
                     .theme(theme.components)
@@ -405,15 +405,15 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 // ---- 下载目录（留空=全局；磁力链接建议填写）----
                 components::text(ui, "add.dir.label")
                     .position(labelX, row4Y)
-                    .size(labelW, S(28.0f))
+                    .size(labelW, 28.0f)
                     .text("下载目录")
-                    .fontSize(S(12.0f))
-                    .lineHeight(S(28.0f))
+                    .fontSize(12.0f)
+                    .lineHeight(28.0f)
                     .color(theme.metaText)
                     .build();
                 components::input(ui, "add.dir")
-                    .position(inputX, row4Y - S(2.0f))
-                    .size(dlgW - inputX - S(16.0f) - S(60.0f) - S(8.0f), S(28.0f))
+                    .position(inputX, row4Y - 2.0f)
+                    .size(dlgW - inputX - 16.0f - 60.0f - 8.0f, 28.0f)
                     .placeholder("留空=全局")
                     .value(g_addDirText)
                     .theme(theme.components)
@@ -421,12 +421,12 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .onEnter([] { if (addDownload()) g_addOpen = false; })
                     .build();
                 components::button(ui, "add.dir.browse")
-                    .position(inputX + (dlgW - inputX - S(16.0f) - S(60.0f) - S(8.0f)) +
-                                  S(8.0f),
-                              row4Y - S(2.0f))
-                    .size(S(60.0f), S(26.0f))
+                    .position(inputX + (dlgW - inputX - 16.0f - 60.0f - 8.0f) +
+                                  8.0f,
+                              row4Y - 2.0f)
+                    .size(60.0f, 26.0f)
                     .text("浏览…")
-                    .fontSize(S(12.0f))
+                    .fontSize(12.0f)
                     .theme(theme.components, false)
                     .onClick([] {
                         const auto picked = pickDownloadFolder();
@@ -437,19 +437,19 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .build();
 
                 components::button(ui, "add.cancel")
-                    .position(dlgW - S(16.0f) - S(76.0f) - S(8.0f) - S(76.0f), btnY)
-                    .size(S(76.0f), S(26.0f))
+                    .position(dlgW - 16.0f - 76.0f - 8.0f - 76.0f, btnY)
+                    .size(76.0f, 26.0f)
                     .text("取消")
-                    .fontSize(S(12.0f))
+                    .fontSize(12.0f)
                     .theme(theme.components, false)
                     .onClick([] { g_addOpen = false; })
                     .build();
 
                 components::button(ui, "add.submit")
-                    .position(dlgW - S(16.0f) - S(76.0f), btnY)
-                    .size(S(76.0f), S(26.0f))
+                    .position(dlgW - 16.0f - 76.0f, btnY)
+                    .size(76.0f, 26.0f)
                     .text("提交")
-                    .fontSize(S(12.0f))
+                    .fontSize(12.0f)
                     .theme(theme.components, true)
                     .onClick([] { if (addDownload()) g_addOpen = false; })
                     .build();
@@ -463,8 +463,8 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     if (g_pendingDelete.has_value()) {
         const dl::TaskView& delTask = *g_pendingDelete;
         const std::string delName = taskDisplayName(delTask);
-        const float dlgW = S(340.0f);
-        const float dlgH = S(136.0f);
+        const float dlgW = 340.0f;
+        const float dlgH = 136.0f;
         const float dlgX = (screen.width - dlgW) * 0.5f;
         const float dlgY = (screen.height - dlgH) * 0.5f;
 
@@ -486,7 +486,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .position(0, 0)
                     .size(dlgW, dlgH)
                     .color(theme.components.surface)
-                    .radius(S(10.0f))
+                    .radius(10.0f)
                     .border(1.0f,
                             components::theme::withOpacity(
                                 theme.components.border, 0.6f))
@@ -494,35 +494,35 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .build();
 
                 components::text(ui, "del.title")
-                    .position(S(16.0f), S(12.0f))
-                    .size(dlgW - S(32.0f), S(20.0f))
+                    .position(16.0f, 12.0f)
+                    .size(dlgW - 32.0f, 20.0f)
                     .text("删除任务")
-                    .fontSize(S(14.0f))
-                    .lineHeight(S(20.0f))
+                    .fontSize(14.0f)
+                    .lineHeight(20.0f)
                     .color(theme.titleText)
                     .build();
 
                 components::text(ui, "del.name")
-                    .position(S(16.0f), S(34.0f))
-                    .size(dlgW - S(32.0f), S(18.0f))
+                    .position(16.0f, 34.0f)
+                    .size(dlgW - 32.0f, 18.0f)
                     .text("删除「" + delName + "」？")
-                    .fontSize(S(12.0f))
-                    .lineHeight(S(18.0f))
-                    .maxWidth(dlgW - S(32.0f))
+                    .fontSize(12.0f)
+                    .lineHeight(18.0f)
+                    .maxWidth(dlgW - 32.0f)
                     .color(theme.nameText)
                     .build();
 
                 // 复选框：是否同时删除源文件。默认勾选（移到回收站，可恢复）。
                 // checkbox builder 无定位，外包 stack 定位。
                 ui.stack("del.checkbox.wrap")
-                    .position(S(16.0f), S(54.0f))
-                    .size(dlgW - S(32.0f), S(20.0f))
+                    .position(16.0f, 54.0f)
+                    .size(dlgW - 32.0f, 20.0f)
                     .content([&] {
                         components::checkbox(ui, "del.checkbox")
-                            .size(dlgW - S(32.0f), S(20.0f))
+                            .size(dlgW - 32.0f, 20.0f)
                             .checked(g_deleteIncludeFiles)
                             .text("同时删除源文件")
-                            .fontSize(S(11.0f))
+                            .fontSize(11.0f)
                             .theme(theme.components)
                             .onChange([](bool v) { g_deleteIncludeFiles = v; })
                             .build();
@@ -530,19 +530,19 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .build();
 
                 // 底部按钮行：取消 | 删除（主按钮）。
-                const float btnH = S(26.0f);
-                const float btnY = dlgH - S(36.0f);
-                const float wCancel = S(64.0f);
-                const float wDel = S(76.0f);
-                const float gap = S(8.0f);
-                const float delX = dlgW - S(16.0f) - wDel;
+                const float btnH = 26.0f;
+                const float btnY = dlgH - 36.0f;
+                const float wCancel = 64.0f;
+                const float wDel = 76.0f;
+                const float gap = 8.0f;
+                const float delX = dlgW - 16.0f - wDel;
                 const float cancelX = delX - gap - wCancel;
 
                 components::button(ui, "del.cancel")
                     .position(cancelX, btnY)
                     .size(wCancel, btnH)
                     .text("取消")
-                    .fontSize(S(11.0f))
+                    .fontSize(11.0f)
                     .theme(theme.components, false)
                     .onClick([] { g_pendingDelete.reset(); })
                     .build();
@@ -551,7 +551,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .position(delX, btnY)
                     .size(wDel, btnH)
                     .text("删除")
-                    .fontSize(S(11.0f))
+                    .fontSize(11.0f)
                     .theme(theme.components, true)
                     .onClick([] {
                         const dl::TaskView task = *g_pendingDelete;

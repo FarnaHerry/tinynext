@@ -18,7 +18,7 @@ mcpp run            # 启动 GUI（Linux 用 ./run.sh，见下）
 bash make-dist.sh <os> <arch>   # Linux / macOS 打包 → tar.gz
 ```
 
-- 工具链固定 `llvm@22.1.8`、eui-neo 锁 **0.5.5**、websocket（IXWebSocket 包装）
+- 工具链固定 `llvm@22.1.8`、eui-neo 锁 **0.5.6**、websocket（IXWebSocket 包装）
   **12.0.1**、nlohmann::json **3.12.0**（都在 `mcpp.toml` / `mcpp.lock`，不要乱升）。
 - **Linux 用 `./run.sh` 启动**而非 `mcpp run`：mcpp 私有 glibc 与系统 Mesa 的
   GLIBC 版本冲突，run.sh 走系统 ld.so + 系统 Mesa。
@@ -36,8 +36,9 @@ tinynext url1 url2                       # 一次多个
 tinynext agent                           # 打印 CLI 使用教学（给 AI 用）后退出
 ```
 
-- **单实例**：第二实例把 URL 写 `<temp>/tinynext.inbox`（主实例 ~0.5s 轮询取走，
-  Windows 上还聚焦窗口）后退出，不弹新窗口。
+- **单实例**：第二实例经 TCP loopback socket 把 URL 直发主实例（回退写
+  `<temp>/tinynext.inbox`；主实例后台线程阻塞 accept，收到即唤醒 UI），Windows 上
+  还聚焦窗口）后退出，不弹新窗口。
 - 只接受 `http://` / `https://` 开头或 `magnet:` 的参数；其他参数忽略。http 不强制
   升级 https（那是已移除的 tinyhttps 的限制）。
 - 不记得用法时先跑 `tinynext agent`。详细见 `docs/cli.md`。
@@ -51,18 +52,30 @@ tinynext agent                           # 打印 CLI 使用教学（给 AI 用�
 | `tinynext.download_engine` | `src/download_engine.cppm` | 抽象接口 `dl::DownloadEngine` / `TaskView` / `State` / `StartOptions` |
 | `tinynext.aria2_engine` | `src/aria2_engine.cppm/.cpp`（~1.1k 行） | aria2-next 进程引擎：JSON-RPC + 本地 socket + WebSocket 推送 |
 | `tinynext.config` | `src/config.cppm` | 配置 / 主题 / 下载目录 / aria2 参数，落盘 `tinynext.conf` |
-| `tinynext.cli` | `src/cli.cppm` | 单实例锁 + 命令行 URL + inbox 转发 + CliBoot 引导 |
-| `tinynext.ui.*` | `src/ui/*.cppm` | utils / theme / state / platform / widgets / cards / downloads_page / settings_page / about_dialog |
+| `tinynext.cli` | `src/cli.cppm` | 单实例锁 + 命令行 URL + TCP socket 转发 + CliBoot 引导 |
+| `tinynext.ui.*` | `src/ui/*.cppm` | utils / theme / state / platform / housekeep / widgets / cards / downloads_page / settings_page / about_dialog |
 | `src/app.cpp` | 普通 TU | 薄入口：`app::dslAppConfig()` + `app::compose()` |
 
 **入口**：`main()` 由 eui-neo 的 `app-main` 提供（GLFW 入口），任何 TU 都不能再定义
-`main()`。`src/app.cpp` 是唯一包含完整 `<eui_neo.h>` 的 TU（提供 `app::update/render`
-机制）；各 UI 模块只包含精简头 `src/ui/eui_ui.h`（去掉 `dsl_app_impl.h`），否则内联
-lambda 在普通 TU 与模块全局片段间 mangled name 冲突。
+`main()`。0.5.6 起 `eui_neo.h` 不再包含 `eui/detail/dsl_app_impl.h`（`app::update/render`
+机制已挪进 app-main 的 `glfw_app_main.cpp` 内部编译）；`src/app.cpp` 包含完整
+`<eui_neo.h>` 只为取 `DslAppConfig` / `app::compose` 声明。各 UI 模块仍用精简头
+`src/ui/eui_ui.h`（0.5.6 已无 mangled name 冲突，纯为保持最小 include 面，历史原因保留）。
 
 **共享状态**：所有可变 UI 全局都导出在 `tinynext.ui.state`（模块级导出变量在 importers
 间共享同一实体），直接读写。引擎对象是 `state::g_manager`（`unique_ptr<dl::DownloadEngine>`）；
-下载校验 / 启动流程统一走 `state::startDownloadFromUrl`（弹窗 / CLI / inbox 共用）。
+下载校验 / 启动流程统一走 `state::startDownloadFromUrl`（弹窗 / CLI / socket/inbox 共用）。
+
+**渲染循环 / 事件驱动（重要）**：`app::compose` **不能挂 `.onFrame`** —— eui 会把挂
+onFrame 的元素当成「每帧都在动」，无条件每帧 composeRequested/paintRequested/animating，
+导致空闲也 90 FPS 全量重绘（GPU 占用跳跃）。周期/事件工作都在后台线程、只在真有事时
+`core::platform::requestUiUpdate()` 唤醒 UI 一帧：
+- `cli::startCliIpc()` — 后台线程阻塞 accept（TCP loopback），收到转发 URL 才唤醒；
+- `housekeep::startHousekeeping()` — 后台线程每 500ms 查状态消息过期 / 下载通知迁移 /
+  活动任务进度，有变化才唤醒；
+- `theme_watch` — 主题变化时直接唤醒；
+- `aria2_engine::handleWsEvent` — 状态迁移（完成/失败）后唤醒。
+空闲时 UI 走 `glfwWaitEvents` 睡眠，零渲染零 CPU。
 
 **引擎线程模型**（`aria2_engine.cpp`）：JSON-RPC 请求走 UI 线程（`rpcCall`，HTTP），
 WebSocket 只收 aria2 的 6 个推送事件（onDownloadStart/Pause/Stop/Complete/Error/
@@ -80,8 +93,10 @@ tellActive/tellWaiting/tellStopped 重建任务表。
 
 1. **`import std;` 后禁止再 `#include` 标准头**（std 模块已声明，否则 redefinition 报错）。
 2. **UI 模块加 include 用 `"eui_ui.h"`**，不要用完整 `<eui_neo.h>`。
-3. **缩放**：所有尺寸经 `utils::S(x)`（`kUI=1.4`）放大，不写裸像素；窗口尺寸也要一起
-   放大（EUI 逻辑像素 = 窗口屏幕像素）。
+3. **缩放**：eui-neo 0.5.6 起用 `DslAppConfig::uiScale(kUI)`（`kUI=1.4`）原生放大
+   整个逻辑坐标系（布局+字号）。所有尺寸按**设计逻辑像素**直接书写，**不再**用
+   `utils::S()` 自乘；窗口物理尺寸 = 设计尺寸 × `kUI`（`app.cpp` 里
+   `windowSize(1120*kUI, 720*kUI)`）。
 4. **每任务选项**：`dl::StartOptions{connections, outputName, dirOverride, limitBps}`
    全部生效。注意 aria2-next **没有下载级 `priority` 选项**（实测 + `--help=#all`
    确认），优先级功能已移除，别再加回去。

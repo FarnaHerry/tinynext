@@ -16,12 +16,13 @@
 //   tinynext.ui.about_dialog    about dialog
 //   tinynext.cli              single-instance + CLI (boot + inbox polling)
 //
-// eui_neo.h is included HERE (full, with eui/detail/dsl_app_impl.h): this TU
-// provides the app::* machinery (app::update / render / initialize / ...) that
-// dsl_app_impl.h defines. The tinynext.ui.* modules instead include the reduced
-// "ui/eui_ui.h" (eui_neo.h minus dsl_app_impl.h) — its inline lambdas would
-// otherwise clash (same mangled name) between this plain TU and the modules'
-// global-module-fragment copies.
+// eui_neo.h is included HERE for the DslAppConfig / app::compose declarations.
+// Since eui-neo 0.5.6 the umbrella no longer pulls in eui/detail/dsl_app_impl.h:
+// the app::* machinery (update / render / initialize / ...) now lives inside the
+// `app-main` feature's own TU (core/app/glfw_app_main.cpp), which includes
+// dsl_app_impl.h itself. The tinynext.ui.* modules include the reduced
+// "ui/eui_ui.h" — kept as a minimal include surface (the old mangled-name clash
+// motivation is gone in 0.5.6).
 #include <eui_neo.h>
 
 import std;
@@ -35,6 +36,7 @@ import tinynext.ui.downloads_page;
 import tinynext.ui.settings_page;
 import tinynext.ui.about_dialog;
 import tinynext.ui.platform;
+import tinynext.ui.housekeep;
 import tinynext.ui.state;
 
 namespace app {
@@ -44,9 +46,15 @@ const DslAppConfig& dslAppConfig() {
         .title("TinyNext 下载器")
         .pageId("tinynext")
         .clearColor({0.075f, 0.085f, 0.105f, 1.0f})
-        .windowSize(static_cast<int>(S(1120.0f)), static_cast<int>(S(720.0f)))
-        .fps(90.0)
-        .showDebugStatsInTitle(false)
+        // 原生全局缩放（eui-neo 0.5.6）：uiScale 按 dpiScale*uiScale 放大整个逻辑
+        // 坐标系（布局+字号），所有尺寸按设计逻辑像素书写、不再 S() 自乘。窗口
+        // 物理尺寸 = 设计尺寸 * kUI（eui 创建窗口时按物理像素，不会自动乘 uiScale）。
+        .uiScale(kUI)
+        .windowSize(static_cast<int>(1120.0f * kUI), static_cast<int>(720.0f * kUI))
+        // 最大帧率写 0 = 自动匹配显示器刷新率（eui 的 updateFrameInterval 在
+        // limit<=0 时直接用 getWindowRefreshRate）。
+        .fps(0.0)
+        .showDebugStatsInTitle(true)
         .textFont("NotoSansSC-Regular.ttf")
         .iconFont("FontAwesome7.otf")
         // 系统托盘：配置 close_to_tray 决定 X 是否缩到托盘（不退出），托盘菜单
@@ -64,6 +72,31 @@ const DslAppConfig& dslAppConfig() {
 }
 
 void compose(eui::Ui& ui, const eui::Screen& screen) {
+    // 启动一次后台线程（幂等）：CLI 转发监听（阻塞 accept，空闲挂起）+ 杂务
+    // （状态消息过期 / 下载通知 / 活动任务进度刷新）。都只在「真有事」时
+    // requestUiUpdate() 唤醒 UI 一帧，空闲时 UI 睡眠、零渲染。
+    static bool housekeepingStarted = false;
+    if (!housekeepingStarted) {
+        housekeepingStarted = true;
+        cli::startCliIpc();
+        housekeep::startHousekeeping();
+    }
+
+    // 事件驱动的杂务消费（取代旧的根 onFrame；onFrame 会让 eui 每帧强制重绘）。
+    cli::processPendingUrls();                 // 自身 CLI URL + socket/inbox 转发 URL
+    if (housekeep::consumeStatusExpired()) {   // 状态消息 4s 自动消失
+        g_statusMessage.clear();
+        g_statusTimer = 0.0f;
+    }
+    if (themeChangePending() && g_themeMode == cfg::ThemeMode::System) {
+        g_dark = cfg::osDark();
+    }
+    static bool lastDark = !g_dark;            // 原生标题栏配色跟随主题
+    if (g_dark != lastDark) {
+        lastDark = g_dark;
+        setNativeTheme(g_dark);
+    }
+
     // 启动时设一次应用图标（窗口/任务栏）。
     static bool iconApplied = false;
     if (!iconApplied) {
@@ -81,32 +114,16 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
     const AppTheme& theme = currentTheme();
 
     // 根用 stack：底层铺满窗口的主题背景（clearColor 在初始化时固化、无法运行时
-    // 修改，所以背景色由 compose 每帧重绘，主题切换即时生效），其余控件用
-    // .position() 绝对定位 —— eui 的 flex 引擎会压缩/居中固定尺寸子项，导致分页
-    // 大小下拉与翻页被裁切；绝对定位则完全可控、随窗口高度自适应。
+    // 修改，所以背景色由 compose 重绘，主题切换即时生效），其余控件用 .position()
+    // 绝对定位 —— eui 的 flex 引擎会压缩/居中固定尺寸子项，导致分页大小下拉与翻页
+    // 被裁切；绝对定位则完全可控、随窗口高度自适应。
+    //
+    // 注意：这里不再挂 .onFrame。eui 会把挂 onFrame 的元素当成「每帧都在动」，
+    // 无条件每帧 composeRequested/paintRequested/animating → 空闲也 90 FPS 全量
+    // 重绘。周期/事件工作（CLI 转发、通知、状态计时、主题）都挪到了后台线程
+    // （cli::startCliIpc / housekeep::startHousekeeping），只在真有事时唤醒 UI。
     ui.stack("root")
         .size(screen.width, screen.height)
-        .onFrame([](float deltaSeconds) {
-            if (g_statusTimer > 0.0f) {
-                g_statusTimer -= deltaSeconds;
-            }
-            // Follow-system mode: 后台 watcher 检测到 OS 主题变化时（theme_watch），
-            // 消费事件标记并重读一次 osDark()。事件驱动，不再每 2s 轮询。
-            if (themeChangePending() && g_themeMode == cfg::ThemeMode::System) {
-                g_dark = cfg::osDark();
-            }
-            // 单实例 inbox 轮询 + CLI 启动参数（tinynext.cli）。
-            cli::handleCliAndInbox(deltaSeconds);
-            // 下载完成/失败系统通知（状态迁移检测）。
-            checkDownloadNotifications();
-            // 系统标题栏跟随主题：g_dark 变化（启动/主题按钮/设置保存/跟随系统）
-            // 时同步一次，让原生边框配色与界面一致。
-            static bool lastDark = !g_dark;
-            if (g_dark != lastDark) {
-                lastDark = g_dark;
-                setNativeTheme(g_dark);
-            }
-        })
         .content([&] {
             ui.rect("theme.background")
                 .position(0, 0)
@@ -125,19 +142,19 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 .content([&] {
 
                     // 应用 logo：项目名缩写 "TN"（TinyNext），主色圆角块特例。
-                    // 水平居中于图标栏（rail 加宽后不能写死 S(4)，要按 kRailWidth 计算）。
+                    // 水平居中于图标栏（rail 加宽后不能写死 4，要按 kRailWidth 计算）。
                     ui.rect("sidebar.logo.bg")
-                        .position((kRailWidth - S(18.0f)) * 0.5f, S(10.0f))
-                        .size(S(18.0f), S(18.0f))
+                        .position((kRailWidth - 18.0f) * 0.5f, 10.0f)
+                        .size(18.0f, 18.0f)
                         .color(theme.components.primary)
-                        .radius(S(5.0f))
+                        .radius(5.0f)
                         .build();
                     ui.text("sidebar.logo")
-                        .position(0, S(10.0f))
-                        .size(kRailWidth, S(18.0f))
+                        .position(0, 10.0f)
+                        .size(kRailWidth, 18.0f)
                         .text("TN")
-                        .fontSize(S(8.0f))
-                        .lineHeight(S(18.0f))
+                        .fontSize(8.0f)
+                        .lineHeight(18.0f)
                         .color(theme.dark ? theme.components.surface
                                           : theme.components.background)
                         .horizontalAlign(core::HorizontalAlign::Center)
@@ -145,33 +162,33 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                         .build();
 
                     // 应用页导航：下载列表（默认第一页）/ 设置。
-                    float railY = S(40.0f);
+                    float railY = 40.0f;
                     drawRailItem(ui, "nav.downloads", railY, kRailWidth, 0xF03A,
                                  g_page_view == Page::Downloads, theme,
                                  [] { g_page_view = Page::Downloads; });
-                    railY += S(30.0f);
+                    railY += 30.0f;
                     drawRailItem(ui, "nav.settings", railY, kRailWidth, 0xF013,
                                  g_page_view == Page::Settings, theme,
                                  [] { g_page_view = Page::Settings; });
 
                     // 关于：主题切换上方，信息图标（circle-info），打开软件信息弹窗。
                     components::button(ui, "rail.info")
-                        .position((kRailWidth - S(22.0f)) * 0.5f, screen.height - S(54.0f))
-                        .size(S(22.0f), S(22.0f))
+                        .position((kRailWidth - 22.0f) * 0.5f, screen.height - 54.0f)
+                        .size(22.0f, 22.0f)
                         .icon(0xF05A)  // circle-info
                         .text("")
-                        .iconSize(S(11.0f))
+                        .iconSize(11.0f)
                         .theme(theme.components, false)
                         .onClick([] { g_aboutOpen = true; })
                         .build();
 
                     // 主题切换：底部，仅图标（月亮/太阳）。
                     components::button(ui, "theme.toggle")
-                        .position((kRailWidth - S(22.0f)) * 0.5f, screen.height - S(28.0f))
-                        .size(S(22.0f), S(22.0f))
+                        .position((kRailWidth - 22.0f) * 0.5f, screen.height - 28.0f)
+                        .size(22.0f, 22.0f)
                         .icon(g_dark ? 0xF186 : 0xF185)  // moon / sun
                         .text("")
-                        .iconSize(S(11.0f))
+                        .iconSize(11.0f)
                         .theme(theme.components, false)
                         .onClick([] {
                             // Quick flip switches to the opposite explicit mode

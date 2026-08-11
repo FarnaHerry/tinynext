@@ -137,42 +137,42 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .position(0, 0)
                 .size(cardWidth, kCardHeight)
                 .color(theme.components.surface)
-                .radius(S(8.0f))
+                .radius(8.0f)
                 .border(1.0f, components::theme::withOpacity(theme.components.border, 0.55f))
-                .shadow(S(8.0f), S(2.0f),
+                .shadow(8.0f, 2.0f,
                         theme.components.dark
                             ? core::Color{0.0f, 0.0f, 0.0f, 0.18f}
                             : core::Color{0.10f, 0.14f, 0.22f, 0.08f})
                 .build();
 
             // ---- 第 1 行：文件名 + 状态 ----
-            const float stateW = S(46.0f);
+            const float stateW = 46.0f;
             components::text(ui, fid + ".name")
-                .position(kCardPad, S(9.0f))
-                .size(inner - stateW - S(6.0f), S(15.0f))
+                .position(kCardPad, 9.0f)
+                .size(inner - stateW - 6.0f, 15.0f)
                 .text(taskDisplayName(task))
-                .fontSize(S(13.0f))
-                .lineHeight(S(15.0f))
-                .maxWidth(inner - stateW - S(6.0f))
+                .fontSize(13.0f)
+                .lineHeight(15.0f)
+                .maxWidth(inner - stateW - 6.0f)
                 .color(theme.nameText)
                 .build();
             components::text(ui, fid + ".state")
-                .position(cardWidth - kCardPad - stateW, S(9.0f))
-                .size(stateW, S(15.0f))
+                .position(cardWidth - kCardPad - stateW, 9.0f)
+                .size(stateW, 15.0f)
                 .text(stateLabel(task.state))
-                .fontSize(S(10.0f))
-                .lineHeight(S(15.0f))
+                .fontSize(10.0f)
+                .lineHeight(15.0f)
                 .horizontalAlign(core::HorizontalAlign::Right)
                 .color(stateColor(task.state))
                 .build();
 
             // ---- 第 2 行：进度条 ----
             ui.stack(fid + ".progress.slot")
-                .position(kCardPad, S(28.0f))
-                .size(inner, S(6.0f))
+                .position(kCardPad, 28.0f)
+                .size(inner, 6.0f)
                 .content([&] {
                     components::progress(ui, fid + ".progress")
-                        .size(inner, S(6.0f))
+                        .size(inner, 6.0f)
                         .value(progress)
                         .theme(theme.components)
                         .build();
@@ -210,10 +210,10 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                                  (actionCount > 0 ? (actionCount - 1) * kCardIconGap : 0.0f);
 
             components::text(ui, fid + ".info")
-                .position(kCardPad, S(42.0f))
+                .position(kCardPad, 42.0f)
                 .size(inner - iconsW, kCardIconW)
                 .text(cardInfoText(task))
-                .fontSize(S(10.0f))
+                .fontSize(10.0f)
                 .lineHeight(kCardIconW)
                 .maxWidth(inner - iconsW)
                 .color(theme.metaText)
@@ -223,7 +223,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
             // 进行中任务：开始/暂停在最左，接着所在文件夹/复制链接，最右是取消。
             // 已完成任务：打开文件/所在文件夹/复制链接成组，接着重新下载，最后删除。
             // 全部普通颜色（无主色），与同类按钮一致。
-            const float btnY = S(42.0f);
+            const float btnY = 42.0f;
             float bx = cardWidth - kCardPad;
             const auto place = [&](const std::string& aid, unsigned int icon,
                                    bool primary, std::function<void()> cb) {

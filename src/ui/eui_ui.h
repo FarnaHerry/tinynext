@@ -1,11 +1,10 @@
 // eui_ui.h — eui_neo.h minus the app-entry machinery (eui/detail/dsl_app_impl.h).
 //
-// dsl_app_impl.h defines inline functions containing lambdas (app::update's
-// composeFrame, etc.) whose compiler-generated mangled names collide when the
-// header is included in both a plain TU (app.cpp — it must define the
-// app::dslAppConfig / app::compose entry points) and module global fragments.
-// Our TUs only draw widgets and never call the app-entry machinery, so this
-// reduced header is safe to include from app.cpp and every tinynext.ui.* module.
+// Since eui-neo 0.5.6, eui_neo.h no longer includes dsl_app_impl.h at all — the
+// app::update/render machinery moved into the app-main feature's own TU
+// (glfw_app_main.cpp), so the mangled-name clash this header once avoided is
+// gone. It is kept purely as a minimal include surface for the tinynext.ui.*
+// modules (and app.cpp), which only need the widget/DslAppConfig declarations.
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN

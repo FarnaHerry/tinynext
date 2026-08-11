@@ -48,6 +48,10 @@ extern char** environ;
 #include <ixwebsocket/IXWebSocket.h>
 #include <ixwebsocket/IXNetSystem.h>  // ix::initNetSystem（IXWebSocket.h 不会间接包含它）
 
+// eui 的 UI 唤醒：WS 推送事件改了任务状态后让 UI 重绘一帧（IXWebSocket 后台线程
+// 调用，跨线程安全）。
+namespace core::platform { void requestUiUpdate(); }
+
 module tinynext.aria2_engine;
 
 import std;
@@ -1080,28 +1084,36 @@ bool Aria2Engine::busy() const {
 // 磁力真实路径 / errorMessage）。
 void Aria2Engine::handleWsEvent(const std::string& method, const std::string& gid) const {
     if (gid.empty()) return;
-    std::lock_guard<std::mutex> lock(tasksMutex_);
-    for (const auto& task : tasks_) {
-        if (task->gid != gid) continue;
-        if (method == "aria2.onDownloadStart") {
-            task->state = State::Downloading;
-        } else if (method == "aria2.onDownloadPause") {
-            task->state = State::Paused;
-            task->speedBps = 0.0;
-        } else if (method == "aria2.onDownloadComplete" ||
-                   method == "aria2.onBtDownloadComplete") {
-            task->state = State::Done;
-            task->speedBps = 0.0;
-            task->needsFinalize = true;
-        } else if (method == "aria2.onDownloadError") {
-            task->state = State::Failed;
-            task->speedBps = 0.0;
-            task->needsFinalize = true;
-        } else if (method == "aria2.onDownloadStop") {
-            // 停下的真实状态（complete/error/removed/paused）交给下次 tellStatus 定夺。
-            task->needsFinalize = true;
+    bool handled = false;
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        for (const auto& task : tasks_) {
+            if (task->gid != gid) continue;
+            if (method == "aria2.onDownloadStart") {
+                task->state = State::Downloading;
+            } else if (method == "aria2.onDownloadPause") {
+                task->state = State::Paused;
+                task->speedBps = 0.0;
+            } else if (method == "aria2.onDownloadComplete" ||
+                       method == "aria2.onBtDownloadComplete") {
+                task->state = State::Done;
+                task->speedBps = 0.0;
+                task->needsFinalize = true;
+            } else if (method == "aria2.onDownloadError") {
+                task->state = State::Failed;
+                task->speedBps = 0.0;
+                task->needsFinalize = true;
+            } else if (method == "aria2.onDownloadStop") {
+                // 停下的真实状态（complete/error/removed/paused）交给下次 tellStatus 定夺。
+                task->needsFinalize = true;
+            }
+            handled = true;
+            break;
         }
-        break;
+    }
+    // 状态迁移后唤醒 UI 一帧：不依赖 onFrame 的每帧重绘，任务完成/失败即时可见。
+    if (handled) {
+        core::platform::requestUiUpdate();
     }
 }
 

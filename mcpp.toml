@@ -1,6 +1,6 @@
 [package]
 name        = "tinynext"
-version     = "0.2.9"
+version     = "0.2.10"
 description = "A GUI downloader: EUI-NEO frontend + aria2-next download engine"
 license     = "MIT"
 
@@ -31,7 +31,7 @@ ldflags = ["-Wl,-subsystem:windows", "-Wl,-entry:mainCRTStartup", "-lws2_32", "-
 
 # exe 图标 + 版本信息：mcpp 2026.8.7.1 原生 [resources]（取代旧的 resources.rc /
 # windres workaround，已删除）。仅 PE/Windows 目标实际嵌入；Linux/macOS 只校验路径、
-# 产物不变，无需 cfg(windows)。FILEVERSION 取 [package].version（现为 0.2.9），
+# 产物不变，无需 cfg(windows)。FILEVERSION 取 [package].version（现为 0.2.10），
 # ProductName/FileDescription/CompanyName 等默认取 [package]，这里覆盖部分字段。
 [resources]
 icon = "assets/icon.ico"
@@ -43,11 +43,13 @@ description       = "TinyNext 下载器"
 original-filename = "tinynext.exe"
 internal-name     = "tinynext"
 
-# eui-neo 0.5.5：compat 配方上加包级 -fno-char8_t（修 u8string() 返回 char8_t 赋给
-# std::string 的 C++23 编译错）+ 补 -ldwmapi（0.5.5 的 DWM 标题栏深色用）。版本决策见
-# docs/roadmap.md。
+# eui-neo 0.5.6：compat 配方加包级 -fno-char8_t（修 u8string() 返回 char8_t 赋给
+# std::string 的 C++23 编译错，0.5.6 上游仍未修）+ 补 -ldwmapi（glfw win32 深色标题栏）。
+# 0.5.6 起 eui_neo.h 不再包含 eui/detail/dsl_app_impl.h（入口机制挪进 app-main 的
+# glfw_app_main.cpp 内部），app.cpp 只需提供 app::dslAppConfig() + app::compose()。
+# 版本决策见 docs/roadmap.md。
 [dependencies.compat]
-eui-neo = { version = "0.5.5", features = ["app-main"] }
+eui-neo = { version = "0.5.6", features = ["app-main"] }
 # 包装 IXWebSocket（client-only、零依赖）：aria2 RPC 的 WebSocket 事件推送
 # （onDownloadStart/Complete/Error/...），让状态迁移/完成通知即时，进度轮询降到 1s。
 websocket = "12.0.1"

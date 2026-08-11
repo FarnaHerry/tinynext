@@ -35,6 +35,9 @@ module;
 #include <windows.h>
 #endif
 
+// eui 的 UI 唤醒：主题变化时唤醒 UI 一帧，让 compose 消费标志并重绘（跨线程安全）。
+namespace core::platform { void requestUiUpdate(); }
+
 export module tinynext.ui.theme_watch;
 
 import std;
@@ -43,6 +46,12 @@ namespace {
 
 // 主题变化待处理标记：watcher 线程置位，渲染线程 exchange 消费。
 std::atomic<bool> g_themeDirty{false};
+
+// watcher 线程专用：置位 + 唤醒 UI 一帧（否则 UI 睡眠时主题变化不会被消费）。
+void markThemeDirty() {
+    g_themeDirty.store(true);
+    core::platform::requestUiUpdate();
+}
 
 // 后台 watcher 线程（std::jthread：进程退出时自动请求停止并 join）。
 std::jthread g_watcher;
@@ -125,7 +134,7 @@ void watchLoop(std::stop_token st) {
                     if (w.wd != ev->wd) continue;
                     for (const auto& target : w.names) {
                         if (target == name) {
-                            g_themeDirty.store(true);
+                            markThemeDirty();
                             break;
                         }
                     }
@@ -186,7 +195,7 @@ void watchLoop(std::stop_token st) {
         }
         for (int i = 0; i < n; ++i) {
             if (evs[i].filter == EVFILT_VNODE) {
-                g_themeDirty.store(true);
+                markThemeDirty();
                 // 文件被原子替换（rename/delete）：重挂 watch 到新 inode。
                 if (evs[i].fflags & (NOTE_DELETE | NOTE_RENAME)) {
                     ::close(fd);
@@ -215,7 +224,7 @@ void watchLoop(std::stop_token st) {
 
 LRESULT CALLBACK themeWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     // WM_SETTINGCHANGE 是 sent 广播，由本窗口的 wndproc 收到（GetMessage 只负责 pump）。
-    if (msg == WM_SETTINGCHANGE) g_themeDirty.store(true);
+    if (msg == WM_SETTINGCHANGE) markThemeDirty();
     return ::DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 

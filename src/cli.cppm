@@ -1,15 +1,19 @@
 // cli.cppm — command-line download entry + single-instance detection.
 //
 // The app owns a per-user single-instance lock (Windows named mutex, POSIX
-// flock). A second launch either forwards its URL args to the running instance
-// through a small inbox file (temp/tinynext.inbox, one URL per line) and exits,
-// or — if no instance is running — becomes the primary and adds its own CLI
-// URLs at first compose. The primary polls the inbox periodically.
+// flock). A second launch forwards its URL args to the running instance over a
+// TCP loopback socket (event-driven: the primary's background thread blocks on
+// accept, so it suspends when idle) and exits; if no instance is running, this
+// process becomes the primary and adds its own CLI URLs at first compose. The
+// old inbox-file path (temp/tinynext.inbox) is kept as a fallback when the
+// socket isn't up yet (e.g. the primary is still starting).
 module;
 
 #ifdef _WIN32
-// Windows API for the named mutex / command-line parsing. LEAN_AND_MEAN keeps
-// winsock.h out (the app uses winsock2 directly for the aria2 RPC socket).
+// winsock2.h 必须在 windows.h 之前（LEAN_AND_MEAN 会把 winsock.h 排除，但我们
+// 直接用 winsock2 的 socket API 做 CLI 转发）。
+#include <winsock2.h>
+#include <ws2tcpip.h>  // inet_pton
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -19,12 +23,19 @@ module;
 #include <windows.h>
 #else
 #include <sys/file.h>    // flock
+#include <sys/socket.h>  // socket / bind / listen / accept / recv / send
+#include <netinet/in.h>  // sockaddr_in
+#include <arpa/inet.h>   // inet_pton
 #include <fcntl.h>       // open, O_CREAT/O_RDWR
 #include <unistd.h>      // close
 #ifdef __APPLE__
 #include <crt_externs.h> // _NSGetArgc/_NSGetArgv
 #endif
 #endif
+
+// eui 的 UI 唤醒：后台线程收到转发 URL 时调用，让主循环跑一帧（跨线程安全，
+// eui 的 network 线程也这么用）。
+namespace core::platform { void requestUiUpdate(); }
 
 export module tinynext.cli;
 
@@ -37,6 +48,121 @@ namespace {
 
 std::filesystem::path inboxPath() {
     return std::filesystem::temp_directory_path() / "tinynext.inbox";
+}
+
+// CLI 转发的 TCP loopback 监听端口文件（主实例启动时写入，第二实例转发时读取）。
+std::filesystem::path portPath() {
+    return std::filesystem::temp_directory_path() / "tinynext.port";
+}
+
+// 跨平台 fd / SOCKET 关闭与无效值。
+#ifdef _WIN32
+using CliFd = SOCKET;
+constexpr CliFd kCliInvalidFd = INVALID_SOCKET;
+inline void closeFd(CliFd fd) { ::closesocket(fd); }
+#else
+using CliFd = int;
+constexpr CliFd kCliInvalidFd = -1;
+inline void closeFd(CliFd fd) { ::close(fd); }
+#endif
+
+// 后台监听线程收到的转发 URL 队列（mutex 保护；UI 线程 drain）。
+std::mutex g_urlsMutex;
+std::vector<std::string> g_pendingUrls;
+
+// 第二实例：把 URL 通过 TCP loopback 直连发到主实例。loopback 上无人监听会立即
+// ECONNREFUSED，阻塞 connect 不会卡住。返回是否成功。
+bool trySendUrls(const std::vector<std::string>& urls) {
+    int port = 0;
+    {
+        std::ifstream in(portPath());
+        in >> port;
+    }
+    if (port <= 0 || port > 65535) return false;
+#ifdef _WIN32
+    WSADATA wsa{};
+    if (::WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return false;
+#endif
+    const CliFd fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd == kCliInvalidFd) return false;
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(static_cast<std::uint16_t>(port));
+    ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    if (::connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0) {
+        closeFd(fd);
+        return false;
+    }
+    std::string data;
+    for (const auto& u : urls) {
+        data += u;
+        data += '\n';
+    }
+    ::send(fd, data.data(), static_cast<int>(data.size()), 0);
+    closeFd(fd);
+    return true;
+}
+
+// 主实例：后台线程阻塞在 accept 上（队列空就挂起），收到转发 URL 后入队并唤醒
+// UI 线程处理。TCP loopback，端口系统分配后写进端口文件供第二实例发现。
+void cliListenerLoop() {
+#ifdef _WIN32
+    WSADATA wsa{};
+    if (::WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return;
+#endif
+    const CliFd listenFd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (listenFd == kCliInvalidFd) return;
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(0);  // 系统分配端口
+    ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    if (::bind(listenFd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0 ||
+        ::listen(listenFd, 8) != 0) {
+        closeFd(listenFd);
+        return;
+    }
+    sockaddr_in got{};
+#ifdef _WIN32
+    int len = static_cast<int>(sizeof(got));
+#else
+    socklen_t len = sizeof(got);
+#endif
+    ::getsockname(listenFd, reinterpret_cast<sockaddr*>(&got), &len);
+    std::ofstream(portPath(), std::ios::trunc) << ntohs(got.sin_port);
+
+    for (;;) {
+        const CliFd client = ::accept(listenFd, nullptr, nullptr);
+        if (client == kCliInvalidFd) {
+#ifdef _WIN32
+            if (WSAGetLastError() == WSAEINTR) continue;
+#else
+            if (errno == EINTR) continue;
+#endif
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+        }
+        std::string data;
+        char buf[1024];
+        for (;;) {
+            const int n = ::recv(client, buf, sizeof(buf), 0);
+            if (n <= 0) break;
+            data.append(buf, static_cast<std::size_t>(n));
+        }
+        closeFd(client);
+        std::vector<std::string> urls;
+        std::istringstream ss(data);
+        std::string line;
+        while (std::getline(ss, line)) {
+            if (!line.empty()) urls.push_back(std::move(line));
+        }
+        if (!urls.empty()) {
+            {
+                std::lock_guard<std::mutex> lock(g_urlsMutex);
+                g_pendingUrls.insert(g_pendingUrls.end(), urls.begin(), urls.end());
+            }
+            core::platform::requestUiUpdate();
+        }
+    }
 }
 
 } // namespace
@@ -183,16 +309,17 @@ export bool acquireSingleInstance() {
     return primary;
 }
 
-// Best-effort hand-off to a running primary instance: queue the URLs in the
-// inbox and try to raise its window (Windows only; POSIX apps just receive the
-// task on the primary's next inbox poll).
+// Best-effort hand-off to a running primary instance. 首选 TCP loopback socket
+// 直连（事件驱动，主实例收到即处理）；socket 未就绪（主实例还在启动）时回退写
+// inbox 文件，主实例下次唤醒会 drain。最后把已有窗口切到前台（仅 Windows）。
 export void forwardToRunningInstance(const std::vector<std::string>& urls) {
     if (urls.empty()) return;
-    {
+    if (!trySendUrls(urls)) {
         std::ofstream out(inboxPath(), std::ios::app);
-        if (!out) return;
-        for (const auto& u : urls) {
-            if (!u.empty()) out << u << '\n';
+        if (out) {
+            for (const auto& u : urls) {
+                if (!u.empty()) out << u << '\n';
+            }
         }
     }
 #ifdef _WIN32
@@ -237,7 +364,7 @@ export std::vector<std::string> drainInbox() {
 // ---- 应用级接线（依赖 tinynext.ui.state 的下载流程）----
 
 // 单实例引导：静态初始化（main 之前）尝试获取锁。第二实例转发 URL 并退出、
-// 不闪窗口；主实例正常继续，CLI URL 由 handleCliAndInbox 添加到下载列表。
+// 不闪窗口；主实例正常继续，CLI URL 由 processPendingUrls 添加到下载列表。
 // 模块全局的动态初始化先于任何引用 TU 的静态初始化执行。
 struct CliBoot {
     CliBoot() {
@@ -253,18 +380,32 @@ struct CliBoot {
 };
 CliBoot g_cliBoot;
 
-// 每帧调用：主实例首次把自身 CLI URL 加进下载列表，之后周期性轮询 inbox
-// 取其他实例转发的 URL（~0.5s 一次文件读取）。
-export void handleCliAndInbox(float deltaSeconds) {
+// 启动 CLI 转发监听（后台线程，幂等）。阻塞在 accept 上，空闲不占任何资源；
+// 收到第二实例转发的 URL 时入队并唤醒 UI 线程。在首次 compose 时调用。
+export void startCliIpc() {
+    static std::atomic<bool> started = false;
+    if (started.exchange(true)) return;
+    std::thread(cliListenerLoop).detach();
+}
+
+// UI 线程在每次被唤醒时调用（compose 顶部）：首帧加自身命令行 URL，随后处理
+// socket 转发的 URL，并兜底 drain inbox 文件（旧版本第二实例 / socket 未就绪时）。
+export void processPendingUrls() {
     if (!g_cliHandled) {
         g_cliHandled = true;
         for (const auto& u : commandLineUrls()) {
             startDownloadFromUrl(u, 0);
         }
     }
-    g_inboxTimer += deltaSeconds;
-    if (g_inboxTimer >= 0.5f) {
-        g_inboxTimer = 0.0f;
+    std::vector<std::string> urls;
+    {
+        std::lock_guard<std::mutex> lock(g_urlsMutex);
+        urls.swap(g_pendingUrls);
+    }
+    for (auto& u : urls) {
+        startDownloadFromUrl(std::move(u), 0);
+    }
+    if (std::filesystem::exists(inboxPath())) {
         for (const auto& u : drainInbox()) {
             startDownloadFromUrl(u, 0);
         }

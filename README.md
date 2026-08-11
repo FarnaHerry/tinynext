@@ -44,12 +44,12 @@ mcpp run            # 启动 GUI 窗口
 
 ## UI 缩放
 
-EUI-NEO **没有**全局缩放开关（`components::button` 自带的 `.scale()` 只作用于组件
-按钮），因此 TinyNext 在 `src/app.cpp` 里用一个统一系数 **`kUI`**（默认 `1.4f`）+
-辅助函数 `S(x) = x * kUI`，把所有尺寸 / 字号 / 间距和窗口尺寸整体放大。想整体
-改大改小，只调 `kUI` 一个数即可。布局在 EUI 的逻辑像素空间（= 窗口屏幕像素），
-所以**窗口与内容必须一起放大**，高 DPI 屏上整体才会真正变大（本机 2560×1600
-@150% 下，1.4 倍后窗口约 1568×1008）。
+eui-neo 0.5.6 起提供**原生全局缩放**：`DslAppConfig::uiScale(scale)` 把整个逻辑
+坐标系（布局 + 字号）按 `dpiScale × uiScale` 放大，高 DPI 屏自动清晰。TinyNext
+用 `DslAppConfig::uiScale(kUI)`（`kUI = 1.4f`）做整体缩放；所有尺寸 / 字号 / 间距
+按**设计逻辑像素**直接书写，不再自乘系数。想整体改大改小，只调 `kUI` 一个数即可。
+窗口按物理像素创建（GLFW 的 DIP 语义），所以窗口尺寸 = 设计尺寸 × `kUI`
+（`windowSize(1120*kUI, 720*kUI)` ≈ 1568×1008 @100% DPI）。
 
 ## 使用
 
@@ -142,7 +142,7 @@ Linux / macOS 三平台构建并创建 Release（也可 `workflow_dispatch` 手�
    Linux / macOS 的编译问题（这两个平台是首次在 CI 编译 POSIX 分支）。
 2. 三平台都绿后打标签并推送：
    ```bash
-   git tag v0.2.9 && git push origin v0.2.9
+   git tag v0.2.10 && git push origin v0.2.10
    ```
 3. 到仓库 Releases 页把自动生成的 **draft** release 补充说明后发布。
 
@@ -173,7 +173,7 @@ runner。）
 | 组件 | 包 | 版本 |
 |------|-----|------|
 | 工具链 | LLVM/Clang（`mcpp.toml` 的 `[toolchain]` 固定） | 22.1.8 |
-| UI 框架 | `compat:eui-neo` | 0.5.5（feature: `app-main`；配方加 `-fno-char8_t` 修 C++23 构建） |
+| UI 框架 | `compat:eui-neo` | 0.5.6（feature: `app-main`；配方加 `-fno-char8_t` 修 C++23 构建） |
 | 下载引擎 | `aria2-next`（外部进程） | 2.5.5 |
 | 配置 JSON | `nlohmann:json` | 3.12.0 |
 
@@ -187,7 +187,7 @@ runner。）
 | `tinynext.aria2_engine` | `src/aria2_engine.cppm/.cpp` | aria2-next 进程引擎（JSON-RPC + 本地 socket） |
 | `tinynext.config` | `src/config.cppm` | JSON 配置 / 主题 / 下载目录 / aria2 参数 |
 | `tinynext.cli` | `src/cli.cppm` | 单实例锁 + 命令行 URL + inbox 转发 + CliBoot 引导 |
-| `tinynext.ui.utils` | `src/ui/utils.cppm` | `kUI`/`S()` 缩放 + 格式化/解析辅助 |
+| `tinynext.ui.utils` | `src/ui/utils.cppm` | `kUI` 缩放系数 + 格式化/解析辅助 |
 | `tinynext.ui.theme` | `src/ui/theme.cppm` | `AppTheme` 深浅主题 + `currentTheme()` |
 | `tinynext.ui.state` | `src/ui/state.cppm` | 共享可变全局 + 引擎 + 添加下载流程 |
 | `tinynext.ui.platform` | `src/ui/platform.cppm` | DPI boot + 文件夹选择 + 打开文件/URL |
@@ -203,10 +203,12 @@ runner。）
 - `src/app.cpp` — EUI 应用入口。启用 `app-main` 特性后，`main()` 由包内的
   GLFW 入口（`core/app/glfw_app_main.cpp`）提供，本项目只定义
   `app::dslAppConfig()` 和 `app::compose()`（**因此任何 TU 都不能再定义 `main()`**）。
-- EUI-NEO 是 header-only C++17 库（无模块接口）。`src/app.cpp` 包含完整
-  `<eui_neo.h>`（提供 `dsl_app_impl.h` 里的 `app::update/render` 等机制实现）；
-  各 UI 模块只包含精简头 `src/ui/eui_ui.h`（去掉 `dsl_app_impl.h`）——该头内联
-  lambda 若同时出现在普通 TU 和模块全局片段会 mangled name 冲突。
+- EUI-NEO 是 header-only C++17 库（无模块接口）。0.5.6 起 `eui_neo.h` **不再**
+  包含 `eui/detail/dsl_app_impl.h`——入口机制（`app::update/render/initialize` 等）
+  已挪进 `app-main` 特性的 GLFW 入口 TU（`core/app/glfw_app_main.cpp`）内部编译。
+  `src/app.cpp` 包含完整 `<eui_neo.h>` 只为取 `DslAppConfig` / `app::compose` 的
+  声明；各 UI 模块仍用精简头 `src/ui/eui_ui.h`（无需再规避 dsl_app_impl 的
+  mangled name 冲突，纯为保持最小 include 面，历史原因见 git 注释）。
 - `assets/` — 随包字体：正文 Noto Sans SC（思源黑体，OFL，含许可文本）+ 图标
   FontAwesome（OFL），运行时按 `exeDir/assets/` 或 `assets/` 相对路径解析。
 
@@ -231,10 +233,10 @@ runner。）
    `-Wl,-subsystem:windows` + `-Wl,-entry:mainCRTStartup`（GUI 子系统的默认
    入口是 WinMainCRTStartup，而入口代码是 `main()`，必须显式指回
    mainCRTStartup），现在直接启动 GUI 窗口、无控制台。
-7. **EUI-NEO 无全局缩放开关**：只有自动 DPI 感知（`highDpi=true`，逻辑坐标 =
-   窗口屏幕像素，渲染按 `dpiScale` 换算保证高 DPI 清晰）和组件 button 的
-   `.scale()`（只作用于单个按钮）。整体放大 UI 需要自己引入系数（见上文
-   「UI 缩放」），并同时放大窗口尺寸，否则高 DPI 屏上控件仍然偏小。
+7. **EUI-NEO 0.5.6 有原生 `uiScale`**：`DslAppConfig::uiScale(kUI)` 按
+   `dpiScale × uiScale` 放大逻辑坐标系（布局+字号），组件 `button` 的 `.scale()`
+   是单按钮 hover/press 动画，与此无关。窗口按物理像素创建（GLFW DIP 语义），
+   整体尺寸仍由 `kUI` 决定（见上文「UI 缩放」）。
 8. **eui 元素 id 必须全局唯一**：同一个 frame 里同名 id 会互相覆盖——例如
    `components::text` 的标签 id 若写成 `tool.sort.label`，会和
    `buildListPicker(id="tool.sort")` 内部的字段标签 id 撞名，导致文字不显示。

@@ -53,6 +53,51 @@ aria2），让 mcpp / xlings 等其他包管理器「直接复用 TinyNext 作�
   `char8_t` 后 `u8string()` 在所有平台返回 `std::string`，编译通过；`mcpp.toml` 升回
   **0.5.5**，并补 `-ldwmapi`（0.5.5 的 DWM 标题栏深色用）。0.5.3 的 pin 已解除。
 
+### eui-neo 升 0.5.6（2026-08，已实现）
+
+- 索引侧：`compat.eui-neo` 0.5.6 已由 mcpplibs `Add eui neo 0.5.6 (#203)` 收录（sha256
+  `0df8d798…`）。上游 0.5.6（32 commits / 86 files）相对 0.5.5 对配方的影响只有一处：
+  **CORE_SOURCES 新增 `core/window/window_input_backend.cpp`**（输入/IME 事件泵从
+  `window_backend.cpp` 拆出，两后端均无新依赖），其余 source 列表、`3rd/` vendored
+  依赖字节级不变。
+- **`-fno-char8_t` 保留**：`path::u8string()` 赋 `std::string` 的问题 0.5.6 上游未修，
+  包级 flag 继续生效；`-ldwmapi` 也保留（glfw win32 深色标题栏，vendored glfw 未变）。
+- **API 变化（对本项目影响为 0）**：0.5.6 起 `eui_neo.h` 不再包含
+  `eui/detail/dsl_app_impl.h`——`app::update/render/initialize` 等入口机制挪进
+  `app-main` 特性的 `glfw_app_main.cpp` 内部编译（该 TU 自己 include
+  `dsl_app_impl.h`）。`src/app.cpp` 仍只需 `#include <eui_neo.h>` 取
+  `DslAppConfig`/`app::compose` 声明即可；UI 模块的精简头 `eui_ui.h` 历史存在的
+  mangled name 规避动机随之消失，但保留以减少 include 面。
+- `mcpp.toml` 升 `eui-neo = "0.5.6"`（仍带 `app-main` feature，不能去掉——没有它
+  就没有 `main()`），`mcpp.lock` 重新解析。Windows 本地构建 + `tinynext agent`
+  冒烟通过。
+
+### 根 onFrame 导致空闲 90 FPS 全量重绘（2026-08 发现并修复）
+
+- **症状**：挂机时 GPU 占用持续跳动（标题栏 `90 FPS / GPU 9% / Full 100%`）。
+- **根因**：`app.cpp` 根 stack 挂了 `.onFrame`。eui 的 `Runtime::updateFrameCallback`
+  （`core/runtime/runtime_update.h`）对任何挂 onFrame 的元素**每帧无条件**
+  `composeRequested_ = true; paintRequested_ = true; animating_ = true`——onFrame 是
+  eui 给「每帧都在动」的东西用的钩子，被当周期轮询钩子用，eui 就以为 UI 永远在动画：
+  每帧重建 DSL 树 + 全量重绘 + `glfwPollEvents` busy-loop，永不睡眠。回调内容（inbox
+  轮询 / 通知检测）本身很便宜，**换成空回调也照样满帧**。
+- **修复**：去掉根 onFrame，周期/事件工作全部挪到后台线程，只在真有事时
+  `core::platform::requestUiUpdate()` 唤醒 UI 一帧（跨线程安全，eui network 线程同款）：
+  - `cli::startCliIpc()` — TCP loopback 后台监听线程**阻塞在 accept 上**（队列空就挂起），
+    第二实例转发 URL 改为 socket 直连（回退写 inbox 文件），零轮询零延迟；
+  - `housekeep::startHousekeeping()` — 每 500ms 查状态消息过期（原子墙钟）/
+    下载通知迁移 / 活动任务进度，有变化才唤醒；
+  - `theme_watch` — 主题变化时直接唤醒（`markThemeDirty`）；
+  - `aria2_engine::handleWsEvent` — 状态迁移后唤醒（完成/失败即时可见）。
+- **结果**：空闲 `0 FPS / CPU 0% / GPU 0%`（8s CPU 增量 ~0.05s），有活动下载时才
+  以 ~2fps 刷新进度。CLI 转发、完成/失败通知、状态消息 4s 消失均回归通过。
+- **UI 缩放改用 eui 原生 `uiScale`（0.5.6 新增）**：`DslAppConfig::uiScale(kUI)`
+  按 `dpiScale × uiScale` 放大整个逻辑坐标系（含字号，`toPixels = v*dpiScale`，
+  app 把 `effectiveScale` 传入 runtime）。删除了 `utils::S()`（276 处调用改回设计
+  值），`kUI` 保留为唯一缩放旋钮。关键点：**窗口物理尺寸 = 设计尺寸 × kUI**
+  （`windowSize(1120*kUI, 720*kUI)`）——GLFW 按 DIP 建窗，eui 不会自动乘 uiScale。
+  渲染输出与 0.5.5 像素级一致（100% 与 150% DPI 均验证）。
+
 ### 下载优先级功能：aria2-next 不支持（2026-08 核实，已移除）
 
 - 添加弹窗曾提供「优先级（默认/高/中/低）」选择器 + 任务排序「优先级」，把

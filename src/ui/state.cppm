@@ -37,9 +37,25 @@ export bool g_aboutOpen = false; // “关于”弹窗是否打开
 // 设置页“下载路径”输入框内容；初始化为有效下载目录（持久化优先）。
 export std::string g_downloadDirText = cfg::downloadDir().string();
 
+// 状态消息 4s 自动消失：用墙钟过期时间（原子）而不是靠每帧递减 g_statusTimer——
+// 后台 housekeep 线程读它判断过期，UI 线程写。g_statusMessage/g_statusTimer 仍只
+// 由 UI 线程读写，无竞争。
+std::atomic<double> g_statusExpiry{0.0};
+double steadyNow() {
+    using namespace std::chrono;
+    return duration<double>(steady_clock::now().time_since_epoch()).count();
+}
+
 export void showStatus(std::string message) {
     g_statusMessage = std::move(message);
     g_statusTimer = 4.0f;
+    g_statusExpiry.store(steadyNow() + 4.0);
+}
+
+// housekeep 后台线程调用：状态消息是否已到 4s 过期时间。
+export bool statusExpired() {
+    const double expiry = g_statusExpiry.load();
+    return expiry > 0.0 && steadyNow() >= expiry;
 }
 
 // ---- theme mode / settings pending ----
@@ -106,9 +122,8 @@ export enum class SortMode { Newest, State, Name, Size, Progress };
 export SortMode g_sort = SortMode::Newest;
 export bool g_sortOpen = false;  // 排序下拉是否展开
 
-// 单实例：CLI 启动参数是否已添加过；inbox 轮询计时。
+// 单实例：CLI 启动参数是否已添加过（cli::processPendingUrls 首次消费）。
 export bool g_cliHandled = false;
-export float g_inboxTimer = 0.0f;
 
 // "下载中" = 排队/进行/暂停；"已完成" = 完成/失败/已取消。
 export bool stateMatches(Filter filter, dl::State state) {
@@ -207,9 +222,11 @@ export std::string taskDisplayName(const dl::TaskView& task) {
     return fileNameFromUrl(task.url);
 }
 
-// 每帧检查任务状态迁移：仅当任务从进行中（排队/下载/暂停）迁移到 Done/Failed 时
-// 发系统通知（避免会话恢复等历史状态误触发）。由 app.cpp 的 onFrame 调用。
+// 后台 housekeep 线程调用：检查任务状态迁移，仅当任务从进行中（排队/下载/暂停）
+// 迁移到 Done/Failed 时发系统通知（避免会话恢复等历史状态误触发）。snapshot 走
+// tasksMutex_，后台线程安全；lastStates 由 housekeep 单线程独占。
 export void checkDownloadNotifications() {
+    if (!g_manager) return;
     static std::unordered_map<std::uint64_t, dl::State> lastStates;
     const auto tasks = g_manager->snapshot();
     std::unordered_set<std::uint64_t> seen;

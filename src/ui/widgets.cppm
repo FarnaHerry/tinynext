@@ -28,7 +28,7 @@ export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
         .color(panelColor)
         .radius(kIslandRadius)
         .border(1.0f, components::theme::withOpacity(tokens.border, 0.6f))
-        .shadow(S(14.0f), S(3.0f), shadowColor)
+        .shadow(14.0f, 3.0f, shadowColor)
         .build();
 }
 
@@ -50,7 +50,7 @@ export void drawToolbarIconButton(eui::Ui& ui, const std::string& id, float x, f
             .size(w, h)
             .icon(icon)
             .text("")
-            .iconSize(S(13.0f))
+            .iconSize(13.0f)
             .theme(tokens, true)
             .radius(radius)
             .onClick(std::move(onClick))
@@ -75,7 +75,7 @@ export void drawToolbarIconButton(eui::Ui& ui, const std::string& id, float x, f
         .position(x, y)
         .size(w, h)
         .icon(icon)
-        .fontSize(S(13.0f))
+        .fontSize(13.0f)
         .lineHeight(h)
         .color(tokens.text)
         .horizontalAlign(core::HorizontalAlign::Center)
@@ -95,9 +95,9 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
                             int count, int selected, bool opensUp, PickerField field,
                             const std::function<void(int)>& onPick,
                             float popupWidth = 0.0f) {
-    const float itemHeight = S(22.0f);
-    const float popupPad = S(3.0f);
-    const float popupGap = S(3.0f);
+    const float itemHeight = 22.0f;
+    const float popupPad = 3.0f;
+    const float popupGap = 3.0f;
     // 弹层宽度：默认与字段同宽；字段是纯图标（如排序）时可传入更宽的值容纳文字。
     const float popWidth = popupWidth > 0.0f ? popupWidth : width;
     const float popupHeight = itemHeight * count + popupPad * 2.0f;
@@ -121,24 +121,24 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
                     .size(width, height)
                     .states({0.0f, 0.0f, 0.0f, 0.0f}, tokens.surfaceHover,
                             tokens.surfaceActive)
-                    .radius(S(6.0f))
+                    .radius(6.0f)
                     .onClick([&open] { open = !open; })
                     .build();
                 ui.text(id + ".label")
-                    .x(-S(4.0f))  // 给右侧箭头让位，视觉上仍居中
-                    .size(width - S(10.0f), height)
+                    .x(-4.0f)  // 给右侧箭头让位，视觉上仍居中
+                    .size(width - 10.0f, height)
                     .text(labels[selected])
-                    .fontSize(S(11.0f))
+                    .fontSize(11.0f)
                     .lineHeight(height)
                     .color(tokens.text)
                     .horizontalAlign(core::HorizontalAlign::Center)
                     .verticalAlign(core::VerticalAlign::Center)
                     .build();
                 ui.text(id + ".chevron")
-                    .x(width - S(15.0f))
-                    .size(S(12.0f), height)
+                    .x(width - 15.0f)
+                    .size(12.0f, height)
                     .icon(open ? 0xF077 : 0xF078)  // chevron-up / chevron-down
-                    .fontSize(S(9.0f))
+                    .fontSize(9.0f)
                     .lineHeight(height)
                     .color(tokens.primary)
                     .horizontalAlign(core::HorizontalAlign::Center)
@@ -148,27 +148,27 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
                 ui.rect(id + ".field")
                     .size(width, height)
                     .color(tokens.surface)
-                    .radius(S(8.0f))
+                    .radius(8.0f)
                     .border(1.0f, components::theme::withOpacity(tokens.border, 0.78f))
                     .transition(transition)
                     .onClick([&open] { open = !open; })
                     .build();
 
                 ui.text(id + ".label")
-                    .x(S(9.0f))
-                    .size(width - S(30.0f), height)
+                    .x(9.0f)
+                    .size(width - 30.0f, height)
                     .text(labels[selected])
-                    .fontSize(S(11.0f))
+                    .fontSize(11.0f)
                     .lineHeight(height)
                     .color(tokens.text)
                     .verticalAlign(core::VerticalAlign::Center)
                     .build();
 
                 ui.text(id + ".chevron")
-                    .x(width - S(20.0f))
-                    .size(S(14.0f), height)
+                    .x(width - 20.0f)
+                    .size(14.0f, height)
                     .icon(open ? 0xF077 : 0xF078)  // chevron-up / chevron-down
-                    .fontSize(S(10.0f))
+                    .fontSize(10.0f)
                     .lineHeight(height)
                     .color(tokens.primary)
                     .horizontalAlign(core::HorizontalAlign::Center)
@@ -181,8 +181,8 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
                 // 全屏透明拦截层（在弹层之下）：点击弹层外任意处收起，并吞掉点击
                 // 防止穿透到弹窗遮罩/其他控件。尺寸放大覆盖任意窗口。
                 ui.rect(id + ".dismiss")
-                    .position(-S(2000.0f), -S(2000.0f))
-                    .size(S(5000.0f), S(5000.0f))
+                    .position(-2000.0f, -2000.0f)
+                    .size(5000.0f, 5000.0f)
                     .states({0.0f, 0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f, 0.0f},
                             {0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([&open] { open = false; })
@@ -198,7 +198,7 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
                         ui.rect(id + ".popup.bg")
                             .size(popWidth, popupHeight)
                             .color(tokens.dark ? tokens.surfaceActive : tokens.surface)
-                            .radius(S(8.0f))
+                            .radius(8.0f)
                             .border(1.0f, components::theme::withOpacity(tokens.border, 0.78f))
                             .onClick([] {})  // 吞掉弹层内部空白点击，避免穿透到遮罩关闭弹窗
                             .build();
@@ -211,7 +211,7 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
                                 .size(popWidth - popupPad * 2.0f, itemHeight)
                                 .states({0.0f, 0.0f, 0.0f, 0.0f}, tokens.surfaceHover,
                                         tokens.surfaceActive)
-                                .radius(S(5.0f))
+                                .radius(5.0f)
                                 .onClick([&open, i, onPick] {
                                     open = false;
                                     onPick(i);
@@ -219,11 +219,11 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
                                 .build();
 
                             ui.text(id + ".item.label." + std::to_string(i))
-                                .x(popupPad + S(8.0f))
+                                .x(popupPad + 8.0f)
                                 .y(itemY)
-                                .size(popWidth - popupPad * 2.0f - S(16.0f), itemHeight)
+                                .size(popWidth - popupPad * 2.0f - 16.0f, itemHeight)
                                 .text(labels[i])
-                                .fontSize(S(11.0f))
+                                .fontSize(11.0f)
                                 .lineHeight(itemHeight)
                                 .color(i == selected ? tokens.primary : tokens.text)
                                 .verticalAlign(core::VerticalAlign::Center)
@@ -245,9 +245,9 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
                                const std::function<void(const std::string&)>& onChange,
                                int min, int max, int step) {
     // -/+ 按钮做成正方形 → 纯圆（radius = 边长/2），垂直居中于输入框高度。
-    const float btnSize = std::min(S(20.0f), height);
+    const float btnSize = std::min(20.0f, height);
     const float btnY = y + (height - btnSize) * 0.5f;
-    const float gap = S(3.0f);
+    const float gap = 3.0f;
     const float inputW = width - btnSize * 2.0f - gap * 2.0f;
     const auto& tokens = theme.components;
 
@@ -257,7 +257,7 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
         .radius(btnSize * 0.5f)
         .icon(0xF068)  // fa-minus
         .text("")
-        .iconSize(S(9.0f))
+        .iconSize(9.0f)
         .theme(tokens, false)
         .onClick([value, onChange, min, max, step] {
             int cur = 0;
@@ -286,7 +286,7 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
         .radius(btnSize * 0.5f)
         .icon(0xF067)  // fa-plus
         .text("")
-        .iconSize(S(9.0f))
+        .iconSize(9.0f)
         .theme(tokens, false)
         .onClick([value, onChange, min, max, step] {
             int cur = 0;
@@ -314,16 +314,16 @@ export void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y
         .position(x, y)
         .size(width, height)
         .color(active ? activeFill : idle)
-        .radius(S(8.0f))
+        .radius(8.0f)
         .transition(transition)
         .build();
 
     if (active) {
         ui.rect(id + ".bar")
-            .position(x, y + S(6.0f))
-            .size(S(3.0f), height - S(12.0f))
+            .position(x, y + 6.0f)
+            .size(3.0f, height - 12.0f)
             .color(tokens.primary)
-            .radius(S(1.5f))
+            .radius(1.5f)
             .build();
     }
 
@@ -332,17 +332,17 @@ export void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y
         .position(x, y)
         .size(width, height)
         .states(idle, active ? idle : tokens.surfaceHover, tokens.surfaceActive)
-        .radius(S(8.0f))
+        .radius(8.0f)
         .transition(transition)
         .onClick(std::move(onClick))
         .build();
 
     // 图标。
     ui.text(id + ".icon")
-        .position(x + S(8.0f), y)
-        .size(S(16.0f), height)
+        .position(x + 8.0f, y)
+        .size(16.0f, height)
         .icon(icon)
-        .fontSize(S(11.0f))
+        .fontSize(11.0f)
         .lineHeight(height)
         .color(textColor)
         .horizontalAlign(core::HorizontalAlign::Center)
@@ -351,10 +351,10 @@ export void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y
 
     // 文字。
     ui.text(id + ".label")
-        .position(x + S(30.0f), y)
-        .size(width - S(36.0f), height)
+        .position(x + 30.0f, y)
+        .size(width - 36.0f, height)
         .text(label)
-        .fontSize(S(12.0f))
+        .fontSize(12.0f)
         .lineHeight(height)
         .color(textColor)
         .verticalAlign(core::VerticalAlign::Center)
@@ -371,33 +371,33 @@ export void drawRailItem(eui::Ui& ui, const std::string& id, float y, float rail
     const core::Color activeFill =
         components::theme::withAlpha(tokens.primary, theme.dark ? 0.22f : 0.14f);
     const core::Color iconColor = active ? tokens.primary : tokens.text;
-    const float itemW = railWidth - S(8.0f);   // 两侧各留 4px
+    const float itemW = railWidth - 8.0f;   // 两侧各留 4px
     const float x = (railWidth - itemW) * 0.5f;
 
     // 激活高亮底色。
     ui.rect(id + ".bg")
         .position(x, y)
-        .size(itemW, S(24.0f))
+        .size(itemW, 24.0f)
         .color(active ? activeFill : idle)
-        .radius(S(7.0f))
+        .radius(7.0f)
         .transition(transition)
         .build();
 
     if (active) {
         ui.rect(id + ".bar")
-            .position(0, y + S(4.0f))
-            .size(S(2.0f), S(16.0f))
+            .position(0, y + 4.0f)
+            .size(2.0f, 16.0f)
             .color(tokens.primary)
-            .radius(S(1.0f))
+            .radius(1.0f)
             .build();
     }
 
     // 点击命中区（悬停反馈）。
     ui.rect(id + ".hit")
         .position(x, y)
-        .size(itemW, S(24.0f))
+        .size(itemW, 24.0f)
         .states(idle, active ? idle : tokens.surfaceHover, tokens.surfaceActive)
-        .radius(S(7.0f))
+        .radius(7.0f)
         .transition(transition)
         .onClick(std::move(onClick))
         .build();
@@ -405,10 +405,10 @@ export void drawRailItem(eui::Ui& ui, const std::string& id, float y, float rail
     // 图标（水平居中）。
     ui.text(id + ".icon")
         .position(0, y)
-        .size(railWidth, S(24.0f))
+        .size(railWidth, 24.0f)
         .icon(icon)
-        .fontSize(S(13.0f))
-        .lineHeight(S(24.0f))
+        .fontSize(13.0f)
+        .lineHeight(24.0f)
         .color(iconColor)
         .horizontalAlign(core::HorizontalAlign::Center)
         .verticalAlign(core::VerticalAlign::Center)
@@ -424,7 +424,7 @@ export void drawCardAction(eui::Ui& ui, const std::string& id, float x, float y,
         .size(kCardIconW, kCardIconW)
         .icon(icon)
         .text("")
-        .iconSize(S(11.0f))
+        .iconSize(11.0f)
         .theme(theme.components, primary)
         .onClick(std::move(onClick))
         .build();
