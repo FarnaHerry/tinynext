@@ -107,11 +107,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
 
             struct TabItem { const char* label; unsigned int icon; SettingsTab tab; };
             static const TabItem kTabs[] = {
-                {"全局", 0xF013, SettingsTab::General},
-                {"直链下载", 0xF0AC, SettingsTab::Http},
-                {"BitTorrent", 0xF0E7, SettingsTab::BitTorrent},
-                {"下载行为", 0xF0D7, SettingsTab::Behavior},
-                {"完整性校验", 0xF00C, SettingsTab::Integrity},
+                {"通用", 0xF013, SettingsTab::General},
+                {"下载任务", 0xF0AC, SettingsTab::Task},
+                {"网络", 0xF0D7, SettingsTab::Network},
+                {"种子与文件", 0xF0E7, SettingsTab::SeedFile},
             };
             const float itemW = kSubSidebarWidth - 12.0f;
             float itemY = 28.0f;
@@ -328,8 +327,8 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
 
             }  // 全局 tab 结束（主题 / 关闭行为 / 下载路径）
 
-            // ============== 直链下载 tab（HTTP/FTP/SFTP 相关参数）==============
-            if (g_settingsTab == SettingsTab::Http) {
+            // ============== 下载任务 tab（分片 / 连接 / 限速 / 并发 / 重试 / 缓存）==============
+            if (g_settingsTab == SettingsTab::Task) {
                 row("a.split", kFieldH, [&](eui::Ui& r, float) {
                     numericField(r, "a.split", "分片数", 0, kInputW, g_aria2SplitText,
                                  [](const std::string& v) { g_aria2SplitText = v; },
@@ -376,6 +375,63 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         })
                         .build();
                 }, 100);  // 行 zIndex：让弹出下拉盖过后面各行
+                row("a.limit", kFieldH, [&](eui::Ui& r, float) {
+                    numericField(r, "a.limit", "每任务限速KB/s", 0, kInputW, g_aria2LimitText,
+                                 [](const std::string& v) { g_aria2LimitText = v; },
+                                 0, 1000000, 100);
+                });
+                // 全局限速 + 文件分配：与每任务限速同屏对照（daemon 级，重启生效）。
+                row("beh.overall", kFieldH, [&](eui::Ui& r, float) {
+                    numericField(r, "beh.overall", "全局限速KB/s", 0, kInputW,
+                                 g_overallLimitText,
+                                 [](const std::string& v) { g_overallLimitText = v; },
+                                 0, 1000000, 100);
+                    components::text(r, "st.beh.allocation.label")
+                        .position(kCol2X, 0)
+                        .size(kLabelW, kFieldH)
+                        .text("文件分配")
+                        .fontSize(11.0f)
+                        .lineHeight(kFieldH)
+                        .color(theme.metaText)
+                        .build();
+                    r.stack("st.beh.allocation.pick")
+                        .position(kCol2X + kLabelW, -2.0f)
+                        .size(84.0f, 26.0f)
+                        .zIndex(30)
+                        .content([&] {
+                            buildListPicker(r, "beh.allocation", 84.0f, 26.0f, theme,
+                                            g_fileAllocationOpen, kFileAllocLabels, 4,
+                                            fileAllocationIndex(g_fileAllocation), false,
+                                            PickerField::Text,
+                                            [](int i) {
+                                                g_fileAllocation = kFileAllocValues[i];
+                                            });
+                        })
+                        .build();
+                }, 100);  // 行 zIndex：文件分配下拉展开时盖过后面各行
+                row("a.concurrent", kFieldH, [&](eui::Ui& r, float) {
+                    numericField(r, "a.concurrent", "最大同时下载数", 0, kInputW,
+                                 g_maxConcurrentText,
+                                 [](const std::string& v) { g_maxConcurrentText = v; },
+                                 1, 64, 1);
+                });
+                row("a.retry", kFieldH, [&](eui::Ui& r, float) {
+                    numericField(r, "a.maxtries", "最大重试次数", 0, kInputW, g_maxTriesText,
+                                 [](const std::string& v) { g_maxTriesText = v; },
+                                 0, 100, 1);
+                    numericField(r, "a.retrywait", "重试等待秒", kCol2X, kInputW, g_retryWaitText,
+                                 [](const std::string& v) { g_retryWaitText = v; },
+                                 0, 600, 1);
+                });
+                row("a.diskcache", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "a.diskcache", "磁盘缓存", 0, fullW, g_diskCacheText,
+                          [](const std::string& v) { g_diskCacheText = v; },
+                          "如 16M，空=aria2 默认");
+                });
+            }  // 下载任务 tab 结束
+
+            // ============== 网络 tab（代理 / UA / Referer / 请求头 / Cookie）==============
+            if (g_settingsTab == SettingsTab::Network) {
                 row("a.proxy", kFieldH, [&](eui::Ui& r, float) {
                     field(r, "a.proxy", "代理地址", 0, fullW, g_proxyText,
                           [](const std::string& v) { g_proxyText = v; },
@@ -386,29 +442,47 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                           [](const std::string& v) { g_noProxyText = v; },
                           "host1,host2（逗号分隔）");
                 });
-                row("a.retry", kFieldH, [&](eui::Ui& r, float) {
-                    numericField(r, "a.maxtries", "最大重试次数", 0, kInputW, g_maxTriesText,
-                                 [](const std::string& v) { g_maxTriesText = v; },
-                                 0, 100, 1);
-                    numericField(r, "a.retrywait", "重试等待秒", kCol2X, kInputW, g_retryWaitText,
-                                 [](const std::string& v) { g_retryWaitText = v; },
-                                 0, 600, 1);
-                });
-                row("a.limit", kFieldH, [&](eui::Ui& r, float) {
-                    numericField(r, "a.limit", "每任务限速KB/s", 0, kInputW, g_aria2LimitText,
-                                 [](const std::string& v) { g_aria2LimitText = v; },
-                                 0, 1000000, 100);
-                });
                 row("a.ua", kFieldH, [&](eui::Ui& r, float) {
                     field(r, "a.ua", "User-Agent", 0, kInputW, g_userAgentText,
                           [](const std::string& v) { g_userAgentText = v; });
                     field(r, "a.referer", "Referer", kCol2X, kInputW, g_refererText,
                           [](const std::string& v) { g_refererText = v; });
                 });
-            }  // 直链下载 tab 结束
+                // 请求头：多行输入（每行一个 --header），行高放大到 52 容纳两行。
+                row("http.headers", 52.0f, [&](eui::Ui& r, float w) {
+                    components::text(r, "st.http.headers.label")
+                        .position(0, 0)
+                        .size(kLabelW, 52.0f)
+                        .text("请求头")
+                        .fontSize(11.0f)
+                        .lineHeight(52.0f)
+                        .color(theme.metaText)
+                        .build();
+                    components::input(r, "st.http.headers.input")
+                        .position(kLabelW, -2.0f)
+                        .size(std::max(160.0f, w - 16.0f - kLabelW - 8.0f), 52.0f)
+                        .multiline(true)
+                        .placeholder("每行一个，如：Authorization: Bearer xxx")
+                        .value(g_headerText)
+                        .fontFamily("")
+                        .theme(theme.components)
+                        .onChange([](const std::string& v) { g_headerText = v; })
+                        .build();
+                });
+                row("http.loadcookie", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "http.loadcookie", "Cookie文件", 0, fullW, g_loadCookiesText,
+                          [](const std::string& v) { g_loadCookiesText = v; },
+                          "netscape 格式路径；空=不加载");
+                });
+                row("http.savecookie", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "http.savecookie", "保存Cookie", 0, fullW, g_saveCookiesText,
+                          [](const std::string& v) { g_saveCookiesText = v; },
+                          "保存到该文件；空=不保存");
+                });
+            }  // 网络 tab 结束
 
-            // ================= BitTorrent tab =================
-            if (g_settingsTab == SettingsTab::BitTorrent) {
+            // ============== 种子与文件 tab（BitTorrent / 文件处理 / 完整性校验）==============
+            if (g_settingsTab == SettingsTab::SeedFile) {
                 row("bt.header", 18.0f, [&](eui::Ui& r, float w) {
                     components::text(r, "st.bt.header")
                         .position(0, 0)
@@ -456,93 +530,17 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .onClick([] { g_btEnableLpd = !g_btEnableLpd; })
                         .build();
                 });
-            }  // BitTorrent tab 结束
 
-            // ================= HTTP tab =================
-            if (g_settingsTab == SettingsTab::Http) {
-                row("http.header", 18.0f, [&](eui::Ui& r, float w) {
-                    components::text(r, "st.http.header")
+                row("file.header", 18.0f, [&](eui::Ui& r, float w) {
+                    components::text(r, "st.file.header")
                         .position(0, 0)
                         .size(w, 18.0f)
-                        .text("HTTP")
+                        .text("文件处理")
                         .fontSize(11.0f)
                         .lineHeight(18.0f)
                         .color(theme.statusText)
                         .build();
                 });
-                // 请求头：多行输入（每行一个 --header），行高放大到 52 容纳两行。
-                row("http.headers", 52.0f, [&](eui::Ui& r, float w) {
-                    components::text(r, "st.http.headers.label")
-                        .position(0, 0)
-                        .size(kLabelW, 52.0f)
-                        .text("请求头")
-                        .fontSize(11.0f)
-                        .lineHeight(52.0f)
-                        .color(theme.metaText)
-                        .build();
-                    components::input(r, "st.http.headers.input")
-                        .position(kLabelW, -2.0f)
-                        .size(std::max(160.0f, w - 16.0f - kLabelW - 8.0f), 52.0f)
-                        .multiline(true)
-                        .placeholder("每行一个，如：Authorization: Bearer xxx")
-                        .value(g_headerText)
-                        .fontFamily("")
-                        .theme(theme.components)
-                        .onChange([](const std::string& v) { g_headerText = v; })
-                        .build();
-                });
-                row("http.loadcookie", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "http.loadcookie", "Cookie文件", 0, fullW, g_loadCookiesText,
-                          [](const std::string& v) { g_loadCookiesText = v; },
-                          "netscape 格式路径；空=不加载");
-                });
-                row("http.savecookie", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "http.savecookie", "保存Cookie", 0, fullW, g_saveCookiesText,
-                          [](const std::string& v) { g_saveCookiesText = v; },
-                          "保存到该文件；空=不保存");
-                });
-            }  // 直链下载 tab 结束（HTTP 参数续）
-
-            // ================= 下载行为 tab =================
-            if (g_settingsTab == SettingsTab::Behavior) {
-                row("beh.header", 18.0f, [&](eui::Ui& r, float w) {
-                    components::text(r, "st.beh.header")
-                        .position(0, 0)
-                        .size(w, 18.0f)
-                        .text("下载行为")
-                        .fontSize(11.0f)
-                        .lineHeight(18.0f)
-                        .color(theme.statusText)
-                        .build();
-                });
-                row("beh.overall", kFieldH, [&](eui::Ui& r, float) {
-                    numericField(r, "beh.overall", "全局限速KB/s", 0, kInputW,
-                                 g_overallLimitText,
-                                 [](const std::string& v) { g_overallLimitText = v; },
-                                 0, 1000000, 100);
-                    components::text(r, "st.beh.allocation.label")
-                        .position(kCol2X, 0)
-                        .size(kLabelW, kFieldH)
-                        .text("文件分配")
-                        .fontSize(11.0f)
-                        .lineHeight(kFieldH)
-                        .color(theme.metaText)
-                        .build();
-                    r.stack("st.beh.allocation.pick")
-                        .position(kCol2X + kLabelW, -2.0f)
-                        .size(84.0f, 26.0f)
-                        .zIndex(30)
-                        .content([&] {
-                            buildListPicker(r, "beh.allocation", 84.0f, 26.0f, theme,
-                                            g_fileAllocationOpen, kFileAllocLabels, 4,
-                                            fileAllocationIndex(g_fileAllocation), false,
-                                            PickerField::Text,
-                                            [](int i) {
-                                                g_fileAllocation = kFileAllocValues[i];
-                                            });
-                        })
-                        .build();
-                }, 100);  // 行 zIndex：文件分配下拉展开时盖过后面各行
                 row("beh.rename", kFieldH, [&](eui::Ui& r, float) {
                     components::text(r, "st.beh.rename.label")
                         .position(0, 0)
@@ -579,12 +577,6 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .onClick([] { g_allowOverwrite = !g_allowOverwrite; })
                         .build();
                 });
-                row("a.concurrent", kFieldH, [&](eui::Ui& r, float) {
-                    numericField(r, "a.concurrent", "最大同时下载数", 0, kInputW,
-                                 g_maxConcurrentText,
-                                 [](const std::string& v) { g_maxConcurrentText = v; },
-                                 1, 64, 1);
-                });
                 row("a.remctrl", kFieldH, [&](eui::Ui& r, float) {
                     components::text(r, "st.a.remctrl.label")
                         .position(0, 0)
@@ -608,15 +600,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                           [](const std::string& v) { g_onCompleteText = v; },
                           "命令 参数（aria2 追加 GID/文件数/路径）");
                 });
-                row("a.diskcache", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "a.diskcache", "磁盘缓存", 0, fullW, g_diskCacheText,
-                          [](const std::string& v) { g_diskCacheText = v; },
-                          "如 16M，空=aria2 默认");
-                });
-            }  // 下载行为 tab 结束
 
-            // ================= 完整性校验 tab =================
-            if (g_settingsTab == SettingsTab::Integrity) {
                 row("chk.header", 18.0f, [&](eui::Ui& r, float w) {
                     components::text(r, "st.chk.header")
                         .position(0, 0)
@@ -650,7 +634,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                           [](const std::string& v) { g_checksumText = v; },
                           "如 sha-1=<hex>");
                 });
-            }
+            }  // 种子与文件 tab 结束
         })
         .build();
 
