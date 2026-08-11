@@ -26,6 +26,10 @@ $versionLine = Get-Content (Join-Path $root "mcpp.toml") |
 if (-not $versionLine) { throw "cannot parse version from mcpp.toml" }
 $version = $versionLine -replace '^\s*version\s*=\s*"([^"]+)".*', '$1'
 
+# 重新生成版本头（src/versions.generated.h）：版本只在 mcpp.toml 维护，打包前
+# 跑一次，确保 exe 里的版本字符串与资源 FILEVERSION 一致。
+& "$root\scripts\gen-versions.ps1"
+
 Write-Host "== 1/4 build release =="
 Push-Location $root
 try { mcpp build --release | Out-Host } finally { Pop-Location }

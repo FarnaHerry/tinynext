@@ -20,6 +20,10 @@ bash make-dist.sh <os> <arch>   # Linux / macOS 打包 → tar.gz
 
 - 工具链固定 `llvm@22.1.8`、eui-neo 锁 **0.5.6**、websocket（IXWebSocket 包装）
   **12.0.1**、nlohmann::json **3.12.0**（都在 `mcpp.toml` / `mcpp.lock`，不要乱升）。
+- **版本只在 mcpp.toml 维护**：应用版本 `[package].version` 与 eui/websocket/json 依赖
+  版本由 `scripts/gen-versions.ps1`（或 `.sh`）生成 `src/versions.generated.h`，
+  `config.cppm` 的 `kAppVersion`/`kEuiVersion` 读它。升版本后跑一次生成脚本
+  （`make-dist` 打包前会自动跑），不要手改生成头。
 - **Linux 用 `./run.sh` 启动**而非 `mcpp run`：mcpp 私有 glibc 与系统 Mesa 的
   GLIBC 版本冲突，run.sh 走系统 ld.so + 系统 Mesa。
 - **没有测试**：eui-neo 的 `app-main` 特性会把 `glfw_app_main.o` 急切链入，与任何

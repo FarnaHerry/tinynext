@@ -107,9 +107,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
 
             struct TabItem { const char* label; unsigned int icon; SettingsTab tab; };
             static const TabItem kTabs[] = {
-                {"通用", 0xF013, SettingsTab::General},
+                {"全局", 0xF013, SettingsTab::General},
+                {"直链下载", 0xF0AC, SettingsTab::Http},
                 {"BitTorrent", 0xF0E7, SettingsTab::BitTorrent},
-                {"HTTP", 0xF0AC, SettingsTab::Http},
                 {"下载行为", 0xF0D7, SettingsTab::Behavior},
                 {"完整性校验", 0xF00C, SettingsTab::Integrity},
             };
@@ -326,18 +326,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .build();
             });
 
-            // ---- aria2 通用参数（通用 tab）----
-                row("aria2.header", 18.0f, [&](eui::Ui& r, float w) {
-                    components::text(r, "st.aria2.header")
-                        .position(0, 0)
-                        .size(w, 18.0f)
-                        .text("aria2 参数")
-                        .fontSize(11.0f)
-                        .lineHeight(18.0f)
-                        .color(theme.statusText)
-                        .build();
-                });
+            }  // 全局 tab 结束（主题 / 关闭行为 / 下载路径）
 
+            // ============== 直链下载 tab（HTTP/FTP/SFTP 相关参数）==============
+            if (g_settingsTab == SettingsTab::Http) {
                 row("a.split", kFieldH, [&](eui::Ui& r, float) {
                     numericField(r, "a.split", "分片数", 0, kInputW, g_aria2SplitText,
                                  [](const std::string& v) { g_aria2SplitText = v; },
@@ -403,36 +395,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                  0, 600, 1);
                 });
                 row("a.limit", kFieldH, [&](eui::Ui& r, float) {
-                    numericField(r, "a.limit", "限速KB/s", 0, kInputW, g_aria2LimitText,
+                    numericField(r, "a.limit", "每任务限速KB/s", 0, kInputW, g_aria2LimitText,
                                  [](const std::string& v) { g_aria2LimitText = v; },
                                  0, 1000000, 100);
-                    numericField(r, "a.concurrent", "最大同时下载数", kCol2X, kInputW,
-                                 g_maxConcurrentText,
-                                 [](const std::string& v) { g_maxConcurrentText = v; },
-                                 1, 64, 1);
-                });
-                row("a.remctrl", kFieldH, [&](eui::Ui& r, float) {
-                    components::text(r, "st.a.remctrl.label")
-                        .position(0, 0)
-                        .size(kLabelW, kFieldH)
-                        .text("移除控制文件")
-                        .fontSize(11.0f)
-                        .lineHeight(kFieldH)
-                        .color(theme.metaText)
-                        .build();
-                    components::button(r, "st.a.remctrl.toggle")
-                        .position(kLabelW, -1.0f)
-                        .size(48.0f, 24.0f)
-                        .text(g_removeControlFile ? "开" : "关")
-                        .fontSize(11.0f)
-                        .theme(theme.components, g_removeControlFile)
-                        .onClick([] { g_removeControlFile = !g_removeControlFile; })
-                        .build();
-                });
-                row("a.oncomplete", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "a.oncomplete", "完成后命令", 0, fullW, g_onCompleteText,
-                          [](const std::string& v) { g_onCompleteText = v; },
-                          "命令 参数（aria2 追加 GID/文件数/路径）");
                 });
                 row("a.ua", kFieldH, [&](eui::Ui& r, float) {
                     field(r, "a.ua", "User-Agent", 0, kInputW, g_userAgentText,
@@ -440,12 +405,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     field(r, "a.referer", "Referer", kCol2X, kInputW, g_refererText,
                           [](const std::string& v) { g_refererText = v; });
                 });
-                row("a.diskcache", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "a.diskcache", "磁盘缓存", 0, fullW, g_diskCacheText,
-                          [](const std::string& v) { g_diskCacheText = v; },
-                          "如 16M，空=aria2 默认");
-                });
-            }  // 通用 tab 结束
+            }  // 直链下载 tab 结束
 
             // ================= BitTorrent tab =================
             if (g_settingsTab == SettingsTab::BitTorrent) {
@@ -541,7 +501,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                           [](const std::string& v) { g_saveCookiesText = v; },
                           "保存到该文件；空=不保存");
                 });
-            }  // HTTP tab 结束
+            }  // 直链下载 tab 结束（HTTP 参数续）
 
             // ================= 下载行为 tab =================
             if (g_settingsTab == SettingsTab::Behavior) {
@@ -618,6 +578,40 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .theme(theme.components, g_allowOverwrite)
                         .onClick([] { g_allowOverwrite = !g_allowOverwrite; })
                         .build();
+                });
+                row("a.concurrent", kFieldH, [&](eui::Ui& r, float) {
+                    numericField(r, "a.concurrent", "最大同时下载数", 0, kInputW,
+                                 g_maxConcurrentText,
+                                 [](const std::string& v) { g_maxConcurrentText = v; },
+                                 1, 64, 1);
+                });
+                row("a.remctrl", kFieldH, [&](eui::Ui& r, float) {
+                    components::text(r, "st.a.remctrl.label")
+                        .position(0, 0)
+                        .size(kLabelW, kFieldH)
+                        .text("移除控制文件")
+                        .fontSize(11.0f)
+                        .lineHeight(kFieldH)
+                        .color(theme.metaText)
+                        .build();
+                    components::button(r, "st.a.remctrl.toggle")
+                        .position(kLabelW, -1.0f)
+                        .size(48.0f, 24.0f)
+                        .text(g_removeControlFile ? "开" : "关")
+                        .fontSize(11.0f)
+                        .theme(theme.components, g_removeControlFile)
+                        .onClick([] { g_removeControlFile = !g_removeControlFile; })
+                        .build();
+                });
+                row("a.oncomplete", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "a.oncomplete", "完成后命令", 0, fullW, g_onCompleteText,
+                          [](const std::string& v) { g_onCompleteText = v; },
+                          "命令 参数（aria2 追加 GID/文件数/路径）");
+                });
+                row("a.diskcache", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "a.diskcache", "磁盘缓存", 0, fullW, g_diskCacheText,
+                          [](const std::string& v) { g_diskCacheText = v; },
+                          "如 16M，空=aria2 默认");
                 });
             }  // 下载行为 tab 结束
 

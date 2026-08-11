@@ -17,6 +17,11 @@ module;
 #include <cstdio>  // popen/fgets/pclose（POSIX，osDark 探测系统深色）— before import std
 #endif
 
+// 版本宏（TINY_APP_VERSION / TINY_EUI_VERSION / ...）由 scripts/gen-versions.ps1 /
+// gen-versions.sh 从根目录 mcpp.toml 生成——版本只在 mcpp.toml 维护，升级后跑一次
+// 生成脚本（打包脚本也会自动跑）。不要手工改这个头。
+#include "versions.generated.h"
+
 export module tinynext.config;
 
 import std;
@@ -24,13 +29,13 @@ import nlohmann.json;
 
 namespace cfg {
 
-// ---- 版本信息（单一代码源）----
-// 关于弹窗从这里读版本，不要再在别处硬编码。升级时同步：
-//   mcpp.toml [package].version（exe 资源 FILEVERSION 用它）+ 本文件的 kAppVersion；
-//   mcpp.toml eui-neo 依赖版本 + 本文件的 kEuiVersion。
-// 无法自动注入：mcpp 的 defines 不支持变量插值、也不暴露包版本宏；eui 无版本宏。
-export constexpr std::string_view kAppVersion = "0.3.0";
-export constexpr std::string_view kEuiVersion = "0.5.6";
+// ---- 版本信息（单一代码源：根目录 mcpp.toml）----
+// 关于弹窗从这里读版本，不要再在别处硬编码。升级 mcpp.toml 后跑
+// scripts/gen-versions.ps1（或 .sh）重新生成 versions.generated.h 即可。
+// mcpp 无法在编译期注入版本（defines 不支持变量插值、无包版本宏），
+// 生成脚本是"编译时读 mcpp.toml"的最贴近实现。
+export constexpr std::string_view kAppVersion = TINY_APP_VERSION;
+export constexpr std::string_view kEuiVersion = TINY_EUI_VERSION;
 
 // ---- config file IO ----
 

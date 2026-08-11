@@ -18,6 +18,9 @@ os="${1:?usage: make-dist.sh <linux|macos> <x86_64|arm64>}"
 arch="${2:?usage: make-dist.sh <linux|macos> <x86_64|arm64>}"
 version="$(grep -m1 '^version' "$root/mcpp.toml" | sed -E 's/.*"([^"]+)".*/\1/')"
 
+# 重新生成版本头（src/versions.generated.h）：版本只在 mcpp.toml 维护。
+bash "$root/scripts/gen-versions.sh"
+
 # Newest built target dir: target/<triple>/<hash>/bin
 build_bin="$(ls -dt "$root"/target/*/*/bin 2>/dev/null | head -1)"
 if [ -z "$build_bin" ] || [ ! -x "$build_bin/tinynext" ]; then
