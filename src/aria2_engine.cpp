@@ -528,6 +528,7 @@ struct Aria2Engine::Task {
     StartOptions opts;            // 该任务的起始选项（retry 时复用）
     bool needsFinalize = false;   // WS 事件置位：下一轮 poll 补一次 tellStatus 拿最终字节/错误
     std::string displayName;      // BT/磁力拿到元数据后的真实名（bittorrent.info.name）
+    std::vector<dl::MirrorSource> mirrors;  // 实时源列表（去重，aria2 uris 按 URL 合并，含状态）
 };
 
 Aria2Engine::Aria2Engine() {
@@ -1000,6 +1001,52 @@ void Aria2Engine::retry(std::uint64_t id) {
     }
 }
 
+// 镜像源管理：aria2.changeUri 只对活动任务（active/waiting/paused）有效。注意
+// aria2-next 的 changeUri 签名与标准 aria2 不同：params = [gid, fileIndex, delUris,
+// addUris, pos?]（token 由 rpcCall 前置）。fileIndex 恒为 1（单文件任务）。
+bool Aria2Engine::addMirror(std::uint64_t id, const std::string& url) {
+    std::lock_guard<std::mutex> lock(tasksMutex_);
+    auto task = findTask(id);
+    if (!task || !daemonSpawned_ || task->gid.empty()) return false;
+    if (task->state != State::Queued && task->state != State::Downloading &&
+        task->state != State::Paused) {
+        return false;
+    }
+    try {
+        const nlohmann::json res = rpcCall(
+            port_, secret_, "aria2.changeUri",
+            nlohmann::json::array({task->gid, 1, nlohmann::json::array(),
+                                   nlohmann::json::array({url})}));
+        // 返回 [deletedCount, addedCount]。
+        if (res.is_array() && res.size() == 2 && res[1].get<int>() > 0) {
+            task->opts.mirrors.push_back(url);  // 记录到配置镜像（retry 复用）
+            return true;
+        }
+    } catch (...) {}
+    return false;
+}
+
+bool Aria2Engine::removeMirror(std::uint64_t id, const std::string& url) {
+    std::lock_guard<std::mutex> lock(tasksMutex_);
+    auto task = findTask(id);
+    if (!task || !daemonSpawned_ || task->gid.empty()) return false;
+    if (task->state != State::Queued && task->state != State::Downloading &&
+        task->state != State::Paused) {
+        return false;
+    }
+    try {
+        const nlohmann::json res = rpcCall(
+            port_, secret_, "aria2.changeUri",
+            nlohmann::json::array({task->gid, 1, nlohmann::json::array({url}),
+                                   nlohmann::json::array()}));
+        if (res.is_array() && res.size() == 2 && res[0].get<int>() > 0) {
+            std::erase(task->opts.mirrors, url);  // 同步配置镜像
+            return true;
+        }
+    } catch (...) {}
+    return false;
+}
+
 // 重启后重建任务表：daemon 用 --input-file 载入了 --save-session 的未完成任务，
 // 这里通过 tellActive/tellWaiting/tellStopped 把它们同步成本地 Task。
 void Aria2Engine::recoverSession() const {
@@ -1126,6 +1173,31 @@ void Aria2Engine::applyTellStatus(const std::shared_ptr<Task>& task,
         !st["files"].empty()) {
         const std::string p = st["files"][0].value("path", "");
         if (!p.empty()) task->destPath = std::filesystem::path(p);
+        // 实时源列表：files[0].uris 按 URL 去重（aria2 对同一 URL 分片会生成多个
+        // URIResult），状态合并取最优（used > waiting > error）。
+        task->mirrors.clear();
+        if (st["files"][0].contains("uris") && st["files"][0]["uris"].is_array()) {
+            for (const auto& u : st["files"][0]["uris"]) {
+                if (!u.is_object()) continue;
+                const std::string uri = u.value("uri", "");
+                const std::string status = u.value("status", "waiting");
+                if (uri.empty()) continue;
+                auto it = std::find_if(task->mirrors.begin(), task->mirrors.end(),
+                                       [&](const dl::MirrorSource& m) {
+                                           return m.uri == uri;
+                                       });
+                const int prio = [](const std::string& s) {
+                    return s == "used" ? 2 : (s == "waiting" ? 1 : 0);
+                }(status);
+                if (it == task->mirrors.end()) {
+                    task->mirrors.push_back(dl::MirrorSource{uri, status});
+                } else if (prio > [&](const std::string& s) {
+                    return s == "used" ? 2 : (s == "waiting" ? 1 : 0);
+                }(it->status)) {
+                    it->status = status;
+                }
+            }
+        }
     }
     // BT/磁力：记录种子真实名（bittorrent.info.name），供卡片/弹窗显示，
     // 避免展示 GID/磁力占位名。
@@ -1204,7 +1276,8 @@ std::vector<TaskView> Aria2Engine::snapshot() const {
                                task.totalBytes, task.downloadedBytes,
                                task.error, task.speedBps, task.connections,
                                task.displayName,
-                               static_cast<int>(task.opts.mirrors.size())});
+                               static_cast<int>(task.opts.mirrors.size()),
+                               task.mirrors});
     }
     return out;
 }

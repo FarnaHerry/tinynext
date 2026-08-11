@@ -34,6 +34,10 @@ export std::string g_statusMessage;
 export float g_statusTimer = 0.0f;
 export bool g_addOpen = false;   // “添加下载”弹窗是否打开
 export bool g_aboutOpen = false; // “关于”弹窗是否打开
+// 镜像源管理弹窗：g_mirrorTaskId 选中任务；g_mirrorAddText 待添加的镜像源。
+export bool g_mirrorOpen = false;
+export std::uint64_t g_mirrorTaskId = 0;
+export std::string g_mirrorAddText;
 // 设置页“下载路径”输入框内容；初始化为有效下载目录（持久化优先）。
 export std::string g_downloadDirText = cfg::downloadDir().string();
 

@@ -16,6 +16,9 @@ import tinynext.ui.cards;
 import tinynext.ui.state;
 import tinynext.ui.platform;
 
+// 镜像源管理弹窗（定义在文件末尾；drawDownloadsPage 调用它）。
+void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme);
+
 // ===================== 下载页 =====================
 // 布局：左侧是任务列表子侧边栏，右侧是输入栏 + 卡片任务列表 + 翻页控件组。
 export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
@@ -630,4 +633,206 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             })
             .build();
     }
+
+    // ---- 镜像源管理弹窗 ----
+    if (g_mirrorOpen) {
+        drawMirrorDialog(ui, screen, theme);
+    }
+}
+
+// 镜像源管理弹窗：查看实时源列表（aria2 uris 去重）+ 移除坏源 + 添加新源。
+// 仅活动任务可增删（aria2.changeUri 对 active/waiting/paused 有效）。
+void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
+    const float dlgW = 380.0f;
+    const float dlgH = 340.0f;
+    const float dlgX = (screen.width - dlgW) * 0.5f;
+    const float dlgY = (screen.height - dlgH) * 0.5f;
+
+    ui.rect("mirror.backdrop")
+        .position(0, 0)
+        .size(screen.width, screen.height)
+        .zIndex(100)
+        .color({0.0f, 0.0f, 0.0f, 0.45f})
+        .onClick([] { g_mirrorOpen = false; })
+        .build();
+
+    ui.stack("mirror.dialog")
+        .position(dlgX, dlgY)
+        .size(dlgW, dlgH)
+        .zIndex(101)
+        .content([&] {
+            ui.rect("mirror.dialog.bg")
+                .position(0, 0)
+                .size(dlgW, dlgH)
+                .color(theme.components.surface)
+                .radius(10.0f)
+                .border(1.0f,
+                        components::theme::withOpacity(
+                            theme.components.border, 0.6f))
+                .onClick([] {})  // 吞掉内部空白点击
+                .build();
+
+            components::text(ui, "mirror.title")
+                .position(16.0f, 12.0f)
+                .size(dlgW - 32.0f, 22.0f)
+                .text("镜像源管理")
+                .fontSize(14.0f)
+                .lineHeight(22.0f)
+                .color(theme.titleText)
+                .build();
+
+            // 当前任务（实时 snapshot；任务可能已被删除）。
+            const auto tasks = g_manager->snapshot();
+            const dl::TaskView* task = nullptr;
+            for (const auto& t : tasks) {
+                if (t.id == g_mirrorTaskId) {
+                    task = &t;
+                    break;
+                }
+            }
+            const bool active = task &&
+                (task->state == dl::State::Queued ||
+                 task->state == dl::State::Downloading ||
+                 task->state == dl::State::Paused);
+
+            components::text(ui, "mirror.task")
+                .position(16.0f, 36.0f)
+                .size(dlgW - 32.0f, 18.0f)
+                .text(task ? taskDisplayName(*task) : "任务已结束")
+                .fontSize(11.0f)
+                .lineHeight(18.0f)
+                .color(theme.metaText)
+                .build();
+
+            // ---- 源列表（实时 uris 去重）----
+            components::scrollView(ui, "mirror.list")
+                .position(16.0f, 58.0f)
+                .size(dlgW - 32.0f, 182.0f)
+                .gap(4.0f)
+                .theme(theme.components)
+                .content([&](eui::Ui& sv, float w, float) {
+                    const auto drawSource = [&](int idx, const std::string& uri,
+                                                const std::string& status) {
+                        const std::string rowId = "mirror.row." + std::to_string(idx);
+                        sv.stack(rowId)
+                            .width(w)
+                            .height(26.0f)
+                            .content([&] {
+                                std::string shown = uri;
+                                if (shown.size() > 40) shown = shown.substr(0, 40) + "…";
+                                components::text(sv, rowId + ".uri")
+                                    .position(6.0f, 0)
+                                    .size(w - 96.0f, 26.0f)
+                                    .text(shown)
+                                    .fontSize(10.0f)
+                                    .lineHeight(26.0f)
+                                    .maxWidth(w - 96.0f)
+                                    .color(theme.nameText)
+                                    .build();
+                                const char* st = status == "used" ? "在用"
+                                                  : (status == "error" ? "失败" : "备用");
+                                const eui::Color stc = status == "used" ? theme.done
+                                                       : (status == "error" ? theme.failed
+                                                                          : theme.metaText);
+                                components::text(sv, rowId + ".st")
+                                    .position(w - 88.0f, 0)
+                                    .size(40.0f, 26.0f)
+                                    .text(st)
+                                    .fontSize(10.0f)
+                                    .lineHeight(26.0f)
+                                    .color(stc)
+                                    .build();
+                                if (active) {
+                                    components::button(sv, rowId + ".rm")
+                                        .position(w - 44.0f, 1.0f)
+                                        .size(38.0f, 24.0f)
+                                        .text("移除")
+                                        .fontSize(10.0f)
+                                        .theme(theme.components, false)
+                                        .onClick([id = task->id, uri] {
+                                            if (g_manager->removeMirror(id, uri)) {
+                                                showStatus("已移除镜像源");
+                                            } else {
+                                                showStatus("移除失败（任务非活动或源不存在）");
+                                            }
+                                        })
+                                        .build();
+                                }
+                            })
+                            .build();
+                    };
+
+                    if (!task || task->mirrors.empty()) {
+                        components::text(sv, "mirror.empty")
+                            .position(6.0f, 0)
+                            .size(w - 12.0f, 26.0f)
+                            .text(task ? "无镜像源（可在下方添加）" : "任务无镜像源")
+                            .fontSize(10.0f)
+                            .lineHeight(26.0f)
+                            .color(theme.metaText)
+                            .build();
+                    } else {
+                        int i = 0;
+                        for (const auto& m : task->mirrors) {
+                            drawSource(i++, m.uri, m.status);
+                        }
+                    }
+                })
+                .build();
+
+            // ---- 添加行 ----
+            components::text(ui, "mirror.add.label")
+                .position(16.0f, 250.0f)
+                .size(60.0f, 26.0f)
+                .text("添加源")
+                .fontSize(11.0f)
+                .lineHeight(26.0f)
+                .color(theme.metaText)
+                .build();
+            components::input(ui, "mirror.add.input")
+                .position(74.0f, 248.0f)
+                .size(dlgW - 74.0f - 64.0f - 16.0f, 26.0f)
+                .placeholder(active ? "镜像源 URL" : "仅活动任务可添加")
+                .value(g_mirrorAddText)
+                .fontFamily("")
+                .theme(theme.components)
+                .onChange([](const std::string& v) { g_mirrorAddText = v; })
+                .build();
+            if (active) {
+                components::button(ui, "mirror.add.btn")
+                    .position(dlgW - 16.0f - 56.0f, 248.0f)
+                    .size(56.0f, 26.0f)
+                    .text("添加")
+                    .fontSize(11.0f)
+                    .theme(theme.components, true)
+                    .onClick([] {
+                        std::string url = trimText(g_mirrorAddText);
+                        if (url.empty()) {
+                            showStatus("请输入镜像源地址");
+                            return;
+                        }
+                        if (!isDownloadableSource(url) || url.starts_with("magnet:")) {
+                            showStatus("镜像源须为 http(s)/ftp(s)/sftp 链接");
+                            return;
+                        }
+                        if (g_manager->addMirror(g_mirrorTaskId, url)) {
+                            showStatus("已添加镜像源");
+                            g_mirrorAddText.clear();
+                        } else {
+                            showStatus("添加失败（任务非活动或地址无效）");
+                        }
+                    })
+                    .build();
+            }
+
+            components::button(ui, "mirror.close")
+                .position((dlgW - 76.0f) * 0.5f, dlgH - 34.0f)
+                .size(76.0f, 26.0f)
+                .text("关闭")
+                .fontSize(12.0f)
+                .theme(theme.components, true)
+                .onClick([] { g_mirrorOpen = false; })
+                .build();
+        })
+        .build();
 }

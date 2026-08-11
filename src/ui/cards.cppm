@@ -87,6 +87,16 @@ export std::string cardInfoText(const dl::TaskView& task) {
     if (task.mirrorCount > 0) {
         push(std::format("镜像 ×{}", task.mirrorCount));
     }
+    // 源状态告警：镜像任务的源全部失败（aria2 uris 全 error）时提示失效。
+    if (!task.mirrors.empty()) {
+        bool allFailed = true;
+        for (const auto& m : task.mirrors) {
+            if (m.status != "error") { allFailed = false; break; }
+        }
+        if (allFailed) {
+            push("镜像全部失效");
+        }
+    }
     if (task.totalBytes > 0) {
         push(std::format("{} / {}", formatBytes(task.downloadedBytes),
                          formatBytes(task.totalBytes)));
@@ -204,11 +214,15 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
             // 打开所在文件夹：任何状态都显示（未完成/失败时 openContainingFolder
             // 会回退到打开下载目录，不会报错）。
             const bool showOpenFolder = true;
+            // 镜像管理：有镜像源（含运行时 changeUri 增删）就显示，可查看源/移除坏源/
+            // 添加镜像。
+            const bool showMirror = task.mirrorCount > 0 || !task.mirrors.empty();
 
             const int actionCount = (showOpen ? 1 : 0) + (showOpenFolder ? 1 : 0) +
                                     (showDelete ? 1 : 0) + 1 /* 复制链接恒显示 */ +
                                     (showCancel ? 1 : 0) + (showRetry ? 1 : 0) +
-                                    (showPause || showResume ? 1 : 0);
+                                    (showPause || showResume ? 1 : 0) +
+                                    (showMirror ? 1 : 0);
             const float iconsW = actionCount * kCardIconW +
                                  (actionCount > 0 ? (actionCount - 1) * kCardIconGap : 0.0f);
 
@@ -269,6 +283,15 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
             if (showPause) {
                 place("pause", 0xF04C, false,  // fa-pause
                       [id = task.id] { g_manager->pause(id); });
+            }
+            if (showMirror) {
+                // 放最后 → 最左：镜像源管理入口。
+                place("mirror", 0xF0EC, false,  // fa-exchange（多源）
+                      [id = task.id] {
+                          g_mirrorTaskId = id;
+                          g_mirrorAddText.clear();
+                          g_mirrorOpen = true;
+                      });
             }
         })
         .build();

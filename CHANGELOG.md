@@ -21,6 +21,18 @@
 - `SettingsTab` 枚举改为 `General/Download/BitTorrent/Ed2k/Network/Advanced`；所有
   配置项保底逻辑（恢复默认/保存/放弃）不变。
 
+### 镜像源管理强化（查看 / 移除 / 添加）
+- **镜像源列表弹窗**：任务卡新增镜像按钮（fa-exchange），点开「镜像源管理」弹窗，列出
+  该任务的实时源（aria2 `files[0].uris` 去重，含每个源的状态：在用/备用/失败）。
+- **移除坏源**：活动任务可在弹窗里移除任意源（`aria2.changeUri` delete）。注意 aria2-next
+  的 changeUri 签名与标准 aria2 不同：`params = [gid, fileIndex, delUris, addUris, pos?]`
+  （多一个 fileIndex，恒 1；token 由 rpcCall 前置）。
+- **添加镜像**：活动任务可在弹窗里输入 URL 追加镜像源（changeUri add），运行时生效、
+  并入 retry 复用的 opts.mirrors。
+- **源状态告警**：镜像任务的源全部失败时，卡片信息区提示「镜像全部失效」。
+- `TaskView` 新增 `mirrors` 列表（`MirrorSource{uri, status}`）；引擎接口加
+  `addMirror` / `removeMirror`。
+
 ### 脚本模式 `tinynext --headless <url>`
 - **不开窗、按 TinyNext 自身配置下载完退出**：复用 aria2_engine 的 daemon + JSON-RPC，
   不依赖 eui / UI 状态。`exit 0` = 全部成功，`exit 1` = 任一失败或引擎不可用。适合

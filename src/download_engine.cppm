@@ -18,6 +18,12 @@ export enum class State {
     Cancelled,
 };
 
+// 镜像任务的一个源（aria2 files[0].uris 的去重后结果）。
+export struct MirrorSource {
+    std::string uri;
+    std::string status;   // aria2: used（在用）/ waiting（备用）/ error（失败）
+};
+
 // Immutable snapshot of one download task, safe to read from any thread.
 export struct TaskView {
     std::uint64_t id;
@@ -30,7 +36,8 @@ export struct TaskView {
     double speedBps;              // bytes/second, last measured
     int connections = 1;          // active network connections; 1 = single-connection engine
     std::string displayName;      // 真实显示名（BT/磁力用种子的 info.name；HTTP 不用，取 destPath 文件名）
-    int mirrorCount = 0;          // 镜像源数（0 = 单源）；aria2 多源任务为除主 URL 外的源数
+    int mirrorCount = 0;          // 配置的镜像源数（除主 URL 外的源数；0 = 单源）
+    std::vector<MirrorSource> mirrors;  // 实时源列表（去重，含主 URL 与运行时 changeUri 增删）
 };
 
 // Per-task start options. connections == 0 means "use the engine default from
@@ -79,6 +86,19 @@ public:
 
     // Copy of all tasks, newest first.
     virtual std::vector<TaskView> snapshot() const = 0;
+
+    // 向已有任务追加镜像源（aria2.changeUri add）。仅活动任务有效；
+    // 引擎不支持时是 no-op。返回是否成功。
+    virtual bool addMirror(std::uint64_t id, const std::string& url) {
+        (void)id; (void)url;
+        return false;
+    }
+
+    // 从已有任务移除镜像源（aria2.changeUri delete）。仅活动任务有效。
+    virtual bool removeMirror(std::uint64_t id, const std::string& url) {
+        (void)id; (void)url;
+        return false;
+    }
 
     // True while any task is queued or running.
     virtual bool busy() const = 0;

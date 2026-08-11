@@ -43,6 +43,8 @@ public:
     void pauseAll() override;
     void resumeAll() override;
     void retry(std::uint64_t id) override;
+    bool addMirror(std::uint64_t id, const std::string& url) override;
+    bool removeMirror(std::uint64_t id, const std::string& url) override;
     std::vector<TaskView> snapshot() const override;
     bool busy() const override;
     bool engineActive() const override;
