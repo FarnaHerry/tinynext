@@ -28,6 +28,7 @@ module;
 #include <arpa/inet.h>   // inet_pton
 #include <fcntl.h>       // open, O_CREAT/O_RDWR
 #include <unistd.h>      // close
+#include <cerrno>        // errno / EINTR（accept 失败重试；macOS 不显式引入会报错）
 #ifdef __APPLE__
 #include <crt_externs.h> // _NSGetArgc/_NSGetArgv
 #endif
@@ -144,7 +145,7 @@ void cliListenerLoop() {
         std::string data;
         char buf[1024];
         for (;;) {
-            const int n = ::recv(client, buf, sizeof(buf), 0);
+            const int n = static_cast<int>(::recv(client, buf, sizeof(buf), 0));
             if (n <= 0) break;
             data.append(buf, static_cast<std::size_t>(n));
         }
