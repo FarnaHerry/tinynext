@@ -34,6 +34,10 @@ export std::string g_statusMessage;
 export float g_statusTimer = 0.0f;
 export bool g_addOpen = false;   // “添加下载”弹窗是否打开
 export bool g_aboutOpen = false; // “关于”弹窗是否打开
+// 镜像源管理弹窗：g_mirrorTaskId 选中任务；g_mirrorAddText 待添加的镜像源。
+export bool g_mirrorOpen = false;
+export std::uint64_t g_mirrorTaskId = 0;
+export std::string g_mirrorAddText;
 // 设置页“下载路径”输入框内容；初始化为有效下载目录（持久化优先）。
 export std::string g_downloadDirText = cfg::downloadDir().string();
 
@@ -120,9 +124,17 @@ export bool g_autoFileRenaming = cfg::aria2Config().autoFileRenaming;
 export bool g_allowOverwrite = cfg::aria2Config().allowOverwrite;
 export bool g_checkIntegrity = cfg::aria2Config().checkIntegrity;
 export std::string g_checksumText = cfg::aria2Config().checksum;
+// ---- ED2K 配置项（daemon 级，待提交值；aria2-next 原生支持电驴）----
+export std::string g_ed2kServersText = cfg::aria2Config().ed2kServers;
+export std::string g_ed2kListenPortText = cfg::aria2Config().ed2kListenPort;
+export std::string g_ed2kUdpPortText = cfg::aria2Config().ed2kUdpListenPort;
+export std::string g_ed2kUploadSlotsText =
+    std::to_string(cfg::aria2Config().ed2kUploadSlots);
 
 // 设置页左侧配置分组：每组一个独立"子页面"，避免全部参数挤在一屏滚动过长。
-export enum class SettingsTab { General, BitTorrent, Http, Behavior, Integrity };
+// 分组对齐 MotrixNext：通用 / 下载 / BitTorrent / ED2K / 网络 / 高级（MotrixNext
+// 同为 aria2-next 引擎，其分组是此类下载器的标准布局）。
+export enum class SettingsTab { General, Download, BitTorrent, Ed2k, Network, Advanced };
 export SettingsTab g_settingsTab = SettingsTab::General;
 // 添加下载弹窗的每任务连接数（默认 = 配置 split 值；空/0 = 配置默认）。
 export std::string g_addConnectionsText = std::to_string(cfg::aria2Config().split);
@@ -132,6 +144,9 @@ export std::string g_addRenameText;
 export std::string g_addDirText;
 export std::string g_addTorrentPath;
 export bool g_addMirror = false;
+// 添加下载弹窗顶部切换：直链下载 / 种子（两者流程与字段不同，各自独立 pending）。
+export enum class AddTab { Direct, Torrent };
+export AddTab g_addTab = AddTab::Direct;
 
 // ---- list filter / pagination / sort ----
 
@@ -213,7 +228,10 @@ export bool startDownloadFromUrl(std::string url, const dl::StartOptions& opts) 
     const std::filesystem::path dest = dir / name;
     const std::uint64_t id = g_manager->start(url, dest, opts);
     if (id == 0) {
-        showStatus("下载启动失败：引擎不可用");
+        // 引擎给不出原因（如没实现 lastError）时回退到笼统提示。
+        const std::string err = g_manager->lastError();
+        showStatus(err.empty() ? "下载启动失败：引擎不可用"
+                               : std::format("下载启动失败：{}", err));
         return false;
     }
     showStatus(std::format("已开始下载 #{} — {}", id, name));
@@ -227,9 +245,21 @@ export bool startDownloadFromUrl(std::string url, int connections) {
     return startDownloadFromUrl(std::move(url), opts);
 }
 
-// “添加下载”弹窗提交：URL/种子文件 + 每任务高级选项（连接数/重命名/目录）。
+// “添加下载”弹窗提交：按顶部切换（直链下载 / 种子）分流。
+// 直链：URL/磁力 + 连接数/重命名/目录/镜像；种子：本地 .torrent + 目录。
 export bool addDownload() {
     dl::StartOptions opts;
+    if (g_addTab == AddTab::Torrent) {
+        const std::string torrent = trimText(g_addTorrentPath);
+        if (torrent.empty()) {
+            showStatus("请先选择 .torrent 种子文件");
+            return false;
+        }
+        opts.torrentPath = torrent;
+        opts.dirOverride = trimText(g_addDirText);
+        return startDownloadFromUrl(torrent, opts);
+    }
+
     std::string t = g_addConnectionsText;
     if (!t.empty()) {
         try {
@@ -241,13 +271,7 @@ export bool addDownload() {
     opts.outputName = trimText(g_addRenameText);
     opts.dirOverride = trimText(g_addDirText);
     std::string url = g_urlText;
-    const std::string torrent = trimText(g_addTorrentPath);
-    if (!torrent.empty()) {
-        // 有本地 .torrent 时以种子为下载源（URL 框可留空），startDownloadFromUrl 按
-        // 扩展名识别走 .torrent 分支。
-        opts.torrentPath = torrent;
-        url = torrent;
-    } else if (g_addMirror) {
+    if (g_addMirror) {
         // 镜像多源：URL 框多行 → 首行为主 URL，其余为同一任务的镜像源（aria2 从
         // 多源并发分段下载同一文件、源挂自动切换）。
         std::vector<std::string> lines;

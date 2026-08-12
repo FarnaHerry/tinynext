@@ -58,6 +58,7 @@ module tinynext.aria2_engine;
 import std;
 import nlohmann.json;
 import tinynext.config;
+import tinynext.sha256;
 
 namespace dl {
 
@@ -375,6 +376,13 @@ std::vector<std::pair<std::string, std::string>> daemonExtraOpts(
     // ---- 完整性校验 ----
     if (a2.checkIntegrity) add("check-integrity", "true");
     if (!a2.checksum.empty()) add("checksum", a2.checksum);
+    // ---- ED2K（aria2-next 原生支持电驴：ed2k:// 链接 / 服务器发现）----
+    if (!a2.ed2kServers.empty()) add("ed2k-server", a2.ed2kServers);
+    if (!a2.ed2kListenPort.empty()) add("ed2k-listen-port", a2.ed2kListenPort);
+    if (!a2.ed2kUdpListenPort.empty()) add("ed2k-udp-listen-port", a2.ed2kUdpListenPort);
+    if (a2.ed2kUploadSlots > 0) {
+        add("ed2k-upload-slots", std::to_string(a2.ed2kUploadSlots));
+    }
     // 会话恢复：shutdown 前用 aria2.saveSession 持久化未完成任务，下次启动用
     // --input-file 载入续传。首次运行会话文件不存在，跳过 --input-file。
     // 会话文件放 per-user 配置目录：安装版经快捷方式启动时 cwd 可能是 System32
@@ -422,6 +430,52 @@ std::string engineExePath() {
         const std::filesystem::path candidate = base / "engines" / name;
         std::error_code ec;
         if (std::filesystem::exists(candidate, ec)) return candidate.string();
+    }
+    return {};
+}
+
+// 当前平台的 checksums.sha256 条目标签（release 资产名后缀），如
+// "windows-x86_64" / "linux-x86_64" / "macos-arm64"。OS×架构各恰好一个条目。
+std::string platformTag() {
+#ifdef _WIN32
+    const char* os = "windows";
+#elif defined(__APPLE__)
+    const char* os = "macos";
+#else
+    const char* os = "linux";
+#endif
+#if defined(__aarch64__) || defined(_M_ARM64)
+    const char* arch = "arm64";
+#else
+    const char* arch = "x86_64";
+#endif
+    return std::string(os) + "-" + arch;
+}
+
+// 从 engines/checksums.sha256 里查本平台引擎二进制的期望 SHA-256（小写）。
+// 条目文件名是 release 资产名（aria2-next-<ver>-<平台>[.exe]），与磁盘上
+// 改名后的运行时文件名不同，所以按平台标签做后缀匹配。无匹配返回空串。
+std::string lookupExpectedChecksum(const std::filesystem::path& manifest) {
+    const std::string tag = platformTag();
+    const std::string suffix[] = {"-" + tag, "-" + tag + ".exe"};
+    std::ifstream in(manifest);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.size() < 64) continue;
+        if (!line.empty() && line.back() == '\r') line.pop_back();  // CRLF 兜底
+        std::string hash = line.substr(0, 64);
+        for (auto& c : hash) {
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        std::size_t i = 64;
+        while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i;
+        const std::string name = line.substr(i);
+        for (const auto& s : suffix) {
+            if (name.size() >= s.size() &&
+                name.compare(name.size() - s.size(), s.size(), s) == 0) {
+                return hash;
+            }
+        }
     }
     return {};
 }
@@ -521,6 +575,7 @@ struct Aria2Engine::Task {
     StartOptions opts;            // 该任务的起始选项（retry 时复用）
     bool needsFinalize = false;   // WS 事件置位：下一轮 poll 补一次 tellStatus 拿最终字节/错误
     std::string displayName;      // BT/磁力拿到元数据后的真实名（bittorrent.info.name）
+    std::vector<dl::MirrorSource> mirrors;  // 实时源列表（去重，aria2 uris 按 URL 合并，含状态）
 };
 
 Aria2Engine::Aria2Engine() {
@@ -541,11 +596,39 @@ bool Aria2Engine::engineActive() const {
     return daemonSpawned_;
 }
 
+std::string Aria2Engine::lastError() const {
+    return lastError_;
+}
+
 bool Aria2Engine::ensureDaemon() const {
     if (daemonSpawned_) return port_ != 0;
 
     const std::string exe = engineExePath();
-    if (exe.empty()) return false;
+    if (exe.empty()) {
+        lastError_ = "未找到下载引擎二进制（engines/aria2-next(.exe)）";
+        return false;
+    }
+
+    // 运行时完整性校验：engines/checksums.sha256 里本平台条目与本机二进制比对
+    // （checksums 此前只在 CI 校验，运行时从不检查——被篡改的二进制会被静默执行）。
+    // 本平台条目缺失 → fail-closed；清单整体缺失 → 警告继续（兼容历史分发，
+    // make-dist.sh 修复后新装必带）。
+    const std::filesystem::path manifest =
+        std::filesystem::path(exe).parent_path() / "checksums.sha256";
+    std::error_code mec;
+    if (std::filesystem::exists(manifest, mec)) {
+        const std::string expected = lookupExpectedChecksum(manifest);
+        if (expected.empty()) {
+            lastError_ = "下载引擎完整性校验失败：清单中无本平台条目（" +
+                         platformTag() + "）";
+            return false;
+        }
+        const std::string actual = sha::fileSha256(exe);
+        if (actual != expected) {
+            lastError_ = "下载引擎完整性校验失败（checksum 不匹配，二进制可能被篡改）";
+            return false;
+        }
+    }
 
     const int port = pickFreePort();
     const std::string secret = randomHex(16);
@@ -575,13 +658,33 @@ bool Aria2Engine::ensureDaemon() const {
         cmdLine += L" --" + std::wstring(name.begin(), name.end()) + L"=" + winValue(value);
     }
 
+    // 重定向 daemon 的 stdout/stderr 到日志文件，避免 aria2 的进度摘要 / 错误刷进
+    // 应用终端（headless 下尤其吵，GUI 下 nohup 也会被污染）。日志与 session 同级。
+    const std::filesystem::path logPath = cfg::configDir() / "tinynext-aria2.log";
+    std::error_code lsec;
+    std::filesystem::create_directories(logPath.parent_path(), lsec);
+    const HANDLE logFile = CreateFileW(logPath.c_str(), FILE_APPEND_DATA,
+                                       FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                       nullptr, OPEN_ALWAYS,
+                                       FILE_ATTRIBUTE_NORMAL, nullptr);
+
     STARTUPINFOW si{};
     si.cb = sizeof(si);
+    if (logFile != INVALID_HANDLE_VALUE) {
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+        si.hStdOutput = logFile;
+        si.hStdError = logFile;
+    }
     PROCESS_INFORMATION pi{};
-    if (!CreateProcessW(wExe.c_str(), &cmdLine[0], nullptr, nullptr, FALSE,
+    // STARTF_USESTDHANDLES 时子进程需继承这些句柄，bInheritHandles 必须 TRUE。
+    if (!CreateProcessW(wExe.c_str(), &cmdLine[0], nullptr, nullptr, TRUE,
                         CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+        if (logFile != INVALID_HANDLE_VALUE) CloseHandle(logFile);
+        lastError_ = "下载引擎进程启动失败";
         return false;
     }
+    if (logFile != INVALID_HANDLE_VALUE) CloseHandle(logFile);
     CloseHandle(pi.hThread);
     processHandle_ = pi.hProcess;
 #else
@@ -601,10 +704,29 @@ bool Aria2Engine::ensureDaemon() const {
     for (auto& a : args) argv.push_back(a.data());
     argv.push_back(nullptr);
 
+    // 同 Windows 分支：daemon 输出重定向到 configDir/tinynext-aria2.log。
+    const std::filesystem::path logPath = cfg::configDir() / "tinynext-aria2.log";
+    std::error_code lsec;
+    std::filesystem::create_directories(logPath.parent_path(), lsec);
+    const int logFd = ::open(logPath.c_str(), O_CREAT | O_WRONLY | O_APPEND, 0644);
+
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    if (logFd >= 0) {
+        // adddup2 到 stdout/stderr 会清掉 CLOEXEC，子进程正确继承。
+        posix_spawn_file_actions_adddup2(&fa, logFd, STDOUT_FILENO);
+        posix_spawn_file_actions_adddup2(&fa, logFd, STDERR_FILENO);
+    }
+
     pid_t pid = -1;
-    if (::posix_spawn(&pid, exe.c_str(), nullptr, nullptr, argv.data(), environ) != 0) {
+    if (::posix_spawn(&pid, exe.c_str(), &fa, nullptr, argv.data(), environ) != 0) {
+        if (logFd >= 0) ::close(logFd);
+        posix_spawn_file_actions_destroy(&fa);
+        lastError_ = "下载引擎进程启动失败";
         return false;
     }
+    posix_spawn_file_actions_destroy(&fa);
+    if (logFd >= 0) ::close(logFd);
     processHandle_ = reinterpret_cast<void*>(static_cast<std::intptr_t>(pid));
 #endif
 
@@ -642,6 +764,7 @@ bool Aria2Engine::ensureDaemon() const {
     }
     port_ = 0;
     secret_.clear();
+    lastError_ = "下载引擎启动超时（本地 RPC 未就绪）";
     return false;
 }
 
@@ -878,7 +1001,7 @@ void Aria2Engine::retry(std::uint64_t id) {
         const auto task = findTask(id);
         if (task) {
             task->state = State::Failed;
-            task->error = "引擎不可用";
+            task->error = lastError_.empty() ? "引擎不可用" : lastError_;
         }
         return;
     }
@@ -956,6 +1079,52 @@ void Aria2Engine::retry(std::uint64_t id) {
     }
 }
 
+// 镜像源管理：aria2.changeUri 只对活动任务（active/waiting/paused）有效。注意
+// aria2-next 的 changeUri 签名与标准 aria2 不同：params = [gid, fileIndex, delUris,
+// addUris, pos?]（token 由 rpcCall 前置）。fileIndex 恒为 1（单文件任务）。
+bool Aria2Engine::addMirror(std::uint64_t id, const std::string& url) {
+    std::lock_guard<std::mutex> lock(tasksMutex_);
+    auto task = findTask(id);
+    if (!task || !daemonSpawned_ || task->gid.empty()) return false;
+    if (task->state != State::Queued && task->state != State::Downloading &&
+        task->state != State::Paused) {
+        return false;
+    }
+    try {
+        const nlohmann::json res = rpcCall(
+            port_, secret_, "aria2.changeUri",
+            nlohmann::json::array({task->gid, 1, nlohmann::json::array(),
+                                   nlohmann::json::array({url})}));
+        // 返回 [deletedCount, addedCount]。
+        if (res.is_array() && res.size() == 2 && res[1].get<int>() > 0) {
+            task->opts.mirrors.push_back(url);  // 记录到配置镜像（retry 复用）
+            return true;
+        }
+    } catch (...) {}
+    return false;
+}
+
+bool Aria2Engine::removeMirror(std::uint64_t id, const std::string& url) {
+    std::lock_guard<std::mutex> lock(tasksMutex_);
+    auto task = findTask(id);
+    if (!task || !daemonSpawned_ || task->gid.empty()) return false;
+    if (task->state != State::Queued && task->state != State::Downloading &&
+        task->state != State::Paused) {
+        return false;
+    }
+    try {
+        const nlohmann::json res = rpcCall(
+            port_, secret_, "aria2.changeUri",
+            nlohmann::json::array({task->gid, 1, nlohmann::json::array({url}),
+                                   nlohmann::json::array()}));
+        if (res.is_array() && res.size() == 2 && res[0].get<int>() > 0) {
+            std::erase(task->opts.mirrors, url);  // 同步配置镜像
+            return true;
+        }
+    } catch (...) {}
+    return false;
+}
+
 // 重启后重建任务表：daemon 用 --input-file 载入了 --save-session 的未完成任务，
 // 这里通过 tellActive/tellWaiting/tellStopped 把它们同步成本地 Task。
 void Aria2Engine::recoverSession() const {
@@ -986,6 +1155,17 @@ void Aria2Engine::recoverSession() const {
             task->destPath = std::filesystem::path(file.value("path", ""));
             if (file.contains("uris") && file["uris"].is_array() && !file["uris"].empty()) {
                 task->url = file["uris"][0].value("uri", "");
+                // 镜像源随会话恢复：files[0].uris 是 aria2 去重后的全部源（实测顺序
+                // 不稳定，首条不一定是原主 URL），除主 URL 外的唯一源还给
+                // opts.mirrors——重下（retry）复用 opts 时多源不丢，卡片也能显示镜像数。
+                for (std::size_t i = 1; i < file["uris"].size(); ++i) {
+                    const std::string u = file["uris"][i].value("uri", "");
+                    if (!u.empty() && u != task->url &&
+                        std::ranges::find(task->opts.mirrors, u) ==
+                            task->opts.mirrors.end()) {
+                        task->opts.mirrors.push_back(u);
+                    }
+                }
             }
         }
         // 磁力任务没有可用 uri 时用 infoHash 拼回显。
@@ -1071,6 +1251,31 @@ void Aria2Engine::applyTellStatus(const std::shared_ptr<Task>& task,
         !st["files"].empty()) {
         const std::string p = st["files"][0].value("path", "");
         if (!p.empty()) task->destPath = std::filesystem::path(p);
+        // 实时源列表：files[0].uris 按 URL 去重（aria2 对同一 URL 分片会生成多个
+        // URIResult），状态合并取最优（used > waiting > error）。
+        task->mirrors.clear();
+        if (st["files"][0].contains("uris") && st["files"][0]["uris"].is_array()) {
+            for (const auto& u : st["files"][0]["uris"]) {
+                if (!u.is_object()) continue;
+                const std::string uri = u.value("uri", "");
+                const std::string status = u.value("status", "waiting");
+                if (uri.empty()) continue;
+                auto it = std::find_if(task->mirrors.begin(), task->mirrors.end(),
+                                       [&](const dl::MirrorSource& m) {
+                                           return m.uri == uri;
+                                       });
+                const int prio = [](const std::string& s) {
+                    return s == "used" ? 2 : (s == "waiting" ? 1 : 0);
+                }(status);
+                if (it == task->mirrors.end()) {
+                    task->mirrors.push_back(dl::MirrorSource{uri, status});
+                } else if (prio > [&](const std::string& s) {
+                    return s == "used" ? 2 : (s == "waiting" ? 1 : 0);
+                }(it->status)) {
+                    it->status = status;
+                }
+            }
+        }
     }
     // BT/磁力：记录种子真实名（bittorrent.info.name），供卡片/弹窗显示，
     // 避免展示 GID/磁力占位名。
@@ -1148,7 +1353,9 @@ std::vector<TaskView> Aria2Engine::snapshot() const {
         out.push_back(TaskView{task.id, task.url, task.destPath, task.state,
                                task.totalBytes, task.downloadedBytes,
                                task.error, task.speedBps, task.connections,
-                               task.displayName});
+                               task.displayName,
+                               static_cast<int>(task.opts.mirrors.size()),
+                               task.mirrors});
     }
     return out;
 }

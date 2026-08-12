@@ -43,6 +43,8 @@ export module tinynext.cli;
 import std;
 import tinynext.ui.state;
 import tinynext.ui.utils;  // isDownloadableSource（下载源白名单，一处维护）
+import tinynext.download_engine;  // dl::StartOptions（--mirror 的多源任务）
+import tinynext.headless;  // --headless 脚本模式（CliBoot 在 main 前接管）
 
 namespace cli {
 
@@ -231,6 +233,45 @@ export std::vector<std::string> commandLineUrls() {
     return cached;
 }
 
+// `tinynext --mirror url1 url2 ...`：把所有 URL 合并为一个多源任务（首 URL 为主、
+// 其余为镜像源，aria2 多源并发分段下载同一文件）。静态缓存一次解析。
+export bool commandLineMirrorMode() {
+    static const bool cached = [] {
+        for (const auto& a : commandLineArgs()) {
+            if (a == "--mirror") return true;
+        }
+        return false;
+    }();
+    return cached;
+}
+
+namespace {
+
+// 镜像只能合并且只能合并普通 URL（magnet / .torrent 没有"多源"概念）。
+bool isMirrorableUrl(const std::string& u) {
+    return isDownloadableSource(u) && !u.starts_with("magnet:") &&
+           !u.ends_with(".torrent");
+}
+
+} // namespace
+
+// 要处理/转发的下载行：--mirror 且 ≥2 个普通 URL 时编成单行
+// "mirror:<主URL> <镜像1> <镜像2> ..."（URL 不含空格，空格分隔安全，单行走
+// socket/inbox 都不会被拆开）；否则每个 URL 一行（原行为）。
+export std::vector<std::string> downloadLines() {
+    auto urls = commandLineUrls();
+    if (!commandLineMirrorMode() || urls.size() < 2) return urls;
+    for (const auto& u : urls) {
+        if (!isMirrorableUrl(u)) return urls;  // 混了 magnet/种子：退回逐条任务
+    }
+    std::string line = "mirror:";
+    for (const auto& u : urls) {
+        if (line.size() > 7) line += ' ';
+        line += u;
+    }
+    return {line};
+}
+
 // `tinynext agent` —— 打印给 AI 的 CLI 使用教学并退出（不进 GUI、不走单实例）。
 // 返回 true 表示已输出、调用方应退出进程。Windows 是 GUI 子系统，用
 // AttachConsole + WriteFile 写父进程控制台 / 继承的 stdout 句柄。
@@ -247,6 +288,13 @@ export bool runAgentHelpIfRequested() {
 
 USAGE
   tinynext <http(s)-url> [more-urls...]   Add download(s). The GUI auto-starts if needed.
+  tinynext --mirror <url1> <url2> [...]   One task, many sources: url1 is primary, the rest
+                                          are mirrors of the SAME file (aria2 splits across
+                                          sources, auto-failover). All urls must be plain
+                                          http(s)/ftp(s)/sftp links (no magnet/.torrent).
+  tinynext --headless <url> [more-urls...]  Script mode: NO window. Download(s) run under
+                                          TinyNext's own config (dir / connections), process
+                                          exits 0 on success / 1 on any failure.
   tinynext agent                          Print this usage guide (what you are reading now).
 
 RULES
@@ -254,15 +302,16 @@ RULES
     file paths are treated as downloads; other arguments are ignored.
   - Single-instance: if TinyNext is already running, the sources are forwarded to the
     running instance and this process exits immediately — a new window is NOT opened.
-    The running instance adds the tasks itself.
-  - http is used as-is (not upgraded to https). Multiple URLs create separate tasks
-    (mirror merging is a UI feature in the add dialog).
+    The running instance adds the tasks itself (--mirror grouping is preserved).
+  - http is used as-is (not upgraded to https). Without --mirror, multiple URLs create
+    separate tasks.
   - Files land in the configured download directory (default: the system Downloads folder).
   - The filename is taken from the last path segment of the URL.
 
 EXAMPLES
   tinynext https://example.com/file.zip
   tinynext https://a.example.com/x.bin https://b.example.com/y.tar.gz
+  tinynext --mirror https://fast.example.com/big.iso https://slow.example.org/big.iso
 
 TROUBLESHOOTING
   - A download did not start: make sure the URL starts with http:// or https://.
@@ -415,8 +464,14 @@ struct CliBoot {
         if (runAgentHelpIfRequested()) {
             std::exit(0);
         }
+        // `tinynext --headless <url>`：脚本模式，不开窗、下载完退出（exit 0/1）。
+        // 必须在抢单实例锁之前接管——headless 独立起自己的 daemon，不与运行中的
+        // GUI 冲突、也不转发 URL。
+        if (headless::requested()) {
+            std::exit(headless::run());
+        }
         if (!acquireSingleInstance()) {
-            forwardToRunningInstance(commandLineUrls());
+            forwardToRunningInstance(downloadLines());
             std::exit(0);
         }
     }
@@ -431,27 +486,43 @@ export void startCliIpc() {
     std::thread(cliListenerLoop).detach();
 }
 
+// 按行启动下载：普通行 = 单 URL 任务；"mirror:<主URL> <镜像...>" 行 = 多源合一
+// 任务（downloadLines 的编码，socket / inbox / 自身 CLI 三路共用）。
+void startFromLines(const std::vector<std::string>& lines) {
+    for (const auto& line : lines) {
+        if (line.starts_with("mirror:")) {
+            std::vector<std::string> parts;
+            std::istringstream ss(line.substr(7));
+            std::string tok;
+            while (ss >> tok) parts.push_back(tok);
+            if (parts.size() >= 2) {
+                dl::StartOptions opts;
+                opts.mirrors.assign(parts.begin() + 1, parts.end());
+                startDownloadFromUrl(parts[0], opts);
+            } else if (!parts.empty()) {
+                startDownloadFromUrl(parts[0], 0);
+            }
+            continue;
+        }
+        startDownloadFromUrl(line, 0);
+    }
+}
+
 // UI 线程在每次被唤醒时调用（compose 顶部）：首帧加自身命令行 URL，随后处理
 // socket 转发的 URL，并兜底 drain inbox 文件（旧版本第二实例 / socket 未就绪时）。
 export void processPendingUrls() {
     if (!g_cliHandled) {
         g_cliHandled = true;
-        for (const auto& u : commandLineUrls()) {
-            startDownloadFromUrl(u, 0);
-        }
+        startFromLines(downloadLines());
     }
     std::vector<std::string> urls;
     {
         std::lock_guard<std::mutex> lock(g_urlsMutex);
         urls.swap(g_pendingUrls);
     }
-    for (auto& u : urls) {
-        startDownloadFromUrl(std::move(u), 0);
-    }
+    startFromLines(urls);
     if (std::filesystem::exists(inboxPath())) {
-        for (const auto& u : drainInbox()) {
-            startDownloadFromUrl(u, 0);
-        }
+        startFromLines(drainInbox());
     }
 }
 

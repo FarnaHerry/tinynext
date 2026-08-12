@@ -1,5 +1,80 @@
 # Changelog
 
+## 0.3.3（2026-08-12）
+
+### 设置页对齐 MotrixNext 分组（6 组）+ 新增 ED2K 支持
+- **设置页按 MotrixNext 布局重排**（同为 aria2-next 引擎，其分组是此类下载器的标准
+  布局）：通用 / 下载 / BitTorrent / ED2K / 网络 / 高级。取代旧的按 aria2 功能域分
+  组（把同实体参数拆散、HTTP tab 被拆两段）。
+  - **通用**：主题 / 关闭时缩到托盘 / 下载路径
+  - **下载**：分片数 / 每服务器连接 / 最小分片 / 每任务限速 / 全局限速 / 最大同时
+    下载数 / 最大重试次数 / 重试等待 / 磁盘缓存 / 文件分配
+  - **BitTorrent**：做种时间 / 做种比率 / 最大 Peers / 监听端口 / 局域网发现
+  - **ED2K**（新增）：监听端口 TCP / UDP 端口 / ED2K 服务器 / 上传槽位
+  - **网络**：代理地址 / 不使用代理 / User-Agent / Referer / 请求头 / Cookie 载入 /
+    Cookie 保存
+  - **高级**：自动改名 / 允许覆盖 / 移除控制文件 / 完成后命令 / 检查完整性 / 校验和
+- **ED2K（电驴）支持**：aria2-next 原生支持 `ed2k://` 链接（`--ed2k-server` /
+  `--ed2k-listen-port` / `--ed2k-udp-listen-port` / `--ed2k-upload-slots`，daemon 级
+  配置）。新配置键：`ed2k_servers` / `ed2k_listen_port` / `ed2k_udp_listen_port` /
+  `ed2k_upload_slots`。端到端验证：配置后 daemon 启动带全部 ed2k 参数。
+- `SettingsTab` 枚举改为 `General/Download/BitTorrent/Ed2k/Network/Advanced`；所有
+  配置项保底逻辑（恢复默认/保存/放弃）不变。
+
+### 镜像源管理强化（查看 / 移除 / 添加）
+- **镜像源列表弹窗**：任务卡新增镜像按钮（fa-exchange），点开「镜像源管理」弹窗，列出
+  该任务的实时源（aria2 `files[0].uris` 去重，含每个源的状态：在用/备用/失败）。
+- **移除坏源**：活动任务可在弹窗里移除任意源（`aria2.changeUri` delete）。注意 aria2-next
+  的 changeUri 签名与标准 aria2 不同：`params = [gid, fileIndex, delUris, addUris, pos?]`
+  （多一个 fileIndex，恒 1；token 由 rpcCall 前置）。
+- **添加镜像**：活动任务可在弹窗里输入 URL 追加镜像源（changeUri add），运行时生效、
+  并入 retry 复用的 opts.mirrors。
+- **源状态告警**：镜像任务的源全部失败时，卡片信息区提示「镜像全部失效」。
+- `TaskView` 新增 `mirrors` 列表（`MirrorSource{uri, status}`）；引擎接口加
+  `addMirror` / `removeMirror`。
+
+### 脚本模式 `tinynext --headless <url>`
+- **不开窗、按 TinyNext 自身配置下载完退出**：复用 aria2_engine 的 daemon + JSON-RPC，
+  不依赖 eui / UI 状态。`exit 0` = 全部成功，`exit 1` = 任一失败或引擎不可用。适合
+  脚本 / 定时任务（定位是 TinyNext 用户的脚本工具，roadmap 项落地）。
+- 支持多 URL（逐个任务）；接受 http(s)/ftp(s)/sftp / magnet: / 本地 .torrent。
+  失败任务保留在会话文件（下次 GUI 启动 aria2 控制文件续传，符合断点续传语义）。
+- **daemon 输出重定向**：aria2-next 的进度摘要 / 错误日志不再刷进应用终端，写入
+  `configDir/tinynext-aria2.log`（Windows CreateProcess / POSIX posix_spawn 都重定向
+  stdout/stderr；GUI 与 headless 共用）。
+
+### 镜像多源补完（0.3.0 实验性的收尾）
+- **任务卡显示镜像数**：镜像任务的卡片信息区显示「镜像 ×N」（N = 除主 URL 外的
+  镜像源数），一眼看出是否多源。
+- **CLI `--mirror` 开关**：`tinynext --mirror url1 url2 ...` 把所有 URL 合并为一个
+  多源任务（首 URL 为主、其余为镜像源），与添加弹窗的「多行URL合并为镜像」等价。
+  跨进程保留：单实例转发 / inbox 回退用 `mirror:` 前缀单行编码，主实例收到后重建
+  多源任务。要求全部为普通 http(s)/ftp(s)/sftp 链接（磁力/种子无多源概念，混入则
+  退回逐条任务）。
+- **镜像随会话恢复**：会话恢复时从 `files[0].uris` 重建 `opts.mirrors`——重启后
+  多源不丢（retry 复用 opts 时带上镜像），任务卡继续显示镜像数。注意 aria2 返回的
+  uris 顺序不稳定，恢复后主 URL 可能不是原来的第一个，但多源完整保留。
+
+### 运行时引擎完整性校验
+- **spawn 前校验引擎二进制**：`engines/checksums.sha256` 此前只在 CI 校验，运行时
+  从不检查——被篡改/放错的二进制会被静默执行。现在 `ensureDaemon()` spawn 前把
+  本平台条目（按平台标签匹配 release 资产名）与本机二进制 SHA-256 比对：
+  - 条目在不匹配 / 本平台条目缺失 → **拒绝启动**，UI / headless 报
+    「下载引擎完整性校验失败」；
+  - 清单整体缺失 → 警告继续（兼容历史分发，`make-dist.sh` 已补带清单）。
+- 新增 `src/sha256.cppm`（`tinynext.sha256`，FIPS 180-4 纯实现）；`DownloadEngine`
+  加 `lastError()`，`startDownloadFromUrl` / headless 失败时显示具体原因。
+
+### 添加下载弹窗「直链下载 / 种子」双 tab
+- **弹窗顶部加切换**：直链下载 / 种子（种子与直连流程不同，字段各自独立）。
+  - **直链下载**：URL 多行（含 magnet）/ 分片数 / 重命名 / 下载目录 / 镜像合并；
+  - **种子**：独立小面板 = 本地 .torrent 选择 + 下载目录 + 提示（内容名由种子决定，
+    磁力请切到直链）。
+- 两个 tab 的未提交输入各自独立，切换不互相清空。
+
+### 工程
+- **版本升 0.3.3**（`mcpp.toml` `[package].version`，`src/versions.generated.h` 重新生成）。
+
 ## 0.3.2（2026-08-11）
 
 ### 修复

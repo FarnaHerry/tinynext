@@ -40,6 +40,9 @@ cp -r "$root/assets" "$dist/assets"
 if [ -x "$root/engines/aria2-next" ]; then
     cp "$root/engines/aria2-next" "$dist/engines/aria2-next"
     chmod +x "$dist/engines/aria2-next"
+    # 运行时完整性校验清单：随包分发，保证 spawn 前能校验二进制未被篡改
+    # （Windows 的 make-dist.ps1 直接拷整个 engines/ 已含它）。
+    cp "$root/engines/checksums.sha256" "$dist/engines/checksums.sha256"
 else
     echo "WARN: engines/aria2-next missing — aria2-next is the only engine, downloads will not work" >&2
 fi

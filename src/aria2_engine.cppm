@@ -43,9 +43,12 @@ public:
     void pauseAll() override;
     void resumeAll() override;
     void retry(std::uint64_t id) override;
+    bool addMirror(std::uint64_t id, const std::string& url) override;
+    bool removeMirror(std::uint64_t id, const std::string& url) override;
     std::vector<TaskView> snapshot() const override;
     bool busy() const override;
     bool engineActive() const override;
+    std::string lastError() const override;
     void shutdown() override;
 
 private:
@@ -68,6 +71,7 @@ private:
     mutable bool daemonSpawned_ = false;
     mutable int port_ = 0;
     mutable std::string secret_;
+    mutable std::string lastError_;   // 最近一次 daemon 启动失败原因（仅 UI 线程）
     mutable void* processHandle_ = nullptr;   // HANDLE on Windows
     mutable std::chrono::steady_clock::time_point lastPoll_{};
     mutable std::unique_ptr<WsNotifier> ws_;  // 事件监听（仅收推送，请求仍走 HTTP）

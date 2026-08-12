@@ -178,11 +178,14 @@ Motrix 经典版 `aria2` npm 包「WS 打开走 WS、否则 HTTP」。故混合 
 若日后要升级「全量 WS」（Motrix 经典模式）：WsNotifier 已具备连接层，把 `rpcCall`
 换成 WS 发送 + id 匹配 + 条件变量即可，锁纪律同步收紧（持锁期间不能等响应）。
 
-### `tinynext --headless <url>` 脚本模式
+### `tinynext --headless <url>` 脚本模式（已实现，2026-08）
 
 不开窗、按 TinyNext 自身配置（下载目录 / 连接数 / 引擎）下载完退出，`exit 0/1`。
 适合「已用 TinyNext 的人」写脚本 / 定时任务。复用 `aria2_engine` daemon + JSON-RPC，
-约 100~150 行，不依赖 eui。与现有 CLI + 单实例机制一致。
+不依赖 eui。实现为独立模块 `tinynext.headless`（`src/headless.cppm`），由
+`cli::CliBoot` 在 main 之前接管（不抢单实例锁、不进 GUI、不转发 URL）。
 
 - 定位：**TinyNext 用户的脚本工具**，不是给其他包管理器的下载后端。
-- 优先级：低。
+- 支持多 URL 逐个任务；接受 http(s)/ftp(s)/sftp / magnet: / 本地 .torrent。
+- 失败任务保留在会话文件（下次 GUI 启动续传）。daemon 输出重定向到
+  `configDir/tinynext-aria2.log`（终端保持干净）。
