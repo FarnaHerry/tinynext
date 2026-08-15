@@ -299,10 +299,11 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
 
 // 侧边栏列表项（普通列表）：图标 + 文字，激活时主色高亮 + 左侧竖条。
 // 用于页面导航（下载列表 / 设置）和下载状态筛选（所有 / 下载中 / 已完成）。
+// count >= 0 时在右侧显示数量徽标（如筛选项的任务数），文字区相应让位。
 export void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y,
                             float width, float height, const std::string& label,
                             unsigned int icon, bool active, const AppTheme& theme,
-                            std::function<void()> onClick) {
+                            std::function<void()> onClick, int count = -1) {
     const auto& tokens = theme.components;
     const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
     const core::Color idle = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -350,16 +351,31 @@ export void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y
         .verticalAlign(core::VerticalAlign::Center)
         .build();
 
-    // 文字。
+    // 文字（有数量徽标时让出右侧空间）。
+    const float countW = count >= 0 ? 26.0f : 0.0f;
     ui.text(id + ".label")
         .position(x + 30.0f, y)
-        .size(width - 36.0f, height)
+        .size(width - 36.0f - countW, height)
         .text(label)
         .fontSize(12.0f)
         .lineHeight(height)
         .color(textColor)
         .verticalAlign(core::VerticalAlign::Center)
         .build();
+
+    // 右侧数量徽标：激活项用主色，其余用次要文本色。
+    if (count >= 0) {
+        ui.text(id + ".count")
+            .position(x + width - countW - 4.0f, y)
+            .size(countW, height)
+            .text(std::to_string(count))
+            .fontSize(10.5f)
+            .lineHeight(height)
+            .color(active ? tokens.primary : theme.metaText)
+            .horizontalAlign(core::HorizontalAlign::Right)
+            .verticalAlign(core::VerticalAlign::Center)
+            .build();
+    }
 }
 
 // 主侧边栏（图标栏）列表项：仅图标、无文字，激活时主色高亮 + 左侧竖条。

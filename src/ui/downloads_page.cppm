@@ -120,17 +120,27 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
 
             const float itemW = kSubSidebarWidth - 12.0f;
             float itemY = 28.0f;
+            // 各筛选的任务数：所有 = 总数；下载中/已完成与列表筛选同一口径
+            // （stateMatches），基于本帧 snapshot 统计。
+            int activeCount = 0, doneCount = 0;
+            for (const auto& task : tasks) {
+                if (stateMatches(Filter::Active, task.state)) ++activeCount;
+                else if (stateMatches(Filter::Done, task.state)) ++doneCount;
+            }
             drawSidebarItem(ui, "filter.all", 6.0f, itemY, itemW, 22.0f,
                             "所有", 0xF03A, g_filter == Filter::All, theme,
-                            [] { g_filter = Filter::All; g_page = 1; });
+                            [] { g_filter = Filter::All; g_page = 1; },
+                            static_cast<int>(tasks.size()));
             itemY += 27.0f;
             drawSidebarItem(ui, "filter.active", 6.0f, itemY, itemW, 22.0f,
                             "下载中", 0xF019, g_filter == Filter::Active, theme,
-                            [] { g_filter = Filter::Active; g_page = 1; });
+                            [] { g_filter = Filter::Active; g_page = 1; },
+                            activeCount);
             itemY += 27.0f;
             drawSidebarItem(ui, "filter.done", 6.0f, itemY, itemW, 22.0f,
                             "已完成", 0xF00C, g_filter == Filter::Done, theme,
-                            [] { g_filter = Filter::Done; g_page = 1; });
+                            [] { g_filter = Filter::Done; g_page = 1; },
+                            doneCount);
         })
         .build();
 
