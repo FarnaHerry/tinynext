@@ -351,8 +351,10 @@ export void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y
         .verticalAlign(core::VerticalAlign::Center)
         .build();
 
-    // 文字（有数量徽标时让出右侧空间）。
-    const float countW = count >= 0 ? 26.0f : 0.0f;
+    // 文字（有数量徽标时让出右侧空间，宽度与下方气泡一致 + 间隙）。
+    const float countW = count >= 0
+        ? 12.0f + static_cast<float>(std::to_string(count).size()) * 6.0f + 10.0f
+        : 0.0f;
     ui.text(id + ".label")
         .position(x + 30.0f, y)
         .size(width - 36.0f - countW, height)
@@ -363,16 +365,32 @@ export void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y
         .verticalAlign(core::VerticalAlign::Center)
         .build();
 
-    // 右侧数量徽标：激活项用主色，其余用次要文本色。
+    // 右侧数量徽标：小气泡（圆角 pill 底 + 数字），宽度随位数自适应；激活项主色
+    // 浅底 + 主色数字，其余次要文本色。
     if (count >= 0) {
+        const std::string text = std::to_string(count);
+        const float bubbleW = 12.0f + static_cast<float>(text.size()) * 6.0f;
+        const float bubbleH = 14.0f;
+        const float bubbleX = x + width - bubbleW - 6.0f;
+        const float bubbleY = y + (height - bubbleH) * 0.5f;
+        const core::Color bubbleFill =
+            active ? components::theme::withAlpha(tokens.primary,
+                                                  theme.dark ? 0.26f : 0.14f)
+                   : tokens.surfaceHover;
+        ui.rect(id + ".count.bg")
+            .position(bubbleX, bubbleY)
+            .size(bubbleW, bubbleH)
+            .color(bubbleFill)
+            .radius(bubbleH * 0.5f)
+            .build();
         ui.text(id + ".count")
-            .position(x + width - countW - 4.0f, y)
-            .size(countW, height)
-            .text(std::to_string(count))
-            .fontSize(10.5f)
-            .lineHeight(height)
+            .position(bubbleX, bubbleY)
+            .size(bubbleW, bubbleH)
+            .text(text)
+            .fontSize(10.0f)
+            .lineHeight(bubbleH)
             .color(active ? tokens.primary : theme.metaText)
-            .horizontalAlign(core::HorizontalAlign::Right)
+            .horizontalAlign(core::HorizontalAlign::Center)
             .verticalAlign(core::VerticalAlign::Center)
             .build();
     }
