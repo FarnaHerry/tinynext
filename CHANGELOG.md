@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.3.4（2026-08-15）
+
+### 侧边栏任务计数
+- **下载页二级侧边栏显示数量**：「所有」显示任务总数，「下载中」「已完成」各自显示
+  对应数量（与列表筛选同一口径 `stateMatches`，右侧圆角小气泡徽标，宽度随位数自适应；
+  激活项主色浅底 + 主色数字、其余次要色）。
+- `drawSidebarItem` 新增可选 `count` 参数（默认 -1 不显示），设置页导航等既有调用不变。
+
+### 启动即恢复历史任务（取代懒惰拉取）
+- **app 启动时后台拉起引擎**：此前 daemon 要等首次下载才 spawn，重启后历史任务
+  列表一直空白、直到下一次下载才出现。现在 compose 首次运行时开一次性后台线程
+  `engine->warmup()`（拉起 daemon + `recoverSession` 恢复上次会话 + 启动 WS 监听），
+  完成后唤醒 UI 渲染，启动即见历史记录。
+- **线程安全**：daemon 生命周期成员（port/secret/daemonSpawned/ws/processHandle/
+  lastError）原约定「仅 UI 线程」，warmup 引入后台线程后新增 `daemonMutex_` 串行化
+  `ensureDaemon` / `shutdown` / `engineActive` / `lastError`；锁序固定
+  daemonMutex_ → tasksMutex_（recoverSession 在 ensureDaemon 内取 tasksMutex_）。
+- 预热失败（如引擎完整性校验不通过）经原子标志中转回 UI 线程弹状态消息
+  （「下载引擎启动失败：<原因>」），不再静默空白。
+- `DownloadEngine` 接口加 `warmup()`（默认空实现）；headless 不受影响（本来就立即
+  start，走 start 内的懒惰 spawn 兜底）。
+
+### 工程
+- **版本升 0.3.4**（`mcpp.toml` `[package].version`，`src/versions.generated.h` 重新生成）。
+
 ## 0.3.3（2026-08-12）
 
 ### 设置页对齐 MotrixNext 分组（6 组）+ 新增 ED2K 支持
@@ -71,26 +96,6 @@
   - **种子**：独立小面板 = 本地 .torrent 选择 + 下载目录 + 提示（内容名由种子决定，
     磁力请切到直链）。
 - 两个 tab 的未提交输入各自独立，切换不互相清空。
-
-### 侧边栏任务计数
-- **下载页二级侧边栏显示数量**：「所有」显示任务总数，「下载中」「已完成」各自显示
-  对应数量（与列表筛选同一口径 `stateMatches`，右侧圆角小气泡徽标，宽度随位数自适应；
-  激活项主色浅底 + 主色数字、其余次要色）。
-- `drawSidebarItem` 新增可选 `count` 参数（默认 -1 不显示），设置页导航等既有调用不变。
-
-### 启动即恢复历史任务（取代懒惰拉取）
-- **app 启动时后台拉起引擎**：此前 daemon 要等首次下载才 spawn，重启后历史任务
-  列表一直空白、直到下一次下载才出现。现在 compose 首次运行时开一次性后台线程
-  `engine->warmup()`（拉起 daemon + `recoverSession` 恢复上次会话 + 启动 WS 监听），
-  完成后唤醒 UI 渲染，启动即见历史记录。
-- **线程安全**：daemon 生命周期成员（port/secret/daemonSpawned/ws/processHandle/
-  lastError）原约定「仅 UI 线程」，warmup 引入后台线程后新增 `daemonMutex_` 串行化
-  `ensureDaemon` / `shutdown` / `engineActive` / `lastError`；锁序固定
-  daemonMutex_ → tasksMutex_（recoverSession 在 ensureDaemon 内取 tasksMutex_）。
-- 预热失败（如引擎完整性校验不通过）经原子标志中转回 UI 线程弹状态消息
-  （「下载引擎启动失败：<原因>」），不再静默空白。
-- `DownloadEngine` 接口加 `warmup()`（默认空实现）；headless 不受影响（本来就立即
-  start，走 start 内的懒惰 spawn 兜底）。
 
 ### 工程
 - **版本升 0.3.3**（`mcpp.toml` `[package].version`，`src/versions.generated.h` 重新生成）。
