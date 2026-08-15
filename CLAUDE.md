@@ -76,6 +76,9 @@ onFrame 的元素当成「每帧都在动」，无条件每帧 composeRequested/
 导致空闲也 90 FPS 全量重绘（GPU 占用跳跃）。周期/事件工作都在后台线程、只在真有事时
 `core::platform::requestUiUpdate()` 唤醒 UI 一帧：
 - `cli::startCliIpc()` — 后台线程阻塞 accept（TCP loopback），收到转发 URL 才唤醒；
+- `app.cpp` 启动预热线程 — 一次性：后台 `engine->warmup()` 拉起 aria2 daemon 并
+  恢复上次会话历史任务（不再是首次下载才懒惰 spawn，历史记录启动即显示），完成
+  后唤醒 UI；与 UI 线程的 start/retry 经引擎 `daemonMutex_` 互斥；
 - `housekeep::startHousekeeping()` — 后台线程每 500ms 查状态消息过期 / 下载通知迁移 /
   活动任务进度，有变化才唤醒；
 - `theme_watch` — 主题变化时直接唤醒；

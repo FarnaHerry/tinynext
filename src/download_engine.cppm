@@ -111,6 +111,11 @@ public:
     // 无错误时为空串。UI 线程调用，供「下载启动失败：<原因>」提示。
     virtual std::string lastError() const { return {}; }
 
+    // 启动预热：拉起引擎运行时并恢复上次会话的历史任务（否则首次 start() 才
+    // 懒惰初始化，重启后历史记录要等下一次下载才出现）。可从后台线程调用
+    // （实现须自行与 UI 线程的 start() 等调用互斥）。默认空实现。
+    virtual void warmup() {}
+
     // Cancel everything and release engine resources.
     virtual void shutdown() = 0;
 };

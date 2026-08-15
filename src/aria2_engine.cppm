@@ -30,8 +30,10 @@ public:
     Aria2Engine(const Aria2Engine&) = delete;
     Aria2Engine& operator=(const Aria2Engine&) = delete;
 
-    // Enqueue a download. Spawns the daemon on first use. Returns the task id,
-    // or 0 if the daemon could not be started / the task failed to enqueue.
+    // Enqueue a download. The daemon is normally already up (warmup() spawns it
+    // at app startup); start() falls back to spawning on first use if warmup
+    // has not run (e.g. headless). Returns the task id, or 0 if the daemon
+    // could not be started / the task failed to enqueue.
     // StartOptions.connections overrides the config split/max-connection for
     // this task when > 0.
     std::uint64_t start(const std::string& url, const std::filesystem::path& destPath,
@@ -49,6 +51,7 @@ public:
     bool busy() const override;
     bool engineActive() const override;
     std::string lastError() const override;
+    void warmup() override;
     void shutdown() override;
 
 private:
@@ -63,8 +66,12 @@ private:
     // WebSocket 推送事件回调（IXWebSocket 后台线程）。持锁按 gid 更新状态。
     void handleWsEvent(const std::string& method, const std::string& gid) const;
 
-    // 以下成员仅 UI 线程访问（daemon 生命周期）：port_/secret_/daemonSpawned_/ws_。
+    // daemon 生命周期成员（port_/secret_/daemonSpawned_/ws_/processHandle_/
+    // lastError_）由 UI 线程（start/retry/shutdown）与启动预热后台线程（warmup，
+    // 见 app.cpp）共享，一律经 daemonMutex_ 访问；锁序固定 daemonMutex_ →
+    // tasksMutex_（recoverSession 在 ensureDaemon 内取 tasksMutex_）。
     // tasks_ 及其 Task 字段由 UI 线程 + WS 后台线程共享，一律经 tasksMutex_ 访问。
+    mutable std::mutex daemonMutex_;
     mutable std::vector<std::shared_ptr<Task>> tasks_;
     mutable std::mutex tasksMutex_;
     mutable std::uint64_t nextId_ = 1;

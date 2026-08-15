@@ -41,6 +41,10 @@ import tinynext.ui.state;
 
 namespace app {
 
+// 启动预热结果（后台线程 → UI 线程）：warmup 失败时置位，compose 下一帧消费并
+// 弹状态消息（showStatus 只能 UI 线程写，所以走原子标志中转）。
+std::atomic<bool> g_warmupFailed{false};
+
 const DslAppConfig& dslAppConfig() {
     static const DslAppConfig config = DslAppConfig{}
         .title("TinyNext 下载器")
@@ -82,6 +86,21 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
         housekeepingStarted = true;
         cli::startCliIpc();
         housekeep::startHousekeeping();
+        // 启动即后台拉起引擎并恢复上次会话的历史任务（此前是懒惰拉取：首次
+        // 下载才 spawn daemon，历史记录要等下一次下载才出现）。与 UI 线程的
+        // start() 经引擎内部 daemonMutex_ 互斥；完成后唤醒 UI 渲染任务列表。
+        std::thread([] {
+            g_manager->warmup();
+            if (!g_manager->engineActive()) g_warmupFailed.store(true);
+            core::platform::requestUiUpdate();
+        }).detach();
+    }
+
+    // 预热失败（如引擎完整性校验不通过）：在 UI 线程给出具体原因。
+    if (g_warmupFailed.exchange(false)) {
+        const std::string err = g_manager->lastError();
+        showStatus(err.empty() ? "下载引擎启动失败：历史任务未恢复"
+                               : std::format("下载引擎启动失败：{}", err));
     }
 
     // 事件驱动的杂务消费（取代旧的根 onFrame；onFrame 会让 eui 每帧强制重绘）。

@@ -593,14 +593,26 @@ Aria2Engine::~Aria2Engine() {
 }
 
 bool Aria2Engine::engineActive() const {
+    std::lock_guard<std::mutex> lock(daemonMutex_);
     return daemonSpawned_;
 }
 
 std::string Aria2Engine::lastError() const {
+    std::lock_guard<std::mutex> lock(daemonMutex_);
     return lastError_;
 }
 
+void Aria2Engine::warmup() {
+    // 启动时后台拉起 daemon + 恢复上次会话历史任务（ensureDaemon 首次 spawn 时
+    // 内部调 recoverSession + 启动 WS 监听）。与 UI 线程的 start()/retry() 经
+    // daemonMutex_ 互斥，先到者完成 spawn，后到者直接复用。
+    ensureDaemon();
+}
+
 bool Aria2Engine::ensureDaemon() const {
+    // daemon 生命周期与 UI 线程并发（warmup 在后台线程调本方法），全程持
+    // daemonMutex_ 串行化 spawn / RPC 就绪等待 / recoverSession / WS 启动。
+    std::lock_guard<std::mutex> daemonLock(daemonMutex_);
     if (daemonSpawned_) return port_ != 0;
 
     const std::string exe = engineExePath();
@@ -1410,6 +1422,8 @@ void Aria2Engine::handleWsEvent(const std::string& method, const std::string& gi
 }
 
 void Aria2Engine::shutdown() {
+    // 与可能仍在跑的 warmup 后台线程互斥（它正在 ensureDaemon 里等 RPC 就绪）。
+    std::lock_guard<std::mutex> daemonLock(daemonMutex_);
     if (daemonSpawned_) {
         // 先持久化未完成任务（--save-session）；forceShutdown 会跳过会话保存。
         try {
