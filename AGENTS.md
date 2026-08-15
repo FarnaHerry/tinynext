@@ -53,8 +53,10 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
 1. **入口**：`main()` 由 eui-neo 的 `app-main` 提供，任何 TU 都不能再定义 `main()`。
 2. **禁止在 compose 里挂 `.onFrame`**：eui 会把挂 onFrame 的元素当成「每帧都在动」，
    强制每帧重绘 → 空闲也 90 FPS 满帧（GPU 占用跳跃的根因）。周期/事件工作放后台线程
-   （`cli::startCliIpc` / `housekeep::startHousekeeping`），只在真有事时
-   `core::platform::requestUiUpdate()` 唤醒 UI 一帧。
+   （`cli::startCliIpc` / `housekeep::startHousekeeping` / app.cpp 的一次性引擎
+   `warmup()` 预热线程），只在真有事时 `core::platform::requestUiUpdate()` 唤醒
+   UI 一帧。warmup 与 UI 线程的 start/retry 经引擎 `daemonMutex_` 互斥（锁序
+   daemonMutex_ → tasksMutex_）。
 3. **`import std;` 后禁止再 `#include` 标准头**（std 模块已声明）。
 3. **eui_neo.h 是 header-only 无模块接口**：0.5.6 起 `eui_neo.h` 不再包含
    `eui/detail/dsl_app_impl.h`（`app::update/render` 机制挪进 `app-main` 的
