@@ -10,7 +10,20 @@ module;
 export module tinynext.ui.theme;
 
 import std;
-import tinynext.ui.state;
+import tinynext.config;
+
+// ---- 主题模式 / 设置 pending ----
+// 主题三态：跟随系统 / 深色 / 浅色，持久化在 tinynext.conf 的 theme_mode。
+// g_dark 是当前生效的深色布尔（System 模式时由 tinynext.ui.theme_watch 的事件
+// 触发，重读 cfg::osDark() 更新，事件驱动而非轮询）。
+export cfg::ThemeMode g_themeMode = cfg::themeMode();
+export bool g_dark = cfg::effectiveDark();
+// 关闭窗口行为（缩托盘开关）待提交值；点「保存」落盘（cfg::setCloseToTray），
+// 重启后生效（dslAppConfig 启动时读取）。
+export bool g_closeToTray = cfg::closeToTray();
+// 设置页待提交的编辑值：主题只在点「保存」时写入配置并生效，点「放弃」回滚到
+// 已保存值。主题在选择时即时预览（g_dark），但不落盘。
+export cfg::ThemeMode g_pendingTheme = g_themeMode;
 
 // 日间/夜间双主题。clearColor 在 eui 初始化时固化、无法运行时修改，所以
 // 主题由 compose 全权控制 —— 用一个全屏背景矩形盖住窗口底色。整个系统的
@@ -82,7 +95,7 @@ export const AppTheme kLightTheme = {
     }(),
 };
 
-// 当前生效主题：读 state 模块的 g_dark（System 模式实时跟随 OS）。
+// 当前生效主题：读本模块的 g_dark（System 模式实时跟随 OS）。
 export const AppTheme& currentTheme() {
     return g_dark ? kDarkTheme : kLightTheme;
 }

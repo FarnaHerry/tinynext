@@ -5,9 +5,12 @@
 // application must provide — app::dslAppConfig() and app::compose() — and
 // delegates drawing to the tinynext.ui.* modules:
 //
-//   tinynext.ui.utils         scale factor + formatting/parse helpers
-//   tinynext.ui.theme         dark/light AppTheme + currentTheme()
-//   tinynext.ui.state         shared globals + engine + add-download flow
+//   tinynext.utils            pure string/number helpers (no UI dependency)
+//   tinynext.store.tasks      TaskStore：引擎 + 任务数据 + 下载命令（领域 store）
+//   tinynext.store.ui         状态消息 / 页面 / 筛选·排序·分页（视图 store）
+//   tinynext.store.dialogs    弹窗状态机 + 提交动作（视图 store）
+//   tinynext.ui.utils         UI layout constants (design logical pixels)
+//   tinynext.ui.theme         dark/light AppTheme + currentTheme() + 主题全局
 //   tinynext.ui.platform      DPI boot + folder picker + open helpers
 //   tinynext.ui.widgets       list picker + sidebar/rail/card-action controls
 //   tinynext.ui.cards         the download task card
@@ -37,7 +40,9 @@ import tinynext.ui.settings_page;
 import tinynext.ui.about_dialog;
 import tinynext.ui.platform;
 import tinynext.ui.housekeep;
-import tinynext.ui.state;
+import tinynext.store.tasks;    // g_tasks（启动预热 warmup）
+import tinynext.store.ui;       // 状态消息 / 页面
+import tinynext.store.dialogs;  // g_aboutOpen
 
 namespace app {
 
@@ -90,15 +95,15 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
         // 下载才 spawn daemon，历史记录要等下一次下载才出现）。与 UI 线程的
         // start() 经引擎内部 daemonMutex_ 互斥；完成后唤醒 UI 渲染任务列表。
         std::thread([] {
-            g_manager->warmup();
-            if (!g_manager->engineActive()) g_warmupFailed.store(true);
+            g_tasks.warmup();
+            if (!g_tasks.engineActive()) g_warmupFailed.store(true);
             core::platform::requestUiUpdate();
         }).detach();
     }
 
     // 预热失败（如引擎完整性校验不通过）：在 UI 线程给出具体原因。
     if (g_warmupFailed.exchange(false)) {
-        const std::string err = g_manager->lastError();
+        const std::string err = g_tasks.lastError();
         showStatus(err.empty() ? "下载引擎启动失败：历史任务未恢复"
                                : std::format("下载引擎启动失败：{}", err));
     }

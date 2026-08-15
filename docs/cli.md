@@ -45,12 +45,14 @@ tinynext agent
   3. Windows 上尝试 `SetForegroundWindow` 把已有窗口切到前台；
   4. 立即退出（`exit 0`，不闪窗口）。
 - 主实例的后台监听线程**阻塞在 accept 上**（队列空就挂起，零轮询），收到 URL 后
-  唤醒 UI 线程，由 `startDownloadFromUrl` 逐个加入下载列表（URL 校验与「添加下载」
-  弹窗一致：http(s)/ftp(s)/sftp 链接、magnet: 磁力、本地 .torrent，http 不做升级）。
+  唤醒 UI 线程，由 `g_tasks.startFromUrl`（`tinynext.store.tasks`）逐个加入下载列表
+  （URL 校验与「添加下载」弹窗一致：http(s)/ftp(s)/sftp 链接、magnet: 磁力、本地
+  .torrent，http 不做升级）。
 - `--mirror` 模式跨进程保留：第二实例转发时把 `--mirror url1 url2 ...` 编码成单行
   `mirror:<主URL> <镜像1> <镜像2> ...`（URL 不含空格，空格分隔安全），socket / inbox
   两路都不被拆开；主实例解码后重建多源任务（`dl::StartOptions::mirrors`）。
-- URL 前缀白名单统一在 `utils::isDownloadableSource`（`src/ui/utils.cppm`）一处维护。
+- URL 前缀白名单统一在 `isDownloadableSource`（`src/utils.cppm`，`tinynext.utils`）
+  一处维护。
 
 ## 实现位置
 

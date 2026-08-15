@@ -13,7 +13,9 @@ import tinynext.ui.theme;
 import tinynext.ui.utils;
 import tinynext.ui.widgets;
 import tinynext.ui.cards;
-import tinynext.ui.state;
+import tinynext.store.tasks;    // g_tasks（snapshot/命令）+ taskDisplayName
+import tinynext.store.ui;       // 筛选/排序/分页 + showStatus
+import tinynext.store.dialogs;  // 添加/镜像/删除弹窗状态 + addDownload/requestDelete
 import tinynext.ui.platform;
 
 // 镜像源管理弹窗（定义在文件末尾；drawDownloadsPage 调用它）。
@@ -23,7 +25,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
 // 布局：左侧是任务列表子侧边栏，右侧是输入栏 + 卡片任务列表 + 翻页控件组。
 export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
     // ---- 数据：筛选 + 排序 + 分页切片（每帧重跑，跟随下载线程实时刷新）----
-    const auto tasks = g_manager->snapshot();
+    const auto tasks = g_tasks.snapshot();
     std::vector<dl::TaskView> filtered;
     filtered.reserve(tasks.size());
     for (const auto& task : tasks) {
@@ -177,7 +179,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     drawToolbarIconButton(ui, "tool.startAll", startAllX, toolY, toolW, toolW,
                           0xF04B, false, theme,
                           [] {
-                              g_manager->resumeAll();
+                              g_tasks.resumeAll();
                               showStatus("已全部继续");
                           });
 
@@ -185,7 +187,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     drawToolbarIconButton(ui, "tool.pauseAll", pauseAllX, toolY, toolW, toolW,
                           0xF04C, false, theme,
                           [] {
-                              g_manager->pauseAll();
+                              g_tasks.pauseAll();
                               showStatus("已全部暂停");
                           });
 
@@ -692,7 +694,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .onClick([] {
                         const dl::TaskView task = *g_pendingDelete;
                         g_pendingDelete.reset();
-                        deleteTaskRecord(task);
+                        g_tasks.deleteRecord(task);
                         if (g_deleteIncludeFiles) {
                             std::error_code ec;
                             if (std::filesystem::exists(task.destPath, ec)) {
@@ -761,7 +763,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                 .build();
 
             // 当前任务（实时 snapshot；任务可能已被删除）。
-            const auto tasks = g_manager->snapshot();
+            const auto tasks = g_tasks.snapshot();
             const dl::TaskView* task = nullptr;
             for (const auto& t : tasks) {
                 if (t.id == g_mirrorTaskId) {
@@ -829,7 +831,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                                         .fontSize(10.0f)
                                         .theme(theme.components, false)
                                         .onClick([id = task->id, uri] {
-                                            if (g_manager->removeMirror(id, uri)) {
+                                            if (g_tasks.removeMirror(id, uri)) {
                                                 showStatus("已移除镜像源");
                                             } else {
                                                 showStatus("移除失败（任务非活动或源不存在）");
@@ -894,7 +896,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                             showStatus("镜像源须为 http(s)/ftp(s)/sftp 链接");
                             return;
                         }
-                        if (g_manager->addMirror(g_mirrorTaskId, url)) {
+                        if (g_tasks.addMirror(g_mirrorTaskId, url)) {
                             showStatus("已添加镜像源");
                             g_mirrorAddText.clear();
                         } else {

@@ -13,13 +13,53 @@ namespace core::platform { void requestUiUpdate(); }
 export module tinynext.ui.housekeep;
 
 import std;
-import tinynext.ui.state;
+import tinynext.download_engine;  // dl::State（通知的状态迁移判断）
+import tinynext.store.tasks;      // g_tasks.snapshot + taskDisplayName
+import tinynext.store.ui;         // statusExpired
+import tinynext.ui.platform;      // notifyDownload
 
 namespace housekeep {
 
 namespace {
 
 std::atomic<bool> g_statusExpired{false};
+
+// 检查任务状态迁移，仅当任务从进行中（排队/下载/暂停）迁移到 Done/Failed 时发
+// 系统通知（避免会话恢复等历史状态误触发）。snapshot 走引擎 tasksMutex_，后台
+// 线程安全；lastStates 由 housekeep 单线程独占。
+void checkDownloadNotifications() {
+    static std::unordered_map<std::uint64_t, dl::State> lastStates;
+    const auto tasks = g_tasks.snapshot();
+    std::unordered_set<std::uint64_t> seen;
+    seen.reserve(tasks.size());
+    for (const auto& t : tasks) {
+        seen.insert(t.id);
+        const auto it = lastStates.find(t.id);
+        if (it != lastStates.end()) {
+            const dl::State prev = it->second;
+            const bool wasActive = prev == dl::State::Queued ||
+                                   prev == dl::State::Downloading ||
+                                   prev == dl::State::Paused;
+            if (wasActive && prev != t.state) {
+                const std::string name = taskDisplayName(t);
+                if (t.state == dl::State::Done) {
+                    notifyDownload("下载完成", name + " 已下载完成");
+                } else if (t.state == dl::State::Failed) {
+                    notifyDownload("下载失败", name + " 下载失败");
+                }
+            }
+        }
+        lastStates[t.id] = t.state;
+    }
+    // 清掉已从列表移除的任务记录，避免 map 无限增长。
+    for (auto it = lastStates.begin(); it != lastStates.end();) {
+        if (seen.count(it->first) == 0) {
+            it = lastStates.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
 
 void housekeepLoop() {
     for (;;) {
@@ -31,11 +71,9 @@ void housekeepLoop() {
         }
         // 下载完成/失败通知 + 有活动任务时的进度刷新（snapshot 内部 ~1s 才发一次
         // 进度 RPC；空任务时 refreshStates 不发任何 RPC，空闲零开销）。
-        if (g_manager) {
-            checkDownloadNotifications();
-            if (g_manager->busy()) {
-                core::platform::requestUiUpdate();
-            }
+        checkDownloadNotifications();
+        if (g_tasks.busy()) {
+            core::platform::requestUiUpdate();
         }
     }
 }

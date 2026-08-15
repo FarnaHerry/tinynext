@@ -41,8 +41,9 @@ namespace core::platform { void requestUiUpdate(); }
 export module tinynext.cli;
 
 import std;
-import tinynext.ui.state;
-import tinynext.ui.utils;  // isDownloadableSource（下载源白名单，一处维护）
+import tinynext.store.tasks;   // g_tasks.startFromUrl（下载流程唯一入口）
+import tinynext.store.ui;      // showStatus（转发/CLI 添加下载的结果提示）
+import tinynext.utils;         // isDownloadableSource（下载源白名单，一处维护）
 import tinynext.download_engine;  // dl::StartOptions（--mirror 的多源任务）
 import tinynext.headless;  // --headless 脚本模式（CliBoot 在 main 前接管）
 
@@ -453,7 +454,10 @@ export std::vector<std::string> drainInbox() {
     return urls;
 }
 
-// ---- 应用级接线（依赖 tinynext.ui.state 的下载流程）----
+// ---- 应用级接线（经 tinynext.store.tasks 的下载流程）----
+
+// 单实例：CLI 启动参数是否已添加过（processPendingUrls 首次消费）。模块私有。
+bool g_cliHandled = false;
 
 // 单实例引导：静态初始化（main 之前）尝试获取锁。第二实例转发 URL 并退出、
 // 不闪窗口；主实例正常继续，CLI URL 由 processPendingUrls 添加到下载列表。
@@ -488,6 +492,7 @@ export void startCliIpc() {
 
 // 按行启动下载：普通行 = 单 URL 任务；"mirror:<主URL> <镜像...>" 行 = 多源合一
 // 任务（downloadLines 的编码，socket / inbox / 自身 CLI 三路共用）。
+// 结果消息走状态条（UI 线程调用，与弹窗添加一致）。
 void startFromLines(const std::vector<std::string>& lines) {
     for (const auto& line : lines) {
         if (line.starts_with("mirror:")) {
@@ -498,13 +503,13 @@ void startFromLines(const std::vector<std::string>& lines) {
             if (parts.size() >= 2) {
                 dl::StartOptions opts;
                 opts.mirrors.assign(parts.begin() + 1, parts.end());
-                startDownloadFromUrl(parts[0], opts);
+                showStatus(g_tasks.startFromUrl(parts[0], opts).message);
             } else if (!parts.empty()) {
-                startDownloadFromUrl(parts[0], 0);
+                showStatus(g_tasks.startFromUrl(parts[0], 0).message);
             }
             continue;
         }
-        startDownloadFromUrl(line, 0);
+        showStatus(g_tasks.startFromUrl(line, 0).message);
     }
 }
 

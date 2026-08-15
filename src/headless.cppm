@@ -27,7 +27,7 @@ import std;
 import tinynext.config;
 import tinynext.download_engine;
 import tinynext.aria2_engine;
-import tinynext.ui.utils;  // isDownloadableSource / fileNameFromUrl（纯 std，无 eui 依赖）
+import tinynext.utils;  // isDownloadableSource / fileNameFromUrl（纯 std，无 eui 依赖）
 
 namespace headless {
 

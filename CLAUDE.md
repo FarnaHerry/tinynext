@@ -45,7 +45,7 @@ tinynext agent                           # 打印 CLI 使用教学（给 AI 用�
   还聚焦窗口）后退出，不弹新窗口。
 - 接受 `http://` / `https://` / `ftp://` / `ftps://` / `sftp://` 前缀、`magnet:` 磁力、
   或以 `.torrent` 结尾的本地文件路径；其他参数忽略。http 不强制升级 https。白名单
-  统一在 `utils::isDownloadableSource`（`src/ui/utils.cppm`）。
+  统一在 `isDownloadableSource`（`src/utils.cppm`，`tinynext.utils`）。
 - 不记得用法时先跑 `tinynext agent`。详细见 `docs/cli.md`。
 
 ## 架构
@@ -57,8 +57,12 @@ tinynext agent                           # 打印 CLI 使用教学（给 AI 用�
 | `tinynext.download_engine` | `src/download_engine.cppm` | 抽象接口 `dl::DownloadEngine` / `TaskView` / `State` / `StartOptions` |
 | `tinynext.aria2_engine` | `src/aria2_engine.cppm/.cpp`（~1.1k 行） | aria2-next 进程引擎：JSON-RPC + 本地 socket + WebSocket 推送 |
 | `tinynext.config` | `src/config.cppm` | 配置 / 主题 / 下载目录 / aria2 参数，落盘 `tinynext.conf` |
+| `tinynext.utils` | `src/utils.cppm` | 纯 string/number 帮助函数（无 UI 依赖，CLI/headless/store 共用） |
+| `tinynext.store.tasks` | `src/store/tasks.cppm` | **领域 store**：`TaskStore` 持有引擎 + 任务命令 + `startFromUrl` + 删除记录；`g_tasks` 单例 |
+| `tinynext.store.ui` | `src/store/ui.cppm` | 视图 store：状态消息 / 页面 / 筛选·排序·分页（无 eui） |
+| `tinynext.store.dialogs` | `src/store/dialogs.cppm` | 视图 store：添加/镜像/删除/关于弹窗状态机 + `addDownload`/`requestDelete`（无 eui） |
 | `tinynext.cli` | `src/cli.cppm` | 单实例锁 + 命令行 URL + TCP socket 转发 + CliBoot 引导 |
-| `tinynext.ui.*` | `src/ui/*.cppm` | utils / theme / state / platform / housekeep / widgets / cards / downloads_page / settings_page / about_dialog |
+| `tinynext.ui.*` | `src/ui/*.cppm` | utils（布局常量）/ theme / platform / housekeep / widgets / cards / downloads_page / settings_page / about_dialog |
 | `src/app.cpp` | 普通 TU | 薄入口：`app::dslAppConfig()` + `app::compose()` |
 
 **入口**：`main()` 由 eui-neo 的 `app-main` 提供（GLFW 入口），任何 TU 都不能再定义
@@ -67,9 +71,17 @@ tinynext agent                           # 打印 CLI 使用教学（给 AI 用�
 `<eui_neo.h>` 只为取 `DslAppConfig` / `app::compose` 声明。各 UI 模块仍用精简头
 `src/ui/eui_ui.h`（0.5.6 已无 mangled name 冲突，纯为保持最小 include 面，历史原因保留）。
 
-**共享状态**：所有可变 UI 全局都导出在 `tinynext.ui.state`（模块级导出变量在 importers
-间共享同一实体），直接读写。引擎对象是 `state::g_manager`（`unique_ptr<dl::DownloadEngine>`）；
-下载校验 / 启动流程统一走 `state::startDownloadFromUrl`（弹窗 / CLI / socket/inbox 共用）。
+**共享状态（store 分层）**：可变状态按「领域 / 视图」分层，模块级导出变量在
+importers 间共享同一实体，直接读写：
+- `tinynext.store.tasks` — **领域 store**（不 import 任何 ui.*/eui）：`g_tasks`
+  （`TaskStore`）持有引擎对象，任务命令（pause/resume/retry/mirror/删除记录）、
+  启动预热 `warmup()`、下载校验/启动流程 `startFromUrl`（返回 `StartResult{ok,
+  message}`，自己不做 UI 提示；弹窗 / CLI / socket/inbox 共用）都在这里；
+- `tinynext.store.ui` / `tinynext.store.dialogs` — **视图 store**（仍无 eui 依赖，
+  但属「这个 UI 的实现细节」）：状态消息 / 筛选·排序·分页 / 各弹窗草稿与开关；
+- 设置页 pending 草稿是 `settings_page.cppm` 的模块私有状态（无人跨模块用）；
+  主题全局（g_dark/g_themeMode/...）归位 `tinynext.ui.theme`。
+旧 `tinynext.ui.state`（上帝 store）已删除——新状态先想清楚属于哪一层再放。
 
 **渲染循环 / 事件驱动（重要）**：`app::compose` **不能挂 `.onFrame`** —— eui 会把挂
 onFrame 的元素当成「每帧都在动」，无条件每帧 composeRequested/paintRequested/animating，
@@ -109,8 +121,8 @@ tellActive/tellWaiting/tellStopped 重建任务表。
    全部生效。注意 aria2-next **没有下载级 `priority` 选项**（实测 + `--help=#all`
    确认），优先级功能已移除，别再加回去。
 5. **磁力**：magnet 任务不设 `out`，真实路径由 `refreshStates` 从 `files[0].path` 更新；
-   重命名 / 下载目录解析逻辑都在 `startDownloadFromUrl`。
-6. **重新下载**：Failed/Cancelled 卡片 ↻ 调 `engine->retry(id)`，aria2 复用原 URL+路径
+   重命名 / 下载目录解析逻辑都在 `TaskStore::startFromUrl`。
+6. **重新下载**：Failed/Cancelled 卡片 ↻ 调 `g_tasks.retry(id)`，aria2 复用原 URL+路径
    + `continue=true` 从 `.aria2` 续传。
 7. **aria2 字段名**：用 `connections`（不是 `numConnections`）；进程名 Windows 是
    `aria2-next.exe`、unix 是 `aria2-next`。RPC 只监听 127.0.0.1 + 随机 `--rpc-secret`。

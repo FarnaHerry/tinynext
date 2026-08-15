@@ -11,8 +11,80 @@ import tinynext.config;
 import tinynext.ui.theme;
 import tinynext.ui.utils;
 import tinynext.ui.widgets;   // drawPanel（设置页大卡背景）
-import tinynext.ui.state;
+import tinynext.store.tasks;  // g_tasks.engineActive（保存 daemon 参数时提示重启）
+import tinynext.store.ui;     // showStatus
 import tinynext.ui.platform;
+
+// ---- 设置页私有待提交状态（本模块自用，store 化后不再全局导出）----
+// 输入框草稿 / 下拉展开态 / 左侧分组选中项：都是「这个 UI 的实现细节」，点
+// 「保存」时写入配置并生效，点「放弃」回滚到已保存值。主题相关的 pending
+// （g_pendingTheme/g_dark/...）归位在 tinynext.ui.theme。
+
+// 设置页左侧配置分组：每组一个独立"子页面"，避免全部参数挤在一屏滚动过长。
+// 分组对齐 MotrixNext：通用 / 下载 / BitTorrent / ED2K / 网络 / 高级（MotrixNext
+// 同为 aria2-next 引擎，其分组是此类下载器的标准布局）。
+enum class SettingsTab { General, Download, BitTorrent, Ed2k, Network, Advanced };
+SettingsTab g_settingsTab = SettingsTab::General;
+
+// 设置页“下载路径”输入框内容；初始化为有效下载目录（持久化优先）。
+std::string g_downloadDirText = cfg::downloadDir().string();
+
+// aria2 参数待提交值（设置页输入框的文本形式）。
+std::string g_aria2SplitText = std::to_string(cfg::aria2Config().split);
+std::string g_aria2ConnText = std::to_string(cfg::aria2Config().maxConnectionPerServer);
+// 最小分片数值部分（初始从配置拆出纯数值，"1M" → "1"），单位单独存 g_aria2MinSplitUnit。
+std::string g_aria2MinSplitText = [] {
+    std::string value, unit;
+    splitSizeUnit(cfg::aria2Config().minSplitSize, value, unit);
+    return value;
+}();
+std::string g_aria2MinSplitUnit = [] {
+    std::string value, unit;
+    splitSizeUnit(cfg::aria2Config().minSplitSize, value, unit);
+    return unit;
+}();  // 最小分片单位（KB/MB/GB），随配置解析
+bool g_minSplitUnitOpen = false;  // 最小分片单位下拉是否展开
+std::string g_aria2LimitText =
+    std::to_string(cfg::aria2Config().maxDownloadLimit / 1024);  // KB/s
+// daemon 级参数待提交值。
+std::string g_proxyText = cfg::aria2Config().proxy;
+std::string g_noProxyText = cfg::aria2Config().noProxy;
+std::string g_maxTriesText = std::to_string(cfg::aria2Config().maxTries);
+std::string g_retryWaitText = std::to_string(cfg::aria2Config().retryWait);
+std::string g_maxConcurrentText =
+    std::to_string(cfg::aria2Config().maxConcurrentDownloads);
+bool g_removeControlFile = cfg::aria2Config().removeControlFile;
+std::string g_onCompleteText = cfg::aria2Config().onDownloadComplete;
+std::string g_userAgentText = cfg::aria2Config().userAgent;
+std::string g_refererText = cfg::aria2Config().referer;
+std::string g_diskCacheText = cfg::aria2Config().diskCache;
+// ---- 新增 aria2 配置项（daemon 级，待提交值；见 settings_page 的 BitTorrent /
+//      HTTP / 下载行为 / 完整性校验 四组）----
+std::string g_seedTimeText = std::to_string(cfg::aria2Config().seedTime);
+std::string g_seedRatioText = [] {
+    const double r = cfg::aria2Config().seedRatio;
+    return r > 0.0 ? std::format("{}", r) : "";  // 空 = 0 = 不限
+}();
+std::string g_btMaxPeersText = std::to_string(cfg::aria2Config().btMaxPeers);
+std::string g_listenPortText = cfg::aria2Config().listenPort;
+bool g_btEnableLpd = cfg::aria2Config().btEnableLpd;
+std::string g_headerText = cfg::aria2Config().header;
+std::string g_loadCookiesText = cfg::aria2Config().loadCookies;
+std::string g_saveCookiesText = cfg::aria2Config().saveCookies;
+std::string g_overallLimitText =
+    std::to_string(cfg::aria2Config().maxOverallDownloadLimit / 1024);  // KB/s
+std::string g_fileAllocation = cfg::aria2Config().fileAllocation;  // ""/none/trunc/falloc
+bool g_fileAllocationOpen = false;
+bool g_autoFileRenaming = cfg::aria2Config().autoFileRenaming;
+bool g_allowOverwrite = cfg::aria2Config().allowOverwrite;
+bool g_checkIntegrity = cfg::aria2Config().checkIntegrity;
+std::string g_checksumText = cfg::aria2Config().checksum;
+// ---- ED2K 配置项（daemon 级，待提交值；aria2-next 原生支持电驴）----
+std::string g_ed2kServersText = cfg::aria2Config().ed2kServers;
+std::string g_ed2kListenPortText = cfg::aria2Config().ed2kListenPort;
+std::string g_ed2kUdpPortText = cfg::aria2Config().ed2kUdpListenPort;
+std::string g_ed2kUploadSlotsText =
+    std::to_string(cfg::aria2Config().ed2kUploadSlots);
 
 namespace {
 
@@ -897,10 +969,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
 
             // 汇总提示：aria2 daemon 已启动时，参数保存后需重启才生效。
             if (trayChanged) {
-                showStatus(a2Changed && g_manager->engineActive()
+                showStatus(a2Changed && g_tasks.engineActive()
                     ? "设置已保存（重启后生效）"
                     : "关闭行为将在重启后生效");
-            } else if (a2Changed && g_manager->engineActive()) {
+            } else if (a2Changed && g_tasks.engineActive()) {
                 showStatus("aria2 参数将在重启后生效");
             } else {
                 showStatus("设置已保存");

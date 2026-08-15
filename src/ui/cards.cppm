@@ -11,7 +11,9 @@ import tinynext.download_engine;
 import tinynext.ui.theme;
 import tinynext.ui.utils;
 import tinynext.ui.widgets;
-import tinynext.ui.state;
+import tinynext.store.tasks;    // g_tasks 命令（pause/resume/retry）+ taskDisplayName
+import tinynext.store.dialogs;  // requestDelete / 镜像弹窗状态
+import tinynext.store.ui;       // showStatus
 import tinynext.ui.platform;
 
 export eui::Color stateColor(dl::State state) {
@@ -254,7 +256,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
             }
             if (showRetry) {
                 place("retry", 0xF01E, false,  // fa-redo（普通颜色，与同类一致）
-                      [id = task.id] { g_manager->retry(id); });
+                      [id = task.id] { g_tasks.retry(id); });
             }
             if (showCancel) {
                 // X 与垃圾桶同一效果：弹删除确认框（问是否删除任务 + 勾选删源文件）。
@@ -278,11 +280,11 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
             if (showResume) {
                 // 放最后 → 最左：进行中任务的主操作；普通颜色与同类一致。
                 place("resume", 0xF04B, false,  // fa-play
-                      [id = task.id] { g_manager->resume(id); });
+                      [id = task.id] { g_tasks.resume(id); });
             }
             if (showPause) {
                 place("pause", 0xF04C, false,  // fa-pause
-                      [id = task.id] { g_manager->pause(id); });
+                      [id = task.id] { g_tasks.pause(id); });
             }
             if (showMirror) {
                 // 放最后 → 最左：镜像源管理入口。

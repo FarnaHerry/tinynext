@@ -28,8 +28,8 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
 - **单实例**：重复启动不弹新窗口——第二实例经 TCP loopback socket 把 URL 直发
   主实例（回退写 `<temp>/tinynext.inbox`，Windows 上还会聚焦窗口）后退出。
 - 可下载源：`http(s)://` / `ftp(s)://` / `sftp://` 链接、`magnet:` 磁力、`.torrent`
-  本地路径；白名单统一在 `utils::isDownloadableSource`（`src/ui/utils.cppm`）。非下载
-  参数忽略。
+  本地路径；白名单统一在 `isDownloadableSource`（`src/utils.cppm`，`tinynext.utils`）。
+  非下载参数忽略。
 - `agent` / `--agent` / `help` 参数会打印 CLI 使用教学并退出（不进 GUI）——AI
   不知道用法时先跑 `tinynext agent`。
 - 详细：`docs/cli.md`。
@@ -41,8 +41,12 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
 | `tinynext.download_engine` | `src/download_engine.cppm` | 引擎接口 `dl::DownloadEngine` |
 | `tinynext.aria2_engine` | `src/aria2_engine.cppm/.cpp` | aria2-next 引擎（JSON-RPC + 本地 socket） |
 | `tinynext.config` | `src/config.cppm` | 配置 / 主题 / 下载目录 |
+| `tinynext.utils` | `src/utils.cppm` | 纯 string/number 帮助函数（无 UI 依赖） |
+| `tinynext.store.tasks` | `src/store/tasks.cppm` | 领域 store：`TaskStore` + `g_tasks`（引擎 + 任务命令 + startFromUrl） |
+| `tinynext.store.ui` | `src/store/ui.cppm` | 视图 store：状态消息 / 页面 / 筛选·排序·分页 |
+| `tinynext.store.dialogs` | `src/store/dialogs.cppm` | 视图 store：弹窗状态机 + addDownload/requestDelete |
 | `tinynext.cli` | `src/cli.cppm` | 单实例 + 命令行 URL + TCP socket 转发 |
-| `tinynext.ui.*` | `src/ui/*.cppm` | utils / theme / state / platform / housekeep / widgets / cards / downloads_page / settings_page / about_dialog |
+| `tinynext.ui.*` | `src/ui/*.cppm` | utils（布局常量）/ theme / platform / housekeep / widgets / cards / downloads_page / settings_page / about_dialog |
 | `src/app.cpp` | 普通 TU | 入口：`app::dslAppConfig()` + `app::compose()` |
 
 页面已按职责拆成独立模块（`pages.cppm` 已删除）：
@@ -63,15 +67,19 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
    `glfw_app_main.cpp` 内部编译）。`src/app.cpp` 包含完整 `<eui_neo.h>` 只取声明；
    **UI 模块仍用精简头 `src/ui/eui_ui.h`**（0.5.6 已无 mangled name 冲突，历史原因
    保留）。给 UI 模块加 include 时用 `"eui_ui.h"`。
-4. **共享状态**：所有可变 UI 全局在 `tinynext.ui.state` 模块（导出，直接读写）。
-   引擎对象是 `state::g_manager`（`unique_ptr<dl::DownloadEngine>`）。
+4. **共享状态（store 分层）**：状态按领域/视图分层——`tinynext.store.tasks`
+   （`TaskStore` + `g_tasks`：引擎、任务命令、`startFromUrl` 返回 `StartResult{ok,
+   message}` 不做 UI 提示）是领域 store，不 import 任何 ui.*/eui；`store.ui` /
+   `store.dialogs` 是视图 store（状态消息、筛选分页、弹窗草稿）；设置页 pending
+   草稿是 `settings_page.cppm` 模块私有；主题全局在 `tinynext.ui.theme`。旧
+   `tinynext.ui.state` 已删除，新状态先想清楚属于哪一层。
 5. **每任务选项**：`dl::StartOptions{connections, outputName, dirOverride, limitBps}`，
    `Aria2Engine` 全部生效（connections/limitBps 需 >0）。注意 aria2-next **没有下载级
    priority 选项**（实测 + `--help=#all` 确认），优先级功能已移除，别再加回去。
-6. **磁力**：`startDownloadFromUrl` 接受 `magnet:` 前缀；magnet 任务不设 `out`，
+6. **磁力**：`g_tasks.startFromUrl` 接受 `magnet:` 前缀；magnet 任务不设 `out`，
    destPath 由 `refreshStates` 从 `files[0].path` 更新为真实路径。
-7. **重新下载**：Failed/Cancelled 卡片 ↻ 调 `engine->retry(id)`（`DownloadEngine` 接口）。
-   aria2 复用原 URL+路径 + `continue=true` 从 `.aria2` 续传。
+7. **重新下载**：Failed/Cancelled 卡片 ↻ 调 `g_tasks.retry(id)`（委托 `DownloadEngine`
+   接口）。aria2 复用原 URL+路径 + `continue=true` 从 `.aria2` 续传。
 8. **会话恢复**：aria2 daemon 启动带 `--save-session`/`--input-file`（
    `aria2_engine.cpp::daemonExtraOpts`），`shutdown()` 先 `aria2.saveSession` 再
    forceShutdown；重启后 `recoverSession()` 用 `tellActive/tellWaiting/tellStopped`

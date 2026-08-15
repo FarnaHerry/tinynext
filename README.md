@@ -200,9 +200,12 @@ runner。）
 | `tinynext.aria2_engine` | `src/aria2_engine.cppm/.cpp` | aria2-next 进程引擎（JSON-RPC + 本地 socket） |
 | `tinynext.config` | `src/config.cppm` | JSON 配置 / 主题 / 下载目录 / aria2 参数 |
 | `tinynext.cli` | `src/cli.cppm` | 单实例锁 + 命令行 URL + inbox 转发 + CliBoot 引导 |
-| `tinynext.ui.utils` | `src/ui/utils.cppm` | `kUI` 缩放系数 + 格式化/解析辅助 |
-| `tinynext.ui.theme` | `src/ui/theme.cppm` | `AppTheme` 深浅主题 + `currentTheme()` |
-| `tinynext.ui.state` | `src/ui/state.cppm` | 共享可变全局 + 引擎 + 添加下载流程 |
+| `tinynext.utils` | `src/utils.cppm` | 纯 string/number 帮助函数（无 UI 依赖，各层共用） |
+| `tinynext.store.tasks` | `src/store/tasks.cppm` | 领域 store：`TaskStore` + `g_tasks`（引擎 + 任务命令 + 添加下载流程） |
+| `tinynext.store.ui` | `src/store/ui.cppm` | 视图 store：状态消息 / 页面 / 筛选·排序·分页 |
+| `tinynext.store.dialogs` | `src/store/dialogs.cppm` | 视图 store：弹窗状态机 + addDownload/requestDelete |
+| `tinynext.ui.utils` | `src/ui/utils.cppm` | `kUI` 缩放系数 + 布局常量（转发 `tinynext.utils`） |
+| `tinynext.ui.theme` | `src/ui/theme.cppm` | `AppTheme` 深浅主题 + `currentTheme()` + 主题全局 |
 | `tinynext.ui.platform` | `src/ui/platform.cppm` | DPI boot + 文件夹选择 + 打开文件/URL |
 | `tinynext.ui.widgets` | `src/ui/widgets.cppm` | 列表选择器 + 侧栏/rail/卡片操作控件 + `drawPanel` 岛卡 |
 | `tinynext.ui.cards` | `src/ui/cards.cppm` | 下载任务卡片 |

@@ -10,7 +10,7 @@ import std;
 import tinynext.config;
 import tinynext.ui.theme;
 import tinynext.ui.utils;
-import tinynext.ui.state;
+import tinynext.store.dialogs;  // g_aboutOpen
 import tinynext.ui.platform;
 
 // ---- 关于弹窗：软件信息（所有页面可见）----

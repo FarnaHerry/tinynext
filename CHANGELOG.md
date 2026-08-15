@@ -2,6 +2,24 @@
 
 ## 0.3.4（2026-08-15）
 
+### Store 分层重构（数据 / UI 解耦）
+- **旧 `tinynext.ui.state`（上帝 store）拆除**，状态按 JS store 思路分层，全部是
+  带明确纪律的模块（状态 + 只允许通过方法变更）：
+  - `tinynext.store.tasks`（**领域 store**，不 import 任何 ui.*/eui）：`TaskStore`
+    类持有引擎，`g_tasks` 单例；任务命令（pause/resume/retry/mirror）、`warmup()`、
+    `startFromUrl()`、`deleteRecord()`、`taskDisplayName()` 全在这里。
+    `startFromUrl` 返回 `StartResult{ok, message}`，不再自己写 UI 全局——消息展示
+    由调用方决定（GUI 状态条 / headless stdout）。
+  - `tinynext.store.ui` / `tinynext.store.dialogs`（**视图 store**，仍无 eui 依赖）：
+    状态消息条 / 页面 / 筛选·排序·分页 / 各弹窗的打开状态与未提交草稿 +
+    `addDownload` / `requestDelete` 提交动作。
+  - 设置页 ~40 个 pending 草稿全局下沉为 `settings_page.cppm` 模块私有状态
+    （本就无人跨模块用）；主题全局（g_dark/g_themeMode/...）归位 `tinynext.ui.theme`。
+  - 纯 string/number 帮助函数从 `ui/utils.cppm` 下移 `tinynext.utils`——headless /
+    CLI / 领域 store 不再 import 任何 ui.* 模块。
+- 换 UI 框架的成本因此收敛为：重写 `src/ui/` 视图层 + 薄绑定；领域 store /
+  引擎 / CLI / headless 原样复用。行为无变化（GUI/CLI/headless 冒烟通过）。
+
 ### 侧边栏任务计数
 - **下载页二级侧边栏显示数量**：「所有」显示任务总数，「下载中」「已完成」各自显示
   对应数量（与列表筛选同一口径 `stateMatches`，右侧圆角小气泡徽标，宽度随位数自适应；
