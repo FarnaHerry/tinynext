@@ -8,6 +8,7 @@ export module tinynext.ui.cards;
 
 import std;
 import tinynext.download_engine;
+import tinynext.i18n;           // tr / trf（状态标签/信息行）
 import tinynext.ui.theme;
 import tinynext.ui.utils;
 import tinynext.ui.widgets;
@@ -32,12 +33,12 @@ export eui::Color stateColor(dl::State state) {
 // 卡片右上角的状态短标签。
 export std::string stateLabel(dl::State state) {
     switch (state) {
-        case dl::State::Queued:      return "等待中";
-        case dl::State::Downloading: return "下载中";
-        case dl::State::Paused:      return "已暂停";
-        case dl::State::Done:        return "已完成";
-        case dl::State::Cancelled:   return "已取消";
-        case dl::State::Failed:      return "失败";
+        case dl::State::Queued:      return tr("等待中", "Queued");
+        case dl::State::Downloading: return tr("下载中", "Downloading");
+        case dl::State::Paused:      return tr("已暂停", "Paused");
+        case dl::State::Done:        return tr("已完成", "Done");
+        case dl::State::Cancelled:   return tr("已取消", "Cancelled");
+        case dl::State::Failed:      return tr("失败", "Failed");
     }
     return "";
 }
@@ -45,19 +46,19 @@ export std::string stateLabel(dl::State state) {
 // 卡片信息行：百分比 · 速度 · 已下载/总大小；非下载中则显示状态/错误。
 export std::string cardInfoText(const dl::TaskView& task) {
     switch (task.state) {
-        case dl::State::Queued: return "等待队列中";
-        case dl::State::Paused: return "已暂停";
-        case dl::State::Cancelled: return "已取消";
+        case dl::State::Queued: return tr("等待队列中", "Waiting in queue");
+        case dl::State::Paused: return tr("已暂停", "Paused");
+        case dl::State::Cancelled: return tr("已取消", "Cancelled");
         case dl::State::Done:
             return task.totalBytes > 0
-                ? "已完成 · " + formatBytes(task.totalBytes)
-                : "已完成";
+                ? std::string(tr("已完成", "Done")) + " · " + formatBytes(task.totalBytes)
+                : tr("已完成", "Done");
         case dl::State::Failed: {
             std::string error = task.error;
             if (error.size() > 36) {
                 error = error.substr(0, 36) + "…";
             }
-            return error.empty() ? "失败" : error;
+            return error.empty() ? tr("失败", "Failed") : error;
         }
         case dl::State::Downloading:
             break;
@@ -84,10 +85,10 @@ export std::string cardInfoText(const dl::TaskView& task) {
         push(speed);
     }
     if (task.connections > 0) {
-        push(std::format("{} 连接", task.connections));
+        push(trf("{} 连接", "{} connections", task.connections));
     }
     if (task.mirrorCount > 0) {
-        push(std::format("镜像 ×{}", task.mirrorCount));
+        push(trf("镜像 ×{}", "mirror ×{}", task.mirrorCount));
     }
     // 源状态告警：镜像任务的源全部失败（aria2 uris 全 error）时提示失效。
     if (!task.mirrors.empty()) {
@@ -96,7 +97,7 @@ export std::string cardInfoText(const dl::TaskView& task) {
             if (m.status != "error") { allFailed = false; break; }
         }
         if (allFailed) {
-            push("镜像全部失效");
+            push(tr("镜像全部失效", "all mirrors failed"));
         }
     }
     if (task.totalBytes > 0) {
@@ -110,16 +111,17 @@ export std::string cardInfoText(const dl::TaskView& task) {
             const std::int64_t seconds =
                 static_cast<std::int64_t>(remaining / task.speedBps);
             if (seconds < 60) {
-                push(std::format("剩余 {}s", seconds));
+                push(trf("剩余 {}s", "{}s left", seconds));
             } else if (seconds < 3600) {
-                push(std::format("剩余 {}m {:02d}s", seconds / 60, seconds % 60));
+                push(trf("剩余 {}m {:02d}s", "{}m {:02d}s left",
+                         seconds / 60, seconds % 60));
             } else {
-                push(std::format("剩余 {}h {:02d}m", seconds / 3600,
-                                 (seconds % 3600) / 60));
+                push(trf("剩余 {}h {:02d}m", "{}h {:02d}m left", seconds / 3600,
+                         (seconds % 3600) / 60));
             }
         }
     }
-    return parts.empty() ? "下载中" : parts;
+    return parts.empty() ? tr("下载中", "Downloading") : parts;
 }
 
 // 卡片式下载项：名称、进度、各种信息在卡片内纵向排布。
@@ -266,7 +268,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
             place("copy", 0xF0C1, false,  // fa-link（复制链接；fa-copy 0xF0C5 像复制文件）
                   [url = task.url] {
                       core::window::setClipboardText(url);
-                      showStatus("已复制链接");
+                      showStatus(tr("已复制链接", "Link copied"));
                   });
             if (showOpenFolder) {
                 place("openfolder", 0xF07C, false,  // fa-folder-open

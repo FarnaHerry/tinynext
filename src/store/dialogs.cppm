@@ -9,6 +9,7 @@ export module tinynext.store.dialogs;
 import std;
 import tinynext.config;
 import tinynext.download_engine;
+import tinynext.i18n;   // tr（提交动作里的提示文案）
 import tinynext.store.tasks;
 import tinynext.store.ui;
 import tinynext.utils;
@@ -47,7 +48,7 @@ export bool addDownload() {
     if (g_addTab == AddTab::Torrent) {
         const std::string torrent = trimText(g_addTorrentPath);
         if (torrent.empty()) {
-            showStatus("请先选择 .torrent 种子文件");
+            showStatus(tr("请先选择 .torrent 种子文件", "Please select a .torrent file first"));
             return false;
         }
         opts.torrentPath = torrent;

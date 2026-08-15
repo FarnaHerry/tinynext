@@ -225,6 +225,24 @@ export void setCloseToTray(bool value) {
     saveConfig(j);
 }
 
+// ---- language / UI locale ----
+
+export enum class Lang { Zh, En };
+
+export Lang lang() {
+    const auto j = loadConfig();
+    if (j.contains("language") && j["language"].is_string()) {
+        if (j["language"].get<std::string>() == "en") return Lang::En;
+    }
+    return Lang::Zh;  // 默认中文
+}
+
+export void setLang(Lang l) {
+    auto j = loadConfig();
+    j["language"] = l == Lang::En ? "en" : "zh";
+    saveConfig(j);
+}
+
 // ---- OS dark-mode detection (for ThemeMode::System) ----
 
 export bool osDark() {
@@ -356,6 +374,7 @@ export struct Aria2Config {
     int btMaxPeers = 0;                  // --bt-max-peers；0 = aria2 默认
     std::string listenPort = "";         // --listen-port；空 = aria2 默认 6881-6999
     bool btEnableLpd = false;            // --bt-enable-lpd（局域网发现）
+    std::string btTracker = "";          // --bt-tracker；换行/逗号分隔的额外 tracker，空=只读种子自带
     // ---- HTTP（daemon 级）----
     std::string header = "";             // --header；多行 → 拆成多个 --header
     std::string loadCookies = "";        // --load-cookies 文件路径
@@ -442,6 +461,9 @@ export Aria2Config aria2Config() {
         if (a.contains("bt_enable_lpd") && a["bt_enable_lpd"].is_boolean()) {
             c.btEnableLpd = a["bt_enable_lpd"].get<bool>();
         }
+        if (a.contains("bt_tracker") && a["bt_tracker"].is_string()) {
+            c.btTracker = a["bt_tracker"].get<std::string>();
+        }
         if (a.contains("header") && a["header"].is_string()) {
             c.header = a["header"].get<std::string>();
         }
@@ -519,6 +541,7 @@ export void setAria2Config(const Aria2Config& c) {
     a["bt_max_peers"] = std::clamp(c.btMaxPeers, 0, 10000);
     a["listen_port"] = c.listenPort;
     a["bt_enable_lpd"] = c.btEnableLpd;
+    a["bt_tracker"] = c.btTracker;
     a["header"] = c.header;
     a["load_cookies"] = c.loadCookies;
     a["save_cookies"] = c.saveCookies;

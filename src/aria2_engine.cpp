@@ -58,6 +58,7 @@ module tinynext.aria2_engine;
 import std;
 import nlohmann.json;
 import tinynext.config;
+import tinynext.i18n;   // tr / trf（引擎错误文案按语言）
 import tinynext.sha256;
 
 namespace dl {
@@ -349,6 +350,28 @@ std::vector<std::pair<std::string, std::string>> daemonExtraOpts(
     if (a2.btMaxPeers > 0) add("bt-max-peers", std::to_string(a2.btMaxPeers));
     if (!a2.listenPort.empty()) add("listen-port", a2.listenPort);
     if (a2.btEnableLpd) add("bt-enable-lpd", "true");
+    // --bt-tracker：额外 tracker 列表（换行/逗号分隔 → 逗号连接）。全局对所有
+    // 磁力/BT 任务生效（aria2 是「额外」tracker，不覆盖种子自带）。
+    if (!a2.btTracker.empty()) {
+        std::string text = a2.btTracker;
+        for (char& ch : text) {
+            if (ch == '\n' || ch == '\r') ch = ',';
+        }
+        std::string joined;
+        std::istringstream ss(text);
+        std::string tok;
+        while (std::getline(ss, tok, ',')) {
+            const std::size_t f = tok.find_first_not_of(" \t\r\n");
+            const std::size_t l = tok.find_last_not_of(" \t\r\n");
+            if (f == std::string::npos) continue;
+            const std::string tt = tok.substr(f, l - f + 1);
+            if (!tt.empty()) {
+                if (!joined.empty()) joined += ",";
+                joined += tt;
+            }
+        }
+        if (!joined.empty()) add("bt-tracker", joined);
+    }
     // ---- HTTP ----
     // --header 每条一个 flag：配置里多行 → 拆成多个 --header 参数。
     if (!a2.header.empty()) {
@@ -617,7 +640,8 @@ bool Aria2Engine::ensureDaemon() const {
 
     const std::string exe = engineExePath();
     if (exe.empty()) {
-        lastError_ = "未找到下载引擎二进制（engines/aria2-next(.exe)）";
+        lastError_ = tr("未找到下载引擎二进制（engines/aria2-next(.exe)）",
+                        "Engine binary not found (engines/aria2-next(.exe))");
         return false;
     }
 
@@ -631,13 +655,15 @@ bool Aria2Engine::ensureDaemon() const {
     if (std::filesystem::exists(manifest, mec)) {
         const std::string expected = lookupExpectedChecksum(manifest);
         if (expected.empty()) {
-            lastError_ = "下载引擎完整性校验失败：清单中无本平台条目（" +
-                         platformTag() + "）";
+            lastError_ = trf("下载引擎完整性校验失败：清单中无本平台条目（{}）",
+                             "Engine integrity check failed: no entry for this platform ({})",
+                             platformTag());
             return false;
         }
         const std::string actual = sha::fileSha256(exe);
         if (actual != expected) {
-            lastError_ = "下载引擎完整性校验失败（checksum 不匹配，二进制可能被篡改）";
+            lastError_ = tr("下载引擎完整性校验失败（checksum 不匹配，二进制可能被篡改）",
+                            "Engine integrity check failed (checksum mismatch, binary may be tampered)");
             return false;
         }
     }
@@ -693,7 +719,7 @@ bool Aria2Engine::ensureDaemon() const {
     if (!CreateProcessW(wExe.c_str(), &cmdLine[0], nullptr, nullptr, TRUE,
                         CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
         if (logFile != INVALID_HANDLE_VALUE) CloseHandle(logFile);
-        lastError_ = "下载引擎进程启动失败";
+        lastError_ = tr("下载引擎进程启动失败", "Engine process failed to start");
         return false;
     }
     if (logFile != INVALID_HANDLE_VALUE) CloseHandle(logFile);
@@ -734,7 +760,7 @@ bool Aria2Engine::ensureDaemon() const {
     if (::posix_spawn(&pid, exe.c_str(), &fa, nullptr, argv.data(), environ) != 0) {
         if (logFd >= 0) ::close(logFd);
         posix_spawn_file_actions_destroy(&fa);
-        lastError_ = "下载引擎进程启动失败";
+        lastError_ = tr("下载引擎进程启动失败", "Engine process failed to start");
         return false;
     }
     posix_spawn_file_actions_destroy(&fa);
@@ -776,7 +802,8 @@ bool Aria2Engine::ensureDaemon() const {
     }
     port_ = 0;
     secret_.clear();
-    lastError_ = "下载引擎启动超时（本地 RPC 未就绪）";
+    lastError_ = tr("下载引擎启动超时（本地 RPC 未就绪）",
+                    "Engine startup timed out (local RPC not ready)");
     return false;
 }
 
@@ -847,7 +874,8 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
         if (bytes.empty()) {
             std::lock_guard<std::mutex> lock(tasksMutex_);
             task->state = State::Failed;
-            task->error = "种子文件读取失败或为空：" + options.torrentPath.string();
+            task->error = tr("种子文件读取失败或为空：", "Torrent file read failed or empty: ") +
+                          options.torrentPath.string();
             tasks_.push_back(task);
             return task->id;
         }
@@ -1013,7 +1041,7 @@ void Aria2Engine::retry(std::uint64_t id) {
         const auto task = findTask(id);
         if (task) {
             task->state = State::Failed;
-            task->error = lastError_.empty() ? "引擎不可用" : lastError_;
+            task->error = lastError_.empty() ? tr("引擎不可用", "Engine unavailable") : lastError_;
         }
         return;
     }
@@ -1059,7 +1087,8 @@ void Aria2Engine::retry(std::uint64_t id) {
                                 std::istreambuf_iterator<char>());
         if (bytes.empty()) {
             task->state = State::Failed;
-            task->error = "种子文件读取失败或为空：" + task->opts.torrentPath.string();
+            task->error = tr("种子文件读取失败或为空：", "Torrent file read failed or empty: ") +
+                          task->opts.torrentPath.string();
             return;
         }
         params = nlohmann::json::array();

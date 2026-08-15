@@ -30,6 +30,7 @@
 
 import std;
 import tinynext.config;
+import tinynext.i18n;   // tr / trf（启动失败提示）
 import tinynext.cli;
 import tinynext.ui.utils;
 import tinynext.ui.theme_watch;
@@ -104,8 +105,10 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
     // 预热失败（如引擎完整性校验不通过）：在 UI 线程给出具体原因。
     if (g_warmupFailed.exchange(false)) {
         const std::string err = g_tasks.lastError();
-        showStatus(err.empty() ? "下载引擎启动失败：历史任务未恢复"
-                               : std::format("下载引擎启动失败：{}", err));
+        showStatus(err.empty() ? tr("下载引擎启动失败：历史任务未恢复",
+                                    "Engine startup failed: history not restored")
+                               : trf("下载引擎启动失败：{}",
+                                     "Engine startup failed: {}", err));
     }
 
     // 事件驱动的杂务消费（取代旧的根 onFrame；onFrame 会让 eui 每帧强制重绘）。

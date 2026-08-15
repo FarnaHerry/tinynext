@@ -40,6 +40,25 @@
 - `DownloadEngine` 接口加 `warmup()`（默认空实现）；headless 不受影响（本来就立即
   start，走 start 内的懒惰 spawn 兜底）。
 
+### 国际化（中文 / English）
+- **新增 `tinynext.i18n` 模块**：`tr(zh, en)` / `trf(zh, en, args...)` 统一中英文案，
+  切换立即生效并持久化（`cfg::setLang`）；覆盖下载页 / 设置页 / 添加·删除弹窗 / 关于 /
+  完成·失败系统通知 / 引擎错误 / headless 终端输出。`trf` 用 `std::vformat` +
+  C++23 运行时格式串支撑带参数的文案。
+- **语言切换改下拉框**：设置页「通用」的语言选择从「中文 / English」两个按钮改为
+  下拉框（复用 `buildListPicker`），选中即生效，语言名按本族语言显示不随 UI 语言翻译。
+
+### BitTorrent tracker 全局配置
+- **`--bt-tracker` 追加 tracker**：设置页「BitTorrent」新增 tracker 输入（换行 / 逗号
+  分隔，多行），作为 daemon 级 `--bt-tracker` 追加额外 tracker（不替换种子自带）。
+  新增配置键 `bt_tracker`。移除添加弹窗里的按任务 tracker 字段（aria2-next 无下载级
+  tracker 选项，统一走全局）。
+
+### 设置页「下载」块
+- **下载目录归位「下载」tab**：下载路径配置固定在设置页「下载」tab 首行（输入框 +
+  系统文件夹选择器），保存 / 恢复默认 / 放弃语义与其它配置一致；不再出现在任务列表
+  工具栏或「通用」tab。
+
 ### 工程
 - **版本升 0.3.4**（`mcpp.toml` `[package].version`，`src/versions.generated.h` 重新生成）。
 

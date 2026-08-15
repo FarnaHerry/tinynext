@@ -18,6 +18,7 @@ import std;
 import tinynext.config;
 import tinynext.aria2_engine;
 import tinynext.download_engine;
+import tinynext.i18n;   // tr / trf（结果消息按语言）
 import tinynext.utils;
 
 // 任务显示名：BT/磁力优先用种子真实名（displayName，bittorrent.info.name）；
@@ -95,7 +96,7 @@ public:
         const std::size_t last = url.find_last_not_of(" \t\r\n");
         url = first == std::string::npos ? "" : url.substr(first, last - first + 1);
         if (url.empty()) {
-            return {false, "请输入下载地址"};
+            return {false, tr("请输入下载地址", "Please enter a download URL")};
         }
 
         const bool magnet = url.starts_with("magnet:");
@@ -103,8 +104,8 @@ public:
         // 本地 .torrent 文件路径也放行（走 addTorrent）。
         const bool torrentFile = url.ends_with(".torrent") && std::filesystem::exists(url);
         if (!isDownloadableSource(url) && !torrentFile) {
-            return {false,
-                    "仅支持 http(s) / ftp(s) / sftp 链接、magnet: 磁力链接或本地 .torrent 文件"};
+            return {false, tr("仅支持 http(s) / ftp(s) / sftp 链接、magnet: 磁力链接或本地 .torrent 文件",
+                              "Only http(s) / ftp(s) / sftp links, magnet: URIs, or local .torrent files are supported")};
         }
         // 下载目录：opts.dirOverride 覆盖（相对路径按配置目录解析）。
         std::filesystem::path dir = opts.dirOverride.empty()
@@ -126,10 +127,12 @@ public:
         if (id == 0) {
             // 引擎给不出原因（如没实现 lastError）时回退到笼统提示。
             const std::string err = engine_->lastError();
-            return {false, err.empty() ? "下载启动失败：引擎不可用"
-                                       : std::format("下载启动失败：{}", err)};
+            return {false, err.empty() ? tr("下载启动失败：引擎不可用",
+                                            "Failed to start download: engine unavailable")
+                                       : trf("下载启动失败：{}",
+                                             "Failed to start download: {}", err)};
         }
-        return {true, std::format("已开始下载 #{} — {}", id, name), id};
+        return {true, trf("已开始下载 #{} — {}", "Started download #{} — {}", id, name), id};
     }
 
     // 兼容重载：仅 URL + 连接数（CLI / inbox 用），其余选项取默认。

@@ -27,6 +27,7 @@ import std;
 import tinynext.config;
 import tinynext.download_engine;
 import tinynext.aria2_engine;
+import tinynext.i18n;   // tr / trf（终端输出按语言）
 import tinynext.utils;  // isDownloadableSource / fileNameFromUrl（纯 std，无 eui 依赖）
 
 namespace headless {
@@ -108,7 +109,10 @@ export int run() {
         if (isDownloadableSource(a) || a.ends_with(".torrent")) urls.push_back(a);
     }
     if (urls.empty()) {
-        std::cerr << "tinynext: --headless 需要一个下载链接（http(s)/ftp(s)/sftp / magnet: / 本地 .torrent）\n";
+        std::cerr << "tinynext: "
+                  << tr("--headless 需要一个下载链接（http(s)/ftp(s)/sftp / magnet: / 本地 .torrent）",
+                        "--headless needs a download link (http(s)/ftp(s)/sftp / magnet: / local .torrent)")
+                  << "\n";
         return 1;
     }
 
@@ -117,7 +121,10 @@ export int run() {
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
 
-    std::cerr << "tinynext: 开始下载 " << urls.size() << " 个任务 → " << dir.string() << "\n";
+    std::cerr << "tinynext: "
+              << trf("开始下载 {} 个任务 → {}", "Starting {} download(s) → {}",
+                     urls.size(), dir.string())
+              << "\n";
 
     for (const auto& url : urls) {
         dl::StartOptions opts;
@@ -134,8 +141,10 @@ export int run() {
         const std::uint64_t id = engine.start(url, dir / name, opts);
         if (id == 0) {
             const std::string err = engine.lastError();
-            std::cerr << "tinynext: 下载启动失败："
-                      << (err.empty() ? "引擎不可用" : err) << "：" << url << "\n";
+            std::cerr << "tinynext: "
+                      << trf("下载启动失败：{}：{}", "Download start failed: {}: {}",
+                             (err.empty() ? tr("引擎不可用", "Engine unavailable") : err), url)
+                      << "\n";
             engine.shutdown();
             return 1;
         }
@@ -164,12 +173,12 @@ export int run() {
     const auto tasks = engine.snapshot();
     for (const auto& t : tasks) {
         if (t.state == dl::State::Done) {
-            std::cerr << "tinynext: [完成] " << t.destPath.string() << "\n";
+            std::cerr << "tinynext: " << tr("[完成]", "[Done]") << " " << t.destPath.string() << "\n";
         } else if (t.state == dl::State::Failed) {
-            std::cerr << "tinynext: [失败] " << t.destPath.string()
-                      << " — " << (t.error.empty() ? "未知错误" : t.error) << "\n";
+            std::cerr << "tinynext: " << tr("[失败]", "[Failed]") << " " << t.destPath.string()
+                      << " — " << (t.error.empty() ? tr("未知错误", "Unknown error") : t.error) << "\n";
         } else if (t.state == dl::State::Cancelled) {
-            std::cerr << "tinynext: [已取消] " << t.destPath.string() << "\n";
+            std::cerr << "tinynext: " << tr("[已取消]", "[Cancelled]") << " " << t.destPath.string() << "\n";
         }
     }
 

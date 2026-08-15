@@ -14,6 +14,7 @@ export module tinynext.ui.housekeep;
 
 import std;
 import tinynext.download_engine;  // dl::State（通知的状态迁移判断）
+import tinynext.i18n;             // tr / trf（下载通知文案）
 import tinynext.store.tasks;      // g_tasks.snapshot + taskDisplayName
 import tinynext.store.ui;         // statusExpired
 import tinynext.ui.platform;      // notifyDownload
@@ -43,9 +44,11 @@ void checkDownloadNotifications() {
             if (wasActive && prev != t.state) {
                 const std::string name = taskDisplayName(t);
                 if (t.state == dl::State::Done) {
-                    notifyDownload("下载完成", name + " 已下载完成");
+                    notifyDownload(tr("下载完成", "Download complete"),
+                                   trf("{} 已下载完成", "{} downloaded", name));
                 } else if (t.state == dl::State::Failed) {
-                    notifyDownload("下载失败", name + " 下载失败");
+                    notifyDownload(tr("下载失败", "Download failed"),
+                                   trf("{} 下载失败", "{} failed", name));
                 }
             }
         }

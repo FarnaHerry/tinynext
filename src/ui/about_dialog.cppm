@@ -8,6 +8,7 @@ export module tinynext.ui.about_dialog;
 
 import std;
 import tinynext.config;
+import tinynext.i18n;   // tr（关于弹窗文案）
 import tinynext.ui.theme;
 import tinynext.ui.utils;
 import tinynext.store.dialogs;  // g_aboutOpen
@@ -48,7 +49,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
             components::text(ui, "about.title")
                 .position(16.0f, 14.0f)
                 .size(dlgW - 32.0f, 22.0f)
-                .text("关于 TinyNext")
+                .text(tr("关于 TinyNext", "About TinyNext"))
                 .fontSize(15.0f)
                 .lineHeight(22.0f)
                 .color(theme.titleText)
@@ -62,12 +63,12 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
                 std::string("EUI-NEO ") + std::string(cfg::kEuiVersion);
             struct AboutRow { const char* label; std::string value; };
             const AboutRow kAboutRows[] = {
-                {"应用名称", "TinyNext 下载器"},
-                {"版本", appVersion},
-                {"界面框架", uiVersion},
-                {"下载引擎", "aria2-next 2.5.5"},
-                {"网络传输", "本地 socket（无外部依赖）"},
-                {"构建工具", "mcpp（C++23）"},
+                {tr("应用名称", "App name"), tr("TinyNext 下载器", "TinyNext Downloader")},
+                {tr("版本", "Version"), appVersion},
+                {tr("界面框架", "UI framework"), uiVersion},
+                {tr("下载引擎", "Engine"), "aria2-next 2.5.5"},
+                {tr("网络传输", "Transport"), tr("本地 socket（无外部依赖）", "Local socket (no external deps)")},
+                {tr("构建工具", "Build tool"), "mcpp（C++23）"},
             };
             float rowY = 40.0f;
             for (const auto& row : kAboutRows) {
@@ -94,17 +95,17 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
             components::text(ui, "about.links.header")
                 .position(16.0f, rowY + 4.0f)
                 .size(dlgW - 32.0f, 16.0f)
-                .text("项目主页")
+                .text(tr("项目主页", "Project home"))
                 .fontSize(11.0f)
                 .lineHeight(16.0f)
                 .color(theme.statusText)
                 .build();
 
             struct LinkRow { const char* label; const char* url; };
-            static const LinkRow kLinks[] = {
-                {"TinyNext 下载器", "https://github.com/FarnaHerry/tinynext"},
-                {"mcpp 构建工具", "https://github.com/mcpp-community/mcpp"},
-                {"EUI-NEO 界面框架", "https://github.com/sudoevolve/EUI-NEO"},
+            const LinkRow kLinks[] = {
+                {tr("TinyNext 下载器", "TinyNext Downloader"), "https://github.com/FarnaHerry/tinynext"},
+                {tr("mcpp 构建工具", "mcpp build tool"), "https://github.com/mcpp-community/mcpp"},
+                {tr("EUI-NEO 界面框架", "EUI-NEO UI framework"), "https://github.com/sudoevolve/EUI-NEO"},
             };
             float linkY = rowY + 22.0f;
             for (const auto& link : kLinks) {
@@ -122,7 +123,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
             components::button(ui, "about.close")
                 .position((dlgW - 76.0f) * 0.5f, dlgH - 30.0f)
                 .size(76.0f, 24.0f)
-                .text("关闭")
+                .text(tr("关闭", "Close"))
                 .fontSize(12.0f)
                 .theme(theme.components, true)
                 .onClick([] { g_aboutOpen = false; })
