@@ -93,17 +93,20 @@ public:
     // housekeep 等后台线程驱动。默认空实现。
     virtual void pollProgress() {}
 
-    // 向已有任务追加镜像源（aria2.changeUri add）。仅活动任务有效；
-    // 引擎不支持时是 no-op。返回是否成功。
-    virtual bool addMirror(std::uint64_t id, const std::string& url) {
+    // 向已有任务追加镜像源（aria2.changeUri add）。仅活动任务有效。RPC 在后台
+    // 线程执行，结果经 onDone(bool) 回传（后台线程调用，UI 层自行 marshal，如
+    // postStatus + requestUiUpdate）。引擎不支持时立即回调 false。
+    virtual void addMirror(std::uint64_t id, const std::string& url,
+                           std::function<void(bool)> onDone) {
         (void)id; (void)url;
-        return false;
+        if (onDone) onDone(false);
     }
 
-    // 从已有任务移除镜像源（aria2.changeUri delete）。仅活动任务有效。
-    virtual bool removeMirror(std::uint64_t id, const std::string& url) {
+    // 从已有任务移除镜像源（aria2.changeUri delete）。仅活动任务有效。同上回调式。
+    virtual void removeMirror(std::uint64_t id, const std::string& url,
+                              std::function<void(bool)> onDone) {
         (void)id; (void)url;
-        return false;
+        if (onDone) onDone(false);
     }
 
     // True while any task is queued or running.

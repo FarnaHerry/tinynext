@@ -45,8 +45,10 @@ public:
     void pauseAll() override;
     void resumeAll() override;
     void retry(std::uint64_t id) override;
-    bool addMirror(std::uint64_t id, const std::string& url) override;
-    bool removeMirror(std::uint64_t id, const std::string& url) override;
+    void addMirror(std::uint64_t id, const std::string& url,
+                   std::function<void(bool)> onDone) override;
+    void removeMirror(std::uint64_t id, const std::string& url,
+                      std::function<void(bool)> onDone) override;
     std::vector<TaskView> snapshot() const override;
     void pollProgress() override;
     bool busy() const override;
@@ -62,6 +64,11 @@ private:
     void refreshStates() const;     // poll tellStatus for live tasks (~1 Hz)
     std::shared_ptr<Task> findTask(std::uint64_t id) const;
     std::filesystem::path makeUniqueDest(const std::filesystem::path& dest) const;
+    // 后台命令队列：任务动作（暂停/继续/重试/删除/镜像）的 rpcCall 在独立线程跑，
+    // UI 线程只乐观更新状态后立即返回，绝不发网络请求。
+    void enqueue(std::function<void()> fn);
+    void commandLoop();
+    void retryOnWorker(std::uint64_t id);   // retry 的实际流程（命令线程执行）
     // 用一条 tellStatus 的 JSON 刷新任务字段（含 status→State 映射）。调用方须持锁。
     void applyTellStatus(const std::shared_ptr<Task>& task, const nlohmann::json& st) const;
     // WebSocket 推送事件回调（IXWebSocket 后台线程）。持锁按 gid 更新状态。
@@ -83,6 +90,15 @@ private:
     mutable void* processHandle_ = nullptr;   // HANDLE on Windows
     mutable std::chrono::steady_clock::time_point lastPoll_{};
     mutable std::unique_ptr<WsNotifier> ws_;  // 事件监听（仅收推送，请求仍走 HTTP）
+
+    // 命令队列 worker（串行消费动作 rpcCall，FIFO）。cmdShutdown_ 置位后 worker
+    // 丢弃未处理命令并退出；shutdown() 在取 daemonMutex_ 之前 join，避免 worker 正
+    // 调 ensureDaemon 等 daemonMutex_ 时死锁。
+    mutable std::thread cmdThread_;
+    mutable std::mutex cmdMutex_;
+    mutable std::condition_variable cmdCv_;
+    mutable std::deque<std::function<void()>> cmdQueue_;
+    mutable bool cmdShutdown_ = false;
 };
 
 } // namespace dl

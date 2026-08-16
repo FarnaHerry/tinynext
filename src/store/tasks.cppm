@@ -75,11 +75,13 @@ public:
     void pauseAll() { engine_->pauseAll(); }
     void resumeAll() { engine_->resumeAll(); }
     void retry(std::uint64_t id) { engine_->retry(id); }
-    bool addMirror(std::uint64_t id, const std::string& url) {
-        return engine_->addMirror(id, url);
+    void addMirror(std::uint64_t id, const std::string& url,
+                   std::function<void(bool)> onDone) {
+        engine_->addMirror(id, url, std::move(onDone));
     }
-    bool removeMirror(std::uint64_t id, const std::string& url) {
-        return engine_->removeMirror(id, url);
+    void removeMirror(std::uint64_t id, const std::string& url,
+                      std::function<void(bool)> onDone) {
+        engine_->removeMirror(id, url, std::move(onDone));
     }
 
     // 删除任务记录（daemon 会话 + 本地任务表）并清理下载缓存（.aria2 控制

@@ -16,6 +16,13 @@
   现在 `snapshot()` 只读缓存、立即返回；进度轮询拆成显式 `pollProgress()`，由
   housekeep 后台线程驱动（~1s 节流），headless 等待循环显式调用。UI 渲染路径彻底
   不再发任何 RPC。
+- **任务命令异步化**：暂停 / 继续 / 全部暂停 / 全部继续 / 取消 / 删除 / 重新下载 /
+  镜像增删的 `rpcCall` 全部挪到引擎内部的后台命令队列线程（懒创建 worker、FIFO
+  串行），UI 线程只做持锁快速校验 + 乐观更新状态后立即返回，不再发任何网络请求；
+  结果经回调 / 状态信箱回 UI 提示。重新下载（retry）整个流程（ensureDaemon + 重建
+  选项 + addUri/addTorrent）也整体在命令线程跑；`shutdown` 先 join 命令线程再清理
+  daemon（持锁 join 会与 worker 的 ensureDaemon 死锁）。`start()` 保持同步（返回
+  任务 id 需要 RPC 结果），每次点击一次本地往返。
 
 ### 工程
 - **版本升 0.3.5**（`mcpp.toml` `[package].version`，`src/versions.generated.h` 重新生成）。

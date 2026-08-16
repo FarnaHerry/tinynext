@@ -848,12 +848,15 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                                         .fontSize(10.0f)
                                         .theme(theme.components, false)
                                         .onClick([id = task->id, uri] {
-                                            if (g_tasks.removeMirror(id, uri)) {
-                                                showStatus(tr("已移除镜像源", "Mirror removed"));
-                                            } else {
-                                                showStatus(tr("移除失败（任务非活动或源不存在）",
-                                                              "Remove failed (inactive task or source missing)"));
-                                            }
+                                            // 移除走后台 RPC，结果经状态信箱回 UI
+                                            // 线程提示（文案先按当前语言解析成静态串）。
+                                            const char* okMsg = tr("已移除镜像源", "Mirror removed");
+                                            const char* failMsg = tr("移除失败（任务非活动或源不存在）",
+                                                                     "Remove failed (inactive task or source missing)");
+                                            g_tasks.removeMirror(id, uri, [okMsg, failMsg](bool ok) {
+                                                postStatus(ok ? okMsg : failMsg);
+                                                core::platform::requestUiUpdate();
+                                            });
                                         })
                                         .build();
                                 }
@@ -881,6 +884,11 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                 .build();
 
             // ---- 添加行 ----
+            // 消费后台 addMirror 成功标志：清空输入（本帧渲染前，避免跨线程写
+            // g_mirrorAddText）。
+            if (g_mirrorAddClearPending.exchange(false)) {
+                g_mirrorAddText.clear();
+            }
             components::text(ui, "mirror.add.label")
                 .position(16.0f, 250.0f)
                 .size(60.0f, 26.0f)
@@ -917,13 +925,16 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                                           "Mirror must be an http(s)/ftp(s)/sftp link"));
                             return;
                         }
-                        if (g_tasks.addMirror(g_mirrorTaskId, url)) {
-                            showStatus(tr("已添加镜像源", "Mirror added"));
-                            g_mirrorAddText.clear();
-                        } else {
-                            showStatus(tr("添加失败（任务非活动或地址无效）",
-                                          "Add failed (inactive task or invalid URL)"));
-                        }
+                        // 添加走后台 RPC：成功由回调置 pending 标志让 UI 线程清空输入
+                        // （g_mirrorAddText 只允许 UI 线程写），结果状态经信箱回 UI。
+                        const char* okMsg = tr("已添加镜像源", "Mirror added");
+                        const char* failMsg = tr("添加失败（任务非活动或地址无效）",
+                                                 "Add failed (inactive task or invalid URL)");
+                        g_tasks.addMirror(g_mirrorTaskId, url, [okMsg, failMsg](bool ok) {
+                            if (ok) g_mirrorAddClearPending.store(true);
+                            postStatus(ok ? okMsg : failMsg);
+                            core::platform::requestUiUpdate();
+                        });
                     })
                     .build();
             }

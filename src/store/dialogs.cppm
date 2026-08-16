@@ -25,6 +25,9 @@ export std::string g_urlText;    // 添加弹窗的 URL 输入（直链 tab；�
 export bool g_mirrorOpen = false;
 export std::uint64_t g_mirrorTaskId = 0;
 export std::string g_mirrorAddText;
+// 后台线程（addMirror 回调）置位：镜像添加成功后，UI 线程清空输入框。原子——
+// g_mirrorAddText 本身只允许 UI 线程读写，后台线程只能经这个 flag 通知。
+export std::atomic<bool> g_mirrorAddClearPending{false};
 
 // ---- 添加下载弹窗 ----
 

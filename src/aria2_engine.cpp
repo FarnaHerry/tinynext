@@ -931,27 +931,73 @@ std::shared_ptr<Aria2Engine::Task> Aria2Engine::findTask(std::uint64_t id) const
     return nullptr;
 }
 
-void Aria2Engine::cancel(std::uint64_t id) {
-    std::lock_guard<std::mutex> lock(tasksMutex_);
-    auto task = findTask(id);
-    if (!task || !daemonSpawned_) return;
-    try {
-        rpcCall(port_, secret_, "aria2.remove", nlohmann::json::array({task->gid}));
-    } catch (...) {
-        try {
-            rpcCall(port_, secret_, "aria2.forceRemove", nlohmann::json::array({task->gid}));
-        } catch (...) {}
+// ---- 后台命令队列：任务动作的 rpcCall 走独立线程，UI 线程只乐观更新后立即返回 ----
+
+void Aria2Engine::enqueue(std::function<void()> fn) {
+    {
+        std::lock_guard<std::mutex> lock(cmdMutex_);
+        if (!cmdThread_.joinable()) {
+            // 懒创建：首个命令提交时才起 worker（第二实例 boot 不会白开线程）。
+            cmdThread_ = std::thread([this] { commandLoop(); });
+        }
+        cmdQueue_.push_back(std::move(fn));
     }
-    task->state = State::Cancelled;
-    task->speedBps = 0.0;
+    cmdCv_.notify_one();
+}
+
+void Aria2Engine::commandLoop() {
+    for (;;) {
+        std::function<void()> fn;
+        {
+            std::unique_lock<std::mutex> lock(cmdMutex_);
+            cmdCv_.wait(lock, [this] { return cmdShutdown_ || !cmdQueue_.empty(); });
+            if (cmdShutdown_) break;  // 退出时丢弃所有未处理命令
+            fn = std::move(cmdQueue_.front());
+            cmdQueue_.pop_front();
+        }
+        try {
+            if (fn) fn();
+        } catch (...) {}  // 单条命令异常不拖垮队列
+    }
+}
+
+void Aria2Engine::cancel(std::uint64_t id) {
+    std::string gid;
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        auto task = findTask(id);
+        if (!task || !daemonSpawned_) return;
+        gid = task->gid;
+        // 乐观更新：UI 立即反馈已取消；rpc 失败（daemon 无响应）由 poll/WS 收敛回真实态。
+        task->state = State::Cancelled;
+        task->speedBps = 0.0;
+    }
+    if (gid.empty()) return;
+    enqueue([this, gid] {
+        try {
+            rpcCall(port_, secret_, "aria2.remove", nlohmann::json::array({gid}));
+        } catch (...) {
+            try {
+                rpcCall(port_, secret_, "aria2.forceRemove", nlohmann::json::array({gid}));
+            } catch (...) {}
+        }
+    });
 }
 
 void Aria2Engine::remove(std::uint64_t id) {
-    std::lock_guard<std::mutex> lock(tasksMutex_);
-    auto task = findTask(id);
-    if (!task) return;
-    const std::string gid = task->gid;
-    if (daemonSpawned_ && !gid.empty()) {
+    std::string gid;
+    bool needsDaemon = false;
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        auto task = findTask(id);
+        if (!task) return;
+        gid = task->gid;
+        needsDaemon = daemonSpawned_ && !gid.empty();
+        // 立即从本地列表移除（UI 即时消失）；daemon 清理在后台线程做。
+        std::erase_if(tasks_, [&](const std::shared_ptr<Task>& t) { return t->id == id; });
+    }
+    if (!needsDaemon) return;
+    enqueue([this, gid] {
         // 活动/等待/暂停任务：forceRemove 停掉并移出队列（已完成等已停止任务会失败，
         // 由下面的 removeDownloadResult 兜底清除）。
         try {
@@ -968,65 +1014,86 @@ void Aria2Engine::remove(std::uint64_t id) {
         try {
             rpcCall(port_, secret_, "aria2.saveSession", nlohmann::json::array());
         } catch (...) {}
-    }
-    std::erase_if(tasks_, [&](const std::shared_ptr<Task>& t) { return t->id == id; });
+    });
 }
 
 void Aria2Engine::pause(std::uint64_t id) {
-    std::lock_guard<std::mutex> lock(tasksMutex_);
-    auto task = findTask(id);
-    if (!task || !daemonSpawned_) return;
-    if (task->state != State::Queued && task->state != State::Downloading) return;
-    try {
-        rpcCall(port_, secret_, "aria2.pause", nlohmann::json::array({task->gid}));
+    std::string gid;
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        auto task = findTask(id);
+        if (!task || !daemonSpawned_) return;
+        if (task->state != State::Queued && task->state != State::Downloading) return;
+        gid = task->gid;
+        // 乐观更新
         task->state = State::Paused;
         task->speedBps = 0.0;
-    } catch (...) {}
+    }
+    if (gid.empty()) return;
+    enqueue([this, gid] {
+        try {
+            rpcCall(port_, secret_, "aria2.pause", nlohmann::json::array({gid}));
+        } catch (...) {}
+    });
 }
 
 void Aria2Engine::resume(std::uint64_t id) {
-    std::lock_guard<std::mutex> lock(tasksMutex_);
-    auto task = findTask(id);
-    if (!task || !daemonSpawned_) return;
-    if (task->state != State::Paused) return;
-    try {
-        rpcCall(port_, secret_, "aria2.unpause", nlohmann::json::array({task->gid}));
-        task->state = State::Downloading;
-    } catch (...) {}
+    std::string gid;
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        auto task = findTask(id);
+        if (!task || !daemonSpawned_) return;
+        if (task->state != State::Paused) return;
+        gid = task->gid;
+        task->state = State::Downloading;  // 乐观更新
+    }
+    if (gid.empty()) return;
+    enqueue([this, gid] {
+        try {
+            rpcCall(port_, secret_, "aria2.unpause", nlohmann::json::array({gid}));
+        } catch (...) {}
+    });
 }
 
 void Aria2Engine::pauseAll() {
-    if (!daemonSpawned_) return;
-    std::lock_guard<std::mutex> lock(tasksMutex_);
-    // 全部挂起：aria2.pauseAll 会把所有活动/等待任务置为 paused；本地状态同步
-    // 更新。已有 paused 的调用 pauseAll 后仍为 paused，本地判断不变。
-    try {
-        rpcCall(port_, secret_, "aria2.pauseAll", nlohmann::json::array());
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        if (!daemonSpawned_) return;
+        // 全部挂起：乐观置 paused（daemon 的 pauseAll 把所有活动/等待任务置为
+        // paused；已有 paused 的调用后仍为 paused，本地判断不变）。
         for (const auto& task : tasks_) {
             if (task->state == State::Queued || task->state == State::Downloading) {
                 task->state = State::Paused;
                 task->speedBps = 0.0;
             }
         }
-    } catch (...) {}
+    }
+    enqueue([this] {
+        try {
+            rpcCall(port_, secret_, "aria2.pauseAll", nlohmann::json::array());
+        } catch (...) {}
+    });
 }
 
 void Aria2Engine::resumeAll() {
-    if (!daemonSpawned_) return;
-    std::lock_guard<std::mutex> lock(tasksMutex_);
-    try {
-        rpcCall(port_, secret_, "aria2.unpauseAll", nlohmann::json::array());
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        if (!daemonSpawned_) return;
         for (const auto& task : tasks_) {
             if (task->state == State::Paused) {
-                task->state = State::Downloading;
+                task->state = State::Downloading;  // 乐观更新
             }
         }
-    } catch (...) {}
+    }
+    enqueue([this] {
+        try {
+            rpcCall(port_, secret_, "aria2.unpauseAll", nlohmann::json::array());
+        } catch (...) {}
+    });
 }
 
 void Aria2Engine::retry(std::uint64_t id) {
-    // 状态检查在锁内（WS 线程可能改状态）。ensureDaemon() 内部会调 recoverSession()
-    // （那里取锁），所以必须在本方法取锁之前调用，避免非递归互斥量死锁。
+    // 状态检查在锁内（WS 线程可能改状态），只拦截非 Failed/Cancelled。
     bool allowed = false;
     {
         std::lock_guard<std::mutex> lock(tasksMutex_);
@@ -1035,7 +1102,15 @@ void Aria2Engine::retry(std::uint64_t id) {
                   (task->state == State::Failed || task->state == State::Cancelled);
     }
     if (!allowed) return;
+    // 整个重下流程（ensureDaemon + 重建选项 + addUri/addTorrent）挪到后台命令线程，
+    // UI 线程只做状态检查立即返回。锁纪律不变：ensureDaemon 先于取 tasksMutex_
+    // （非递归互斥量死锁约束，见 retryOnWorker），worker 内串行执行。
+    enqueue([this, id] { retryOnWorker(id); });
+}
 
+void Aria2Engine::retryOnWorker(std::uint64_t id) {
+    // 与 dispatch 的注释一致：ensureDaemon() 内部会调 recoverSession()（那里取
+    // tasksMutex_），所以必须先调 ensureDaemon 再取锁，避免非递归互斥量死锁。
     if (!ensureDaemon()) {
         std::lock_guard<std::mutex> lock(tasksMutex_);
         const auto task = findTask(id);
@@ -1123,47 +1198,79 @@ void Aria2Engine::retry(std::uint64_t id) {
 // 镜像源管理：aria2.changeUri 只对活动任务（active/waiting/paused）有效。注意
 // aria2-next 的 changeUri 签名与标准 aria2 不同：params = [gid, fileIndex, delUris,
 // addUris, pos?]（token 由 rpcCall 前置）。fileIndex 恒为 1（单文件任务）。
-bool Aria2Engine::addMirror(std::uint64_t id, const std::string& url) {
-    std::lock_guard<std::mutex> lock(tasksMutex_);
-    auto task = findTask(id);
-    if (!task || !daemonSpawned_ || task->gid.empty()) return false;
-    if (task->state != State::Queued && task->state != State::Downloading &&
-        task->state != State::Paused) {
-        return false;
-    }
-    try {
-        const nlohmann::json res = rpcCall(
-            port_, secret_, "aria2.changeUri",
-            nlohmann::json::array({task->gid, 1, nlohmann::json::array(),
-                                   nlohmann::json::array({url})}));
-        // 返回 [deletedCount, addedCount]。
-        if (res.is_array() && res.size() == 2 && res[1].get<int>() > 0) {
-            task->opts.mirrors.push_back(url);  // 记录到配置镜像（retry 复用）
-            return true;
+// 状态校验在 UI 线程（持锁快速检查），changeUri RPC 在后台命令线程执行，结果经
+// onDone 回传（后台线程调用，UI 层自行 marshal）。
+void Aria2Engine::addMirror(std::uint64_t id, const std::string& url,
+                            std::function<void(bool)> onDone) {
+    std::string gid;
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        auto task = findTask(id);
+        if (!task || !daemonSpawned_ || task->gid.empty()) {
+            if (onDone) onDone(false);
+            return;
         }
-    } catch (...) {}
-    return false;
+        if (task->state != State::Queued && task->state != State::Downloading &&
+            task->state != State::Paused) {
+            if (onDone) onDone(false);
+            return;
+        }
+        gid = task->gid;
+    }
+    enqueue([this, id, gid, url, onDone] {
+        try {
+            const nlohmann::json res = rpcCall(
+                port_, secret_, "aria2.changeUri",
+                nlohmann::json::array({gid, 1, nlohmann::json::array(),
+                                       nlohmann::json::array({url})}));
+            // 返回 [deletedCount, addedCount]。
+            if (res.is_array() && res.size() == 2 && res[1].get<int>() > 0) {
+                std::lock_guard<std::mutex> lock(tasksMutex_);
+                if (const auto task = findTask(id)) {
+                    task->opts.mirrors.push_back(url);  // 记录到配置镜像（retry 复用）
+                }
+                if (onDone) onDone(true);
+                return;
+            }
+        } catch (...) {}
+        if (onDone) onDone(false);
+    });
 }
 
-bool Aria2Engine::removeMirror(std::uint64_t id, const std::string& url) {
-    std::lock_guard<std::mutex> lock(tasksMutex_);
-    auto task = findTask(id);
-    if (!task || !daemonSpawned_ || task->gid.empty()) return false;
-    if (task->state != State::Queued && task->state != State::Downloading &&
-        task->state != State::Paused) {
-        return false;
-    }
-    try {
-        const nlohmann::json res = rpcCall(
-            port_, secret_, "aria2.changeUri",
-            nlohmann::json::array({task->gid, 1, nlohmann::json::array({url}),
-                                   nlohmann::json::array()}));
-        if (res.is_array() && res.size() == 2 && res[0].get<int>() > 0) {
-            std::erase(task->opts.mirrors, url);  // 同步配置镜像
-            return true;
+void Aria2Engine::removeMirror(std::uint64_t id, const std::string& url,
+                               std::function<void(bool)> onDone) {
+    std::string gid;
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        auto task = findTask(id);
+        if (!task || !daemonSpawned_ || task->gid.empty()) {
+            if (onDone) onDone(false);
+            return;
         }
-    } catch (...) {}
-    return false;
+        if (task->state != State::Queued && task->state != State::Downloading &&
+            task->state != State::Paused) {
+            if (onDone) onDone(false);
+            return;
+        }
+        gid = task->gid;
+    }
+    enqueue([this, id, gid, url, onDone] {
+        try {
+            const nlohmann::json res = rpcCall(
+                port_, secret_, "aria2.changeUri",
+                nlohmann::json::array({gid, 1, nlohmann::json::array({url}),
+                                       nlohmann::json::array()}));
+            if (res.is_array() && res.size() == 2 && res[0].get<int>() > 0) {
+                std::lock_guard<std::mutex> lock(tasksMutex_);
+                if (const auto task = findTask(id)) {
+                    std::erase(task->opts.mirrors, url);  // 同步配置镜像
+                }
+                if (onDone) onDone(true);
+                return;
+            }
+        } catch (...) {}
+        if (onDone) onDone(false);
+    });
 }
 
 // 重启后重建任务表：daemon 用 --input-file 载入了 --save-session 的未完成任务，
@@ -1459,6 +1566,16 @@ void Aria2Engine::handleWsEvent(const std::string& method, const std::string& gi
 }
 
 void Aria2Engine::shutdown() {
+    // 先停命令队列（必须在取 daemonMutex_ 之前 join：worker 若正在 retryOnWorker
+    // 里调 ensureDaemon 会等 daemonMutex_，此时持锁 join 会死锁）。置位后 worker
+    // 丢弃未处理命令并退出；当前命令执行完才返回。
+    {
+        std::lock_guard<std::mutex> lock(cmdMutex_);
+        cmdShutdown_ = true;
+    }
+    cmdCv_.notify_all();
+    if (cmdThread_.joinable()) cmdThread_.join();
+
     // 与可能仍在跑的 warmup 后台线程互斥（它正在 ensureDaemon 里等 RPC 就绪）。
     std::lock_guard<std::mutex> daemonLock(daemonMutex_);
     if (daemonSpawned_) {
