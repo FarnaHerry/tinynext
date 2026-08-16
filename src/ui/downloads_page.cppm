@@ -84,14 +84,18 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const int start = (g_page - 1) * g_pageSize;
     const int end = std::min(totalCount, start + g_pageSize);
 
-    // ---- 布局尺寸（岛屿卡片风：内容区两张浮岛卡片）----
-    // 图标栏占满左缘（整高竖条、不套卡片），任务列表子侧边栏 + 内容大卡两张浮岛
-    // 紧贴图标栏右侧，上下各留 kIslandVInset 空隙（卡片感）；仅右侧留 kRightMargin。
+    // ---- 布局尺寸（岛屿卡片风：整页一张浮岛卡）----
+    // 图标栏占满左缘（整高竖条、不套卡片）；任务列表子侧边栏 + 内容区同属一张浮岛卡
+    // （紧贴图标栏右侧，上下各留 kIslandVInset 空隙），侧边栏与内容区之间用一条竖向
+    // 分隔线区分，不再各自成卡。仅右侧留 kRightMargin。
     const float islandTop = kIslandVInset;
     const float islandH = screen.height - 2.0f * kIslandVInset;
     const float subX = kRailWidth;
     const float contentX = subX + kSubSidebarWidth + kIslandGap;
     const float contentW = screen.width - contentX - kRightMargin;
+    // 整页一张岛：从侧边栏左缘到内容区右缘（含原两卡之间的空隙），竖线落在交界处。
+    const float islandW = contentX + contentW - subX;
+    const float dividerX = subX + kSubSidebarWidth + kIslandGap * 0.5f;
 
     // 内容大卡：内边距 kPanelPad，卡内依次是 工具栏 / 任务列表 / 状态消息 / 翻页。
     const float pad = kPanelPad;
@@ -102,15 +106,17 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const float listX = contentX + pad;
     const float listW = contentW - 2.0f * pad;
 
-    drawPanel(ui, "dl.content.panel", contentX, islandTop, contentW, islandH, theme);
+    // 整页一张岛卡（取代原「侧边栏岛卡 + 内容岛卡」两张），侧边栏与内容以竖线分隔。
+    drawPanel(ui, "dl.island", subX, islandTop, islandW, islandH, theme);
+    drawVDivider(ui, "dl.island.vdivider", dividerX, islandTop, islandH, theme);
 
-    // ---- 任务列表子侧边栏：所有 / 下载中 / 已完成（独立岛卡片）----
+    // ---- 任务列表子侧边栏：所有 / 下载中 / 已完成（同一张岛卡，右缘竖线分隔）----
     ui.stack("sub.filter")
         .position(subX, islandTop)
         .size(kSubSidebarWidth, islandH)
         .zIndex(4)
         .content([&] {
-            drawPanel(ui, "sub.filter.bg", 0, 0, kSubSidebarWidth, islandH, theme);
+            // 侧边栏底并入整页岛卡（drawPanel "dl.island"），这里不再单独画卡。
 
             components::text(ui, "sub.filter.label")
                 .position(9.0f, 10.0f)

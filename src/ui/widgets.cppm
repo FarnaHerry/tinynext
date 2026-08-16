@@ -32,6 +32,18 @@ export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
         .build();
 }
 
+// 单岛布局里的竖向分隔线：同一张岛卡内，把二级侧边栏与内容区区分开（整页一张岛、
+// 不再各自成卡，用竖线分隔）。细 1px 竖线，上下内缩避免与岛卡圆角/边缘冲突。
+export void drawVDivider(eui::Ui& ui, const std::string& id, float x, float y,
+                         float h, const AppTheme& theme) {
+    constexpr float kInset = 8.0f;
+    ui.rect(id)
+        .position(x, y + kInset)
+        .size(1.0f, std::max(0.0f, h - 2.0f * kInset))
+        .color(components::theme::withOpacity(theme.components.border, 0.45f))
+        .build();
+}
+
 // 工具栏图标按钮：非主按钮默认无描边，hover 时浮现细边框 + 轻微底色（利用
 // ui.state 持久存 hover，每帧读它切边框颜色，transition 过渡）；primary 时一直
 // 主色填充（保持默认描边，如 ➕ 添加按钮）。

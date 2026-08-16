@@ -162,17 +162,24 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     const float subX = kRailWidth;
     const float contentX = subX + kSubSidebarWidth + kIslandGap;
     const float contentW = screen.width - contentX - kRightMargin;
+    // 整页一张岛：侧边栏 + 内容区同卡，交界处竖线分隔（取代原两张岛卡）。
+    const float islandW = contentX + contentW - subX;
+    const float dividerX = subX + kSubSidebarWidth + kIslandGap * 0.5f;
     const float pad = kPanelPad;
     const float infoX = contentX + pad;
     const float innerW = contentW - 2.0f * pad;
 
-    // ---- 配置分组子侧边栏（独立岛卡片，镜像下载页的任务列表子侧边栏）----
+    // 整页一张岛卡（取代原「settings.sub.bg + settings.panel」两张），竖线分隔。
+    drawPanel(ui, "settings.island", subX, islandTop, islandW, islandH, theme);
+    drawVDivider(ui, "settings.island.vdivider", dividerX, islandTop, islandH, theme);
+
+    // ---- 配置分组子侧边栏（同一张岛卡，镜像下载页的任务列表子侧边栏）----
     ui.stack("settings.sub")
         .position(subX, islandTop)
         .size(kSubSidebarWidth, islandH)
         .zIndex(4)
         .content([&] {
-            drawPanel(ui, "settings.sub.bg", 0, 0, kSubSidebarWidth, islandH, theme);
+            // 侧边栏底并入整页岛卡（drawPanel "settings.island"），这里不再单独画卡。
 
             components::text(ui, "settings.sub.label")
                 .position(9.0f, 10.0f)
@@ -205,8 +212,6 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             }
         })
         .build();
-
-    drawPanel(ui, "settings.panel", contentX, islandTop, contentW, islandH, theme);
 
     // 标题距卡片顶留足空间（避免被顶部圆角/窗口边缘截到第一行）。
     const float titleY = islandTop + 16.0f;
