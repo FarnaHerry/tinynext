@@ -48,6 +48,7 @@ public:
     bool addMirror(std::uint64_t id, const std::string& url) override;
     bool removeMirror(std::uint64_t id, const std::string& url) override;
     std::vector<TaskView> snapshot() const override;
+    void pollProgress() override;
     bool busy() const override;
     bool engineActive() const override;
     std::string lastError() const override;

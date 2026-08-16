@@ -39,6 +39,26 @@ export bool statusExpired() {
     return expiry > 0.0 && steadyNow() >= expiry;
 }
 
+// ---- 后台线程 → UI 线程的状态消息信箱 ----
+// showStatus 只能 UI 线程调用（g_statusMessage 非原子）。后台线程（异步回收站等）
+// 改走 postStatus 排队 + requestUiUpdate()，UI 线程在 compose 里 drainStatus() 逐条
+// showStatus。这是 g_statusExpiry 之外第二个后台线程可碰的状态，用互斥量保护。
+struct StatusMailbox {
+    std::mutex m;
+    std::vector<std::string> pending;
+};
+StatusMailbox g_statusMailbox;  // 仅经 postStatus/drainStatus 访问
+
+export void postStatus(std::string message) {
+    std::lock_guard<std::mutex> lock(g_statusMailbox.m);
+    g_statusMailbox.pending.push_back(std::move(message));
+}
+
+export std::vector<std::string> drainStatus() {
+    std::lock_guard<std::mutex> lock(g_statusMailbox.m);
+    return std::move(g_statusMailbox.pending);
+}
+
 // ---- 列表筛选 / 排序 / 分页 ----
 
 export enum class Filter { All, Active, Done };

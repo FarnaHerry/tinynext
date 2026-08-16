@@ -152,10 +152,12 @@ export int run() {
     }
 
     // 轮询到所有任务离开活动状态（排队/进行/暂停）。aria2 状态迁移走 WS 事件
-    // 即时，snapshot() 内部 ~1s 轮询补进度，这里每 500ms 查一次足够。
+    // 即时，进度由 pollProgress（内部 ~1s 轮询补进度）显式刷新，snapshot 已是纯
+    // 读缓存，这里每 500ms 查一次足够。
     bool anyFailed = false;
     for (;;) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        engine.pollProgress();
         const auto tasks = engine.snapshot();
         bool active = false;
         for (const auto& t : tasks) {

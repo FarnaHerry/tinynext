@@ -1379,14 +1379,22 @@ void Aria2Engine::refreshStates() const {
     }
 }
 
-std::vector<TaskView> Aria2Engine::snapshot() const {
-    // 状态迁移由 WS 事件接管（即时），进度字节/速度只需 ~1s 刷新（对齐 Motrix/AriaNg）。
+// 后台线程进度轮询：~1s 节流批量 tellStatus（UI 线程的 snapshot 已剥离 RPC，
+// 进度刷新由 housekeep / headless 等待循环显式驱动，绝不占 UI 线程）。
+void Aria2Engine::pollProgress() {
     std::lock_guard<std::mutex> lock(tasksMutex_);
     const auto now = std::chrono::steady_clock::now();
     if (now - lastPoll_ >= std::chrono::seconds(1)) {
         lastPoll_ = now;
         refreshStates();
     }
+}
+
+std::vector<TaskView> Aria2Engine::snapshot() const {
+    // 纯读缓存、立即返回：只持锁拷贝任务表，不发任何 RPC（UI 线程每帧调用）。
+    // 状态迁移由 WS 事件接管（即时），进度字节/速度由 pollProgress（后台线程）
+    // ~1s 刷新，UI 显示至多滞后 1s（对齐 Motrix/AriaNg）。
+    std::lock_guard<std::mutex> lock(tasksMutex_);
     std::vector<TaskView> out;
     out.reserve(tasks_.size());
     for (auto it = tasks_.rbegin(); it != tasks_.rend(); ++it) {

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.5（2026-08-16）
+
+### UI 线程非阻塞（下载器方向优化）
+- **打开文件 / 文件夹 / 链接改后台线程**：Windows `ShellExecuteW` 在文件关联需要 DDE
+  握手、或关联程序慢/无响应时会同步阻塞调用线程——这就是「打开文件一直打不开、UI 卡
+  住」的根因。`openFile` / `openContainingFolder` / `openUrl` 整体挪到独立线程执行
+  （thread-per-op，低频点击开销可忽略），UI 立即返回。
+- **删除任务 + 移入回收站异步化**：`moveToTrash`（Windows `SHFileOperationW` /
+  macOS `osascript Finder delete` / Linux `gio trash` 都是同步磁盘/子进程操作）改
+  `moveToTrashAsync(path, onDone)`——确认弹窗立即关闭，`exists` 判断 + 回收站操作在
+  后台线程做，完成后经状态信箱（`postStatus` + `requestUiUpdate`）回 UI 提示结果。
+- **snapshot 剥离 RPC**：下载列表每帧 `snapshot()` 原是「纯拷贝 + 顺便轮询」，命中
+  1s 窗口时在 UI 线程同步发一批 `aria2.tellStatus`（下载期间每秒一次网络往返）。
+  现在 `snapshot()` 只读缓存、立即返回；进度轮询拆成显式 `pollProgress()`，由
+  housekeep 后台线程驱动（~1s 节流），headless 等待循环显式调用。UI 渲染路径彻底
+  不再发任何 RPC。
+
+### 工程
+- **版本升 0.3.5**（`mcpp.toml` `[package].version`，`src/versions.generated.h` 重新生成）。
+
 ## 0.3.4（2026-08-15）
 
 ### Store 分层重构（数据 / UI 解耦）

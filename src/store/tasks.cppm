@@ -56,6 +56,8 @@ public:
 
     // ---- 查询 ----
     std::vector<dl::TaskView> snapshot() const { return engine_->snapshot(); }
+    // 后台线程进度轮询（~1s 节流；UI 线程不要调，见 engine_->pollProgress 注释）。
+    void pollProgress() { engine_->pollProgress(); }
     bool busy() const { return engine_->busy(); }
     bool engineActive() const { return engine_->engineActive(); }
     std::string lastError() const { return engine_->lastError(); }

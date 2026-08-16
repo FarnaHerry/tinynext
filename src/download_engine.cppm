@@ -84,8 +84,14 @@ public:
     // partial file; others restart from scratch.
     virtual void retry(std::uint64_t id) = 0;
 
-    // Copy of all tasks, newest first.
+    // Copy of all tasks, newest first. 纯读缓存（内部持锁），绝不发 RPC——UI 线程
+    // 每帧调用它，实现必须保证立即返回。
     virtual std::vector<TaskView> snapshot() const = 0;
+
+    // 后台线程进度轮询：发一次 tellStatus 批量刷新活动任务的进度/速度/连接数
+    // （内部 ~1s 节流）。UI 线程不要调用——snapshot 已剥离 RPC，进度刷新由
+    // housekeep 等后台线程驱动。默认空实现。
+    virtual void pollProgress() {}
 
     // 向已有任务追加镜像源（aria2.changeUri add）。仅活动任务有效；
     // 引擎不支持时是 no-op。返回是否成功。

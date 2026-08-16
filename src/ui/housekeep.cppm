@@ -72,10 +72,12 @@ void housekeepLoop() {
             g_statusExpired.store(true);
             core::platform::requestUiUpdate();
         }
-        // 下载完成/失败通知 + 有活动任务时的进度刷新（snapshot 内部 ~1s 才发一次
-        // 进度 RPC；空任务时 refreshStates 不发任何 RPC，空闲零开销）。
+        // 下载完成/失败通知 + 有活动任务时的进度刷新。进度 RPC 显式走
+        // pollProgress（snapshot 已剥离 RPC，绝不在 UI 线程发）；空任务时
+        // pollProgress 内部节流 + refreshStates 不发任何 RPC，空闲零开销。
         checkDownloadNotifications();
         if (g_tasks.busy()) {
+            g_tasks.pollProgress();
             core::platform::requestUiUpdate();
         }
     }

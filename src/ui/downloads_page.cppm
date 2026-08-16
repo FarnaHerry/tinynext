@@ -703,19 +703,24 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         g_pendingDelete.reset();
                         g_tasks.deleteRecord(task);
                         if (g_deleteIncludeFiles) {
-                            std::error_code ec;
-                            if (std::filesystem::exists(task.destPath, ec)) {
-                                if (moveToTrash(task.destPath)) {
-                                    showStatus(tr("已删除记录，源文件已移到回收站",
-                                                  "Deleted record, source file moved to Recycle Bin"));
-                                } else {
-                                    showStatus(tr("已删除记录（移入回收站失败，文件保留）",
-                                                  "Deleted record (recycle failed, file kept)"));
-                                }
-                            } else {
-                                showStatus(tr("已删除记录（源文件不存在）",
-                                              "Deleted record (source file missing)"));
-                            }
+                            // 回收站操作挪到后台线程：删除确认立即关闭，源文件移除
+                            // 完成后经状态信箱（postStatus + requestUiUpdate）回 UI
+                            // 线程提示，不卡删除按钮。文案在 UI 线程先按当前语言解析
+                            // 成静态字符串，后台线程只投递、不碰 g_lang。
+                            const char* recycledMsg = tr("已删除记录，源文件已移到回收站",
+                                                         "Deleted record, source file moved to Recycle Bin");
+                            const char* failedMsg = tr("已删除记录（移入回收站失败，文件保留）",
+                                                       "Deleted record (recycle failed, file kept)");
+                            const char* missingMsg = tr("已删除记录（源文件不存在）",
+                                                        "Deleted record (source file missing)");
+                            moveToTrashAsync(task.destPath,
+                                             [recycledMsg, failedMsg, missingMsg](TrashResult r) {
+                                const char* msg = r == TrashResult::Recycled ? recycledMsg
+                                                : r == TrashResult::Failed ? failedMsg
+                                                                           : missingMsg;
+                                postStatus(msg);
+                                core::platform::requestUiUpdate();
+                            });
                         } else {
                             showStatus(tr("已删除记录，保留源文件",
                                           "Deleted record, source file kept"));

@@ -134,6 +134,14 @@ DWORD WINAPI notifyThreadProc(LPVOID param) {
 
 } // namespace
 
+// 把可能阻塞的 OS 集成（ShellExecuteW 的 DDE 握手 / SHFileOperationW 的磁盘操作 /
+// gio trash 等）丢到独立线程执行，UI 线程立即返回。这些操作都是低频用户点击，
+// thread-per-op 的开销可忽略，无需常驻线程池。
+void runDetached(std::function<void()> fn) {
+    std::thread t(std::move(fn));
+    t.detach();
+}
+
 // Open the native folder picker; returns the chosen path or an empty path if
 // the user cancelled (caller keeps the manual input).
 //   Windows: SHBrowseForFolder (shell32/ole32 loaded dynamically).
@@ -247,72 +255,80 @@ export std::filesystem::path pickTorrentFile() {
 #endif
 }
 
-// 用系统默认程序打开文件 / 打开所在文件夹（立即返回，不阻塞 UI 线程）。
+// 用系统默认程序打开文件（后台线程执行：ShellExecuteW 在 DDE 关联 / 慢程序下会
+// 同步阻塞调用线程，丢到独立线程后 UI 立即返回）。
 export void openFile(const std::filesystem::path& path) {
+    const std::filesystem::path p = path;
+    runDetached([p] {
 #ifdef _WIN32
-    if (const ShellExecuteFn shellExec = shellExecFn(); shellExec) {
-        const std::wstring wpath = path.wstring();
-        shellExec(nullptr, L"open", wpath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-        return;
-    }
-    // 兜底：start 启动后 cmd 立即退出，std::system 不会长等。
-    std::system(("start \"\" \"" + path.string() + "\"").c_str());
+        if (const ShellExecuteFn shellExec = shellExecFn(); shellExec) {
+            const std::wstring wpath = p.wstring();
+            shellExec(nullptr, L"open", wpath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            return;
+        }
+        // 兜底：start 启动后 cmd 立即退出，std::system 不会长等。
+        std::system(("start \"\" \"" + p.string() + "\"").c_str());
 #else
-    std::system(("xdg-open \"" + path.string() + "\" >/dev/null 2>&1 &").c_str());
+        std::system(("xdg-open \"" + p.string() + "\" >/dev/null 2>&1 &").c_str());
 #endif
+    });
 }
 
 export void openContainingFolder(const std::filesystem::path& path) {
+    const std::filesystem::path p = path;
+    runDetached([p] {
 #ifdef _WIN32
-    if (const ShellExecuteFn shellExec = shellExecFn(); shellExec) {
-        // 归一化成绝对原生路径：destPath 可能来自 aria2 的 files[0].path（正斜杠），
-        // 或是先占位后轮询更新的猜测路径；explorer 的 /select 对无效/正斜杠路径
-        // 解析不可靠，会回落到桌面。文件真实存在时用 /select 定位它；不存在
-        // （占位/已移动）或本身是目录时直接打开目录本身。
-        std::error_code ec;
-        std::filesystem::path abs = std::filesystem::absolute(path, ec);
-        abs = abs.lexically_normal();
-        abs.make_preferred();  // / → \（Windows）
-        if (std::filesystem::exists(abs, ec)) {
-            if (std::filesystem::is_directory(abs, ec)) {
-                // 目录（如 BT 多文件根目录）：直接打开它。
-                shellExec(nullptr, L"open", abs.wstring().c_str(), nullptr, nullptr,
-                          SW_SHOWNORMAL);
+        if (const ShellExecuteFn shellExec = shellExecFn(); shellExec) {
+            // 归一化成绝对原生路径：destPath 可能来自 aria2 的 files[0].path（正斜杠），
+            // 或是先占位后轮询更新的猜测路径；explorer 的 /select 对无效/正斜杠路径
+            // 解析不可靠，会回落到桌面。文件真实存在时用 /select 定位它；不存在
+            // （占位/已移动）或本身是目录时直接打开目录本身。
+            std::error_code ec;
+            std::filesystem::path abs = std::filesystem::absolute(p, ec);
+            abs = abs.lexically_normal();
+            abs.make_preferred();  // / → \（Windows）
+            if (std::filesystem::exists(abs, ec)) {
+                if (std::filesystem::is_directory(abs, ec)) {
+                    // 目录（如 BT 多文件根目录）：直接打开它。
+                    shellExec(nullptr, L"open", abs.wstring().c_str(), nullptr, nullptr,
+                              SW_SHOWNORMAL);
+                } else {
+                    const std::wstring params = L"/select,\"" + abs.wstring() + L"\"";
+                    shellExec(nullptr, L"open", L"explorer.exe", params.c_str(), nullptr,
+                              SW_SHOWNORMAL);
+                }
             } else {
-                const std::wstring params = L"/select,\"" + abs.wstring() + L"\"";
-                shellExec(nullptr, L"open", L"explorer.exe", params.c_str(), nullptr,
-                          SW_SHOWNORMAL);
+                // 文件不存在：打开其所在目录（不会回落到桌面）。
+                shellExec(nullptr, L"open", abs.parent_path().wstring().c_str(), nullptr,
+                          nullptr, SW_SHOWNORMAL);
             }
-        } else {
-            // 文件不存在：打开其所在目录（不会回落到桌面）。
-            shellExec(nullptr, L"open", abs.parent_path().wstring().c_str(), nullptr,
-                      nullptr, SW_SHOWNORMAL);
+            return;
         }
-        return;
-    }
-    std::system(("start \"\" explorer /select,\"" + path.string() + "\"").c_str());
+        std::system(("start \"\" explorer /select,\"" + p.string() + "\"").c_str());
 #else
-    std::system(("xdg-open \"" + path.parent_path().string() + "\" >/dev/null 2>&1 &").c_str());
+        std::system(("xdg-open \"" + p.parent_path().string() + "\" >/dev/null 2>&1 &").c_str());
 #endif
+    });
 }
 
-// 用系统默认浏览器打开 URL（跨平台，不阻塞 UI 线程）。
+// 用系统默认浏览器打开 URL（后台线程执行，跨平台不阻塞 UI 线程）。
 export void openUrl(const std::string& url) {
+    const std::string u = url;
+    runDetached([u] {
 #ifdef _WIN32
-    // ShellExecuteW 立即返回、不 spawn shell —— 之前用 std::system("start ...")
-    // 会在 UI 线程同步等待 cmd/浏览器启动，导致点击链接后卡几秒。
-    if (const ShellExecuteFn shellExec = shellExecFn(); shellExec) {
-        const std::wstring wurl(url.begin(), url.end());
-        shellExec(nullptr, L"open", wurl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-        return;
-    }
-    std::system(("start \"\" \"" + url + "\"").c_str());
+        // ShellExecuteW 可能因 DDE / 浏览器冷启动同步阻塞，这里已在后台线程。
+        if (const ShellExecuteFn shellExec = shellExecFn(); shellExec) {
+            const std::wstring wurl(u.begin(), u.end());
+            shellExec(nullptr, L"open", wurl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            return;
+        }
+        std::system(("start \"\" \"" + u + "\"").c_str());
 #elif defined(__APPLE__)
-    // open 命令立即返回，shell 开销很小，可接受。
-    std::system(("open \"" + url + "\"").c_str());
+        std::system(("open \"" + u + "\"").c_str());
 #else
-    std::system(("xdg-open \"" + url + "\" >/dev/null 2>&1 &").c_str());
+        std::system(("xdg-open \"" + u + "\" >/dev/null 2>&1 &").c_str());
 #endif
+    });
 }
 
 // 把文件/目录移到系统回收站（默认删除方式：可恢复，不永久删除）。best-effort。
@@ -320,7 +336,9 @@ export void openUrl(const std::string& url) {
 //   macOS:   osascript 调 Finder delete（移入废纸篓；路径经 argv 传入，规避
 //            AppleScript 源码编码/转义问题）。
 //   Linux:   gio trash（trash-put 兜底）。工具缺失返回 false，绝不直接 rm。
-export bool moveToTrash(const std::filesystem::path& path) {
+// 这是同步实现（SHFileOperationW / osascript / gio trash 会阻塞调用线程），仅供
+// moveToTrashAsync 在后台线程调用；UI 线程不要直接调它。
+bool moveToTrashBlocking(const std::filesystem::path& path) {
 #ifdef _WIN32
     using ShFileOpFn = int(WINAPI*)(LPSHFILEOPSTRUCTW);
     static const ShFileOpFn shFileOp = []() -> ShFileOpFn {
@@ -368,6 +386,26 @@ export bool moveToTrash(const std::filesystem::path& path) {
                         " 2>/dev/null || trash-put " + shq(path.string()) +
                         " >/dev/null 2>&1").c_str()) == 0;
 #endif
+}
+
+// 回收站操作结果（moveToTrashAsync 经 onDone 回传）。
+export enum class TrashResult { Recycled, Failed, Missing };
+
+// 后台线程把文件/目录移入系统回收站。exists 判断 + 回收站操作都在后台线程做，
+// 不阻塞 UI；完成后 onDone 在后台线程回调（调用方若要更新 UI 自行 marshal，如
+// postStatus + core::platform::requestUiUpdate）。
+export void moveToTrashAsync(const std::filesystem::path& path,
+                             const std::function<void(TrashResult)>& onDone) {
+    const std::filesystem::path p = path;
+    runDetached([p, onDone] {
+        std::error_code ec;
+        if (!std::filesystem::exists(p, ec)) {
+            if (onDone) onDone(TrashResult::Missing);
+            return;
+        }
+        const bool ok = moveToTrashBlocking(p);
+        if (onDone) onDone(ok ? TrashResult::Recycled : TrashResult::Failed);
+    });
 }
 
 // 读取系统剪贴板文本（best-effort：无 GLFW 上下文时返回空）。用于打开添加下载

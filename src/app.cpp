@@ -117,6 +117,10 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
         g_statusMessage.clear();
         g_statusTimer = 0.0f;
     }
+    // 后台线程投递的状态消息（异步回收站结果等）——UI 线程逐条转成 showStatus。
+    for (std::string& msg : drainStatus()) {
+        showStatus(std::move(msg));
+    }
     if (themeChangePending() && g_themeMode == cfg::ThemeMode::System) {
         g_dark = cfg::osDark();
     }

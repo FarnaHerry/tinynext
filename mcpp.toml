@@ -1,6 +1,6 @@
 [package]
 name        = "tinynext"
-version     = "0.3.4"
+version     = "0.3.5"
 description = "A GUI downloader: EUI-NEO frontend + aria2-next download engine"
 license     = "MIT"
 
@@ -31,7 +31,7 @@ ldflags = ["-Wl,-subsystem:windows", "-Wl,-entry:mainCRTStartup", "-lws2_32", "-
 
 # exe 图标 + 版本信息：mcpp 2026.8.7.1 原生 [resources]（取代旧的 resources.rc /
 # windres workaround，已删除）。仅 PE/Windows 目标实际嵌入；Linux/macOS 只校验路径、
-# 产物不变，无需 cfg(windows)。FILEVERSION 取 [package].version（现为 0.3.4），
+# 产物不变，无需 cfg(windows)。FILEVERSION 取 [package].version（现为 0.3.5），
 # ProductName/FileDescription/CompanyName 等默认取 [package]，这里覆盖部分字段。
 [resources]
 icon = "assets/icon.ico"
