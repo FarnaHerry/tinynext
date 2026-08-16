@@ -15,6 +15,11 @@
 
 ### 工程
 - **版本升 0.3.6**（`mcpp.toml` `[package].version`，`src/versions.generated.h` 重新生成）。
+- **开启 BMI 并行编译调度**：`[build] bmi_schedule = "on"`（mcpp 最近升级的编译开关，
+  并行预编译模块接口 Built Module Interface，缩短纯 C++23 模块项目的全量编译时间；
+  老 mcpp 需手动开此键，新 mcpp 默认，显式声明无害）。
+- **CI 钉 mcpp 升到 2026.8.16.1**（与本地一致；Windows 经 xlings 钉版，Linux/macOS
+  install.sh latest 自动取最新，且 `[resources]` 仅 PE 生效无需钉版）。
 
 ## 0.3.5（2026-08-16）
 

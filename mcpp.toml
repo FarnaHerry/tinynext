@@ -20,6 +20,12 @@ main = "src/app.cpp"
 [toolchain]
 default = "llvm@22.1.8"
 
+# BMI 编译调度（Built Module Interface）：并行预编译模块接口，显著缩短纯模块项目
+# 的全量编译时间（本项目几乎全 C++23 模块，收益明显）。mcpp 最近升级的编译开关；
+# 老 mcpp 需手动开启本键，新 mcpp 默认开启（保留显式声明无害）。
+[build]
+bmi_schedule = "on"
+
 # Make the exe a Windows GUI-subsystem app (no console window on launch).
 # /entry:mainCRTStartup keeps calling main() — glfw_app_main.cpp defines
 # main(), and the GUI subsystem's default entry (WinMainCRTStartup) would
