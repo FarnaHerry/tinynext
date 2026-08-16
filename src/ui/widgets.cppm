@@ -33,14 +33,15 @@ export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
 }
 
 // 单岛布局里的竖向分隔线：同一张岛卡内，把二级侧边栏与内容区区分开（整页一张岛、
-// 不再各自成卡，用竖线分隔）。细 1px 竖线，上下内缩避免与岛卡圆角/边缘冲突。
+// 不再各自成卡，用竖线分隔）。细 1px 竖线，从岛卡顶边划到底边（仅留 2px 不压到
+// 上下边框线），让两侧有明确的纵向分隔感；线在侧边栏/内容交界处、远离圆角，无需内缩。
 export void drawVDivider(eui::Ui& ui, const std::string& id, float x, float y,
                          float h, const AppTheme& theme) {
-    constexpr float kInset = 8.0f;
+    constexpr float kInset = 2.0f;
     ui.rect(id)
         .position(x, y + kInset)
         .size(1.0f, std::max(0.0f, h - 2.0f * kInset))
-        .color(components::theme::withOpacity(theme.components.border, 0.45f))
+        .color(components::theme::withOpacity(theme.components.border, 0.55f))
         .build();
 }
 
