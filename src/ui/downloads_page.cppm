@@ -604,6 +604,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .fontSize(12.0f)
                     .theme(theme.components, true)
                     .textColor(onPrimaryColor(theme))
+                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] { if (addDownload()) g_addOpen = false; })
                     .build();
             })
@@ -708,6 +709,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .fontSize(11.0f)
                     .theme(theme.components, true)
                     .textColor(onPrimaryColor(theme))
+                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] {
                         const dl::TaskView task = *g_pendingDelete;
                         g_pendingDelete.reset();
@@ -926,6 +928,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                     .fontSize(11.0f)
                     .theme(theme.components, true)
                     .textColor(onPrimaryColor(theme))
+                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] {
                         std::string url = trimText(g_mirrorAddText);
                         if (url.empty()) {
@@ -958,6 +961,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                 .fontSize(12.0f)
                 .theme(theme.components, true)
                 .textColor(onPrimaryColor(theme))
+                .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                 .onClick([] { g_mirrorOpen = false; })
                 .build();
         })

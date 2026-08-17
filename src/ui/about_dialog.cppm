@@ -129,6 +129,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
                 .fontSize(12.0f)
                 .theme(theme.components, true)
                 .textColor(onPrimaryColor(theme))
+                .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                 .onClick([] { g_aboutOpen = false; })
                 .build();
         })

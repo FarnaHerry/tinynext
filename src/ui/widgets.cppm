@@ -84,6 +84,7 @@ export void drawToolbarIconButton(eui::Ui& ui, const std::string& id, float x, f
             .iconSize(13.0f)
             .theme(tokens, true)
             .iconColor(onPrimaryColor(theme))  // 深色白按钮 → 深色图标
+            .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})  // 去掉投影，避免白按钮糊边
             .radius(radius)
             .onClick(std::move(onClick))
             .build();
