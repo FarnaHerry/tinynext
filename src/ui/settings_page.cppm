@@ -269,8 +269,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         .theme(theme.components)
         .content([&](eui::Ui& sv, float width, float) {
             const float rowW = width;
-            // 双列 numericField 共用常量：所有配置 tab 都要用（各自独立 if 分支）。
-            constexpr float kCol2X = 86.0f + 90.0f + 20.0f;  // 第二列起点
+            // 全部单列布局（用户要求：不要横向双列）。各字段只留 kInputW 宽度。
             constexpr float kInputW = 90.0f;
             const float fullW =
                 std::max(160.0f, rowW - 16.0f - kLabelW - 8.0f);
@@ -340,10 +339,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
 
             // ===== 通用：主题 / 关闭行为 / 语言 =====
             if (g_settingsTab == SettingsTab::General) {
-            // ---- 主题（下拉）+ 关闭时缩到托盘（第二列/最后一列）----
-            // 主题下拉选择即预览、保存才落盘；关闭行为改后重启生效（dslAppConfig
-            // 启动时读取）。行 zIndex 用 200：高于下面语言行的 100——主题下拉弹出
-            // 会向下盖过语言行，同 zIndex 时后画（语言行）会压在弹层之上。
+            // ---- 主题（下拉，选择即预览、保存才落盘）----
+            // 行 zIndex 用 200：高于下面语言行的 100——主题下拉弹出会向下盖过语言行，
+            // 同 zIndex 时后画（语言行）会压在弹层之上。
             row("theme", kFieldH, [&](eui::Ui& r, float) {
                 components::text(r, "st.theme.label")
                     .position(0, 0)
@@ -369,20 +367,23 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                         [](int i) { applyThemeChoice(i); });
                     })
                     .build();
+            }, 200);  // 行 zIndex：高于语言行（100），弹出下拉不被盖
 
-                // 第二列（最后一列）：关闭时缩到托盘。
+            // ---- 关闭时缩到托盘（Windows/macOS 生效；Linux 的 eui 托盘为 stub
+            //      无效果）。改后重启生效（dslAppConfig 启动时读取）。----
+            row("close.tray", kFieldH, [&](eui::Ui& r, float) {
                 components::text(r, "st.close.tray.label")
-                    .position(kCol2X, 0)
+                    .position(0, 0)
                     .size(kLabelW, kFieldH)
                     .text(tr("关闭时缩到托盘", "Close to tray"))
                     .fontSize(11.0f)
                     .lineHeight(kFieldH)
                     .color(theme.metaText)
                     .build();
-                buildToggleSwitch(r, "st.close.tray.toggle", kCol2X + kLabelW, 3.0f,
+                buildToggleSwitch(r, "st.close.tray.toggle", kLabelW, 3.0f,
                                   36.0f, 20.0f, g_closeToTray, theme,
                                   [](bool v) { g_closeToTray = v; });
-            }, 200);  // 行 zIndex：高于语言行（100），弹出下拉不被盖
+            });
 
             // ---- 语言（下拉框，立即生效 + 持久化）----
             row("lang", kFieldH, [&](eui::Ui& r, float) {
@@ -457,7 +458,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     numericField(r, "a.split", tr("分片数", "Splits"), 0, kInputW, g_aria2SplitText,
                                  [](const std::string& v) { g_aria2SplitText = v; },
                                  1, 64, 1);
-                    numericField(r, "a.conn", tr("每服务器连接", "Conn per server"), kCol2X, kInputW, g_aria2ConnText,
+                });
+                row("a.conn", kFieldH, [&](eui::Ui& r, float) {
+                    numericField(r, "a.conn", tr("每服务器连接", "Conn per server"), 0, kInputW, g_aria2ConnText,
                                  [](const std::string& v) { g_aria2ConnText = v; },
                                  1, 64, 1);
                 });
@@ -504,14 +507,16 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                  [](const std::string& v) { g_aria2LimitText = v; },
                                  0, 1000000, 100);
                 });
-                // 全局限速 + 文件分配：与每任务限速同屏对照（daemon 级，重启生效）。
+                // 全局限速 / 文件分配：各占一行（daemon 级，重启生效）。
                 row("beh.overall", kFieldH, [&](eui::Ui& r, float) {
                     numericField(r, "beh.overall", tr("全局限速KB/s", "Global limit KB/s"), 0, kInputW,
                                  g_overallLimitText,
                                  [](const std::string& v) { g_overallLimitText = v; },
                                  0, 1000000, 100);
+                });
+                row("beh.allocation", kFieldH, [&](eui::Ui& r, float) {
                     components::text(r, "st.beh.allocation.label")
-                        .position(kCol2X, 0)
+                        .position(0, 0)
                         .size(kLabelW, kFieldH)
                         .text(tr("文件分配", "File allocation"))
                         .fontSize(11.0f)
@@ -519,7 +524,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .color(theme.metaText)
                         .build();
                     r.stack("st.beh.allocation.pick")
-                        .position(kCol2X + kLabelW, -2.0f)
+                        .position(kLabelW, -2.0f)
                         .size(84.0f, 26.0f)
                         .zIndex(30)
                         .content([&] {
@@ -542,11 +547,13 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                  [](const std::string& v) { g_maxConcurrentText = v; },
                                  1, 64, 1);
                 });
-                row("a.retry", kFieldH, [&](eui::Ui& r, float) {
+                row("a.maxtries", kFieldH, [&](eui::Ui& r, float) {
                     numericField(r, "a.maxtries", tr("最大重试次数", "Max retries"), 0, kInputW, g_maxTriesText,
                                  [](const std::string& v) { g_maxTriesText = v; },
                                  0, 100, 1);
-                    numericField(r, "a.retrywait", tr("重试等待秒", "Retry wait (s)"), kCol2X, kInputW, g_retryWaitText,
+                });
+                row("a.retrywait", kFieldH, [&](eui::Ui& r, float) {
+                    numericField(r, "a.retrywait", tr("重试等待秒", "Retry wait (s)"), 0, kInputW, g_retryWaitText,
                                  [](const std::string& v) { g_retryWaitText = v; },
                                  0, 600, 1);
                 });
@@ -570,9 +577,11 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                           tr("host1,host2（逗号分隔）", "host1,host2 (comma separated)"));
                 });
                 row("a.ua", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "a.ua", "User-Agent", 0, kInputW, g_userAgentText,
+                    field(r, "a.ua", "User-Agent", 0, fullW, g_userAgentText,
                           [](const std::string& v) { g_userAgentText = v; });
-                    field(r, "a.referer", "Referer", kCol2X, kInputW, g_refererText,
+                });
+                row("a.referer", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "a.referer", "Referer", 0, fullW, g_refererText,
                           [](const std::string& v) { g_refererText = v; });
                 });
                 // 请求头：多行输入（每行一个 --header），行高放大到 52 容纳两行。
@@ -624,7 +633,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     numericField(r, "bt.seedtime", tr("做种时间秒", "Seed time (s)"), 0, kInputW, g_seedTimeText,
                                  [](const std::string& v) { g_seedTimeText = v; },
                                  0, 100000, 60);
-                    numericField(r, "bt.maxpeers", tr("最大Peers", "Max peers"), kCol2X, kInputW,
+                });
+                row("bt.maxpeers", kFieldH, [&](eui::Ui& r, float) {
+                    numericField(r, "bt.maxpeers", tr("最大Peers", "Max peers"), 0, kInputW,
                                  g_btMaxPeersText,
                                  [](const std::string& v) { g_btMaxPeersText = v; },
                                  0, 10000, 10);
@@ -688,11 +699,13 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .color(theme.statusText)
                         .build();
                 });
-                row("ed2k.ports", kFieldH, [&](eui::Ui& r, float) {
+                row("ed2k.listen", kFieldH, [&](eui::Ui& r, float) {
                     field(r, "ed2k.listen", tr("监听端口TCP", "Listen TCP"), 0, kInputW, g_ed2kListenPortText,
                           [](const std::string& v) { g_ed2kListenPortText = v; },
                           tr("空=默认 4662", "empty = default 4662"));
-                    field(r, "ed2k.udp", tr("UDP端口", "UDP port"), kCol2X, kInputW, g_ed2kUdpPortText,
+                });
+                row("ed2k.udp", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "ed2k.udp", tr("UDP端口", "UDP port"), 0, kInputW, g_ed2kUdpPortText,
                           [](const std::string& v) { g_ed2kUdpPortText = v; },
                           tr("空=默认 4672", "empty = default 4672"));
                 });
