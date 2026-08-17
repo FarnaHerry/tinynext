@@ -29,6 +29,7 @@ SettingsTab g_settingsTab = SettingsTab::General;
 // 下载目录待提交值（默认保存目录；点「保存」才写入配置）。
 std::string g_downloadDirText = cfg::downloadDir().string();
 bool g_langOpen = false;  // 语言下拉是否展开
+bool g_themeOpen = false;  // 主题下拉是否展开
 
 // aria2 参数待提交值（设置页输入框的文本形式）。
 std::string g_aria2SplitText = std::to_string(cfg::aria2Config().split);
@@ -151,6 +152,33 @@ int minSplitMax(const std::string& unit) {
     return static_cast<int>(1024LL * 1024 * 1024 / sizeUnitMultiplier(unit));
 }
 
+// ---- 主题下拉的选项映射（跟随系统 / 深色 / 浅色，见 General tab）----
+// 索引顺序与 kThemeLabels 一致：0 跟随系统 / 1 深色 / 2 浅色。
+int themeIndex() {
+    switch (g_pendingTheme) {
+        case cfg::ThemeMode::Dark:  return 1;
+        case cfg::ThemeMode::Light: return 2;
+        default:                    return 0;  // System
+    }
+}
+
+// 选择主题即预览（g_dark 立即生效），「保存」才落盘（g_pendingTheme）。
+void applyThemeChoice(int i) {
+    cfg::ThemeMode mode;
+    switch (i) {
+        case 1: mode = cfg::ThemeMode::Dark;  break;
+        case 2: mode = cfg::ThemeMode::Light; break;
+        default: mode = cfg::ThemeMode::System; break;
+    }
+    g_pendingTheme = mode;
+    g_themeMode = mode;
+    switch (mode) {
+        case cfg::ThemeMode::Dark:   g_dark = true;  break;
+        case cfg::ThemeMode::Light:  g_dark = false; break;
+        case cfg::ThemeMode::System: g_dark = cfg::osDark(); break;
+    }
+}
+
 } // namespace
 
 // ===================== 设置页 =====================
@@ -232,14 +260,6 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     const float scrollTop = titleY + 24.0f + 12.0f;
     const float scrollHeight = std::max(0.0f, actionY - 10.0f - scrollTop);
 
-    // 主题按钮用的固定选项表。
-    struct ThemeChoice { const char* zh; const char* en; cfg::ThemeMode mode; };
-    static const ThemeChoice kThemeChoices[] = {
-        {"跟随系统", "Follow system", cfg::ThemeMode::System},
-        {"深色", "Dark", cfg::ThemeMode::Dark},
-        {"浅色", "Light", cfg::ThemeMode::Light},
-    };
-
     // 设置项较多，正文放进 scrollView（主题/路径/aria2 参数）；底部操作行
     // 固定在窗口底部，始终可见。
     components::scrollView(ui, "settings.scroll")
@@ -320,7 +340,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
 
             // ===== 通用：主题 / 关闭行为 / 语言 =====
             if (g_settingsTab == SettingsTab::General) {
-            // ---- 主题：跟随系统 / 深色 / 浅色 ----
+            // ---- 主题：跟随系统 / 深色 / 浅色（下拉，选择即预览、保存才落盘）----
             row("theme", kFieldH, [&](eui::Ui& r, float) {
                 components::text(r, "st.theme.label")
                     .position(0, 0)
@@ -330,31 +350,23 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .lineHeight(kFieldH)
                     .color(theme.metaText)
                     .build();
-                float bx = kLabelW + 8.0f;
-                for (std::size_t i = 0; i < 3; ++i) {
-                    const bool active = g_pendingTheme == kThemeChoices[i].mode;
-                    components::button(r, std::format("st.theme.{}", i))
-                        .position(bx, -1.0f)
-                        .size(76.0f, 24.0f)
-                        .text(tr(kThemeChoices[i].zh, kThemeChoices[i].en))
-                        .fontSize(12.0f)
-                        .theme(theme.components, active)
-                        .textColor(onPrimaryColor(theme, active))
-                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                        .onClick([mode = kThemeChoices[i].mode] {
-                            // 选择即预览；「保存」才落盘。
-                            g_pendingTheme = mode;
-                            g_themeMode = mode;
-                            switch (mode) {
-                                case cfg::ThemeMode::Dark:   g_dark = true;  break;
-                                case cfg::ThemeMode::Light:  g_dark = false; break;
-                                case cfg::ThemeMode::System: g_dark = cfg::osDark(); break;
-                            }
-                        })
-                        .build();
-                    bx += 84.0f;
-                }
-            });
+                r.stack("st.theme.pick")
+                    .position(kLabelW, -2.0f)
+                    .size(90.0f, 26.0f)
+                    .zIndex(30)
+                    .content([&] {
+                        const char* themeLabels[] = {
+                            tr("跟随系统", "Follow system"),
+                            tr("深色", "Dark"),
+                            tr("浅色", "Light"),
+                        };
+                        buildListPicker(r, "theme", 90.0f, 26.0f, theme,
+                                        g_themeOpen, themeLabels, 3,
+                                        themeIndex(), false, PickerField::Text,
+                                        [](int i) { applyThemeChoice(i); });
+                    })
+                    .build();
+            }, 100);  // 行 zIndex：让弹出下拉盖过后面各行
 
             // ---- 关闭窗口行为：缩到托盘（Windows/macOS 生效；Linux 的 eui
             //      托盘为 stub 无效果）。改后重启生效（dslAppConfig 启动时读取）。
