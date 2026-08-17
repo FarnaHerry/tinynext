@@ -340,6 +340,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .fontSize(12.0f)
                         .theme(theme.components, active)
                         .textColor(onPrimaryColor(theme, active))
+                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([mode = kThemeChoices[i].mode] {
                             // 选择即预览；「保存」才落盘。
                             g_pendingTheme = mode;
@@ -373,6 +374,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .fontSize(11.0f)
                     .theme(theme.components, g_closeToTray)
                     .textColor(onPrimaryColor(theme, g_closeToTray))
+                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] { g_closeToTray = !g_closeToTray; })
                     .build();
             });
@@ -436,6 +438,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .text(tr("浏览…", "Browse…"))
                         .fontSize(12.0f)
                         .theme(theme.components, false)
+                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] {
                             // 只填待提交值，点「保存」才写入配置。
                             const auto picked = pickDownloadFolder();
@@ -647,6 +650,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .fontSize(11.0f)
                         .theme(theme.components, g_btEnableLpd)
                         .textColor(onPrimaryColor(theme, g_btEnableLpd))
+                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] { g_btEnableLpd = !g_btEnableLpd; })
                         .build();
                 });
@@ -735,6 +739,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .fontSize(11.0f)
                         .theme(theme.components, g_autoFileRenaming)
                         .textColor(onPrimaryColor(theme, g_autoFileRenaming))
+                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] { g_autoFileRenaming = !g_autoFileRenaming; })
                         .build();
                 });
@@ -754,6 +759,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .fontSize(11.0f)
                         .theme(theme.components, g_allowOverwrite)
                         .textColor(onPrimaryColor(theme, g_allowOverwrite))
+                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] { g_allowOverwrite = !g_allowOverwrite; })
                         .build();
                 });
@@ -773,6 +779,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .fontSize(11.0f)
                         .theme(theme.components, g_removeControlFile)
                         .textColor(onPrimaryColor(theme, g_removeControlFile))
+                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] { g_removeControlFile = !g_removeControlFile; })
                         .build();
                 });
@@ -808,6 +815,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .fontSize(11.0f)
                         .theme(theme.components, g_checkIntegrity)
                         .textColor(onPrimaryColor(theme, g_checkIntegrity))
+                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] { g_checkIntegrity = !g_checkIntegrity; })
                         .build();
                 });
@@ -827,6 +835,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         .text(tr("恢复默认", "Reset"))
         .fontSize(12.0f)
         .theme(theme.components, false)
+        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .onClick([] {
             // 全部设置回默认：主题回「跟随系统」（并即时预览）、路径回系统下载目录、
             // aria2 参数回默认值。仍需点「保存」才落盘（与放弃/保存语义一致）。
@@ -1058,6 +1067,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         .text(tr("放弃", "Discard"))
         .fontSize(12.0f)
         .theme(theme.components, false)
+        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .onClick([] {
             // 回滚到已保存值。
             g_pendingTheme = cfg::themeMode();

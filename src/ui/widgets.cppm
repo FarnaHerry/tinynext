@@ -298,6 +298,7 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
         .text("")
         .iconSize(9.0f)
         .theme(tokens, false)
+        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .onClick([value, onChange, min, max, step] {
             int cur = 0;
             try { cur = std::stoi(trimText(value)); } catch (...) {}
@@ -328,6 +329,7 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
         .text("")
         .iconSize(9.0f)
         .theme(tokens, false)
+        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .onClick([value, onChange, min, max, step] {
             int cur = 0;
             try { cur = std::stoi(trimText(value)); } catch (...) {}
@@ -501,6 +503,7 @@ export void drawCardAction(eui::Ui& ui, const std::string& id, float x, float y,
         .iconSize(11.0f)
         .theme(theme.components, primary)
         .iconColor(onPrimaryColor(theme, primary))  // 白底主按钮 → 深色图标
+        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .onClick(std::move(onClick))
         .build();
 }

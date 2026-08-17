@@ -280,6 +280,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .text("")
                         .iconSize(11.0f)
                         .theme(theme.components, false)
+                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .disabled(g_page <= 1)
                         .onClick([] { if (g_page > 1) --g_page; })
                         .build();
@@ -300,6 +301,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .text("")
                         .iconSize(11.0f)
                         .theme(theme.components, false)
+                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .disabled(g_page >= totalPages)
                         .onClick([totalPages] { if (g_page < totalPages) ++g_page; })
                         .build();
@@ -400,6 +402,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .fontSize(12.0f)
                     .theme(theme.components, g_addTab == AddTab::Direct)
                     .textColor(onPrimaryColor(theme, g_addTab == AddTab::Direct))
+                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] { g_addTab = AddTab::Direct; })
                     .build();
                 components::button(ui, "add.tab.torrent")
@@ -409,6 +412,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .fontSize(12.0f)
                     .theme(theme.components, g_addTab == AddTab::Torrent)
                     .textColor(onPrimaryColor(theme, g_addTab == AddTab::Torrent))
+                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] { g_addTab = AddTab::Torrent; })
                     .build();
 
@@ -445,6 +449,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .fontSize(11.0f)
                         .theme(theme.components, g_addMirror)
                         .textColor(onPrimaryColor(theme, g_addMirror))
+                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] { g_addMirror = !g_addMirror; })
                         .build();
 
@@ -509,6 +514,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .text(tr("浏览…", "Browse…"))
                         .fontSize(12.0f)
                         .theme(theme.components, false)
+                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] {
                             const auto picked = pickDownloadFolder();
                             if (!picked.empty()) {
@@ -543,6 +549,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .text(tr("浏览…", "Browse…"))
                         .fontSize(12.0f)
                         .theme(theme.components, false)
+                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] {
                             const auto picked = pickTorrentFile();
                             if (!picked.empty()) g_addTorrentPath = picked.string();
@@ -574,6 +581,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .text(tr("浏览…", "Browse…"))
                         .fontSize(12.0f)
                         .theme(theme.components, false)
+                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] {
                             const auto picked = pickDownloadFolder();
                             if (!picked.empty()) g_addDirText = picked.string();
@@ -597,6 +605,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .text(tr("取消", "Cancel"))
                     .fontSize(12.0f)
                     .theme(theme.components, false)
+                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] { g_addOpen = false; })
                     .build();
 
@@ -702,6 +711,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .text(tr("取消", "Cancel"))
                     .fontSize(11.0f)
                     .theme(theme.components, false)
+                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] { g_pendingDelete.reset(); })
                     .build();
 
@@ -863,6 +873,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                                         .text(tr("移除", "Remove"))
                                         .fontSize(10.0f)
                                         .theme(theme.components, false)
+                                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                                         .onClick([id = task->id, uri] {
                                             // 移除走后台 RPC，结果经状态信箱回 UI
                                             // 线程提示（文案先按当前语言解析成静态串）。

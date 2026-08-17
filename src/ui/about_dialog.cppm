@@ -117,6 +117,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
                     .text(link.label)
                     .fontSize(11.0f)
                     .theme(theme.components, false)
+                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([url = std::string(link.url)] { openUrl(url); })
                     .build();
                 linkY += 26.0f;

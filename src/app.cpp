@@ -216,6 +216,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                         .text("")
                         .iconSize(11.0f)
                         .theme(theme.components, false)
+                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] { g_aboutOpen = true; })
                         .build();
 
@@ -227,6 +228,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                         .text("")
                         .iconSize(11.0f)
                         .theme(theme.components, false)
+                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] {
                             // Quick flip switches to the opposite explicit mode
                             // (overrides follow-system) and persists immediately;
