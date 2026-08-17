@@ -507,3 +507,38 @@ export void drawCardAction(eui::Ui& ui, const std::string& id, float x, float y,
         .onClick(std::move(onClick))
         .build();
 }
+
+// 滑动开关（toggle switch）：轨道 pill + 圆形滑块，开启时主色填充 + 滑块右端，
+// 关闭时灰色轨道 + 滑块左端。点击切换。无投影（对齐全面取消模糊）。
+export void buildToggleSwitch(eui::Ui& ui, const std::string& id, float x, float y,
+                              float trackW, float trackH, bool on,
+                              const AppTheme& theme, std::function<void(bool)> onToggle) {
+    const auto& tokens = theme.components;
+    const auto transition = core::Transition::make(0.16f, core::Ease::OutCubic);
+    const float thumbR = trackH * 0.5f - 2.0f;   // 滑块半径（轨道内缩 2px）
+    const float thumbX = on ? trackW - trackH + thumbR : thumbR;  // 滑块圆心 x
+    const float thumbY = trackH * 0.5f;
+
+    // 轨道：开启主色填充（白/黑）、关闭半透明灰边框色；颜色带 transition 过渡。
+    const core::Color trackOff = components::theme::withAlpha(tokens.border, 0.5f);
+    ui.rect(id + ".track")
+        .position(x, y)
+        .size(trackW, trackH)
+        .color(on ? tokens.primary : trackOff)
+        .radius(trackH * 0.5f)
+        .transition(transition)
+        .onClick([on, onToggle] { onToggle(!on); })
+        .build();
+
+    // 滑块：开启亮色（深色主题近白/浅色主题白），关闭灰色；位置随 on 跳变。
+    const core::Color thumbOn = theme.dark ? core::Color{0.95f, 0.95f, 0.95f, 1.0f}
+                                           : core::Color{1.0f, 1.0f, 1.0f, 1.0f};
+    const core::Color thumbOff = theme.dark ? core::Color{0.45f, 0.45f, 0.48f, 1.0f}
+                                            : core::Color{0.62f, 0.62f, 0.62f, 1.0f};
+    ui.rect(id + ".thumb")
+        .position(x + thumbX - thumbR, y + thumbY - thumbR)
+        .size(thumbR * 2.0f, thumbR * 2.0f)
+        .color(on ? thumbOn : thumbOff)
+        .radius(thumbR)
+        .build();
+}

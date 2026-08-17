@@ -442,16 +442,9 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .lineHeight(28.0f)
                         .color(theme.metaText)
                         .build();
-                    components::button(ui, "add.mirror.toggle")
-                        .position(dlgW - 16.0f - 48.0f, mirrorY)
-                        .size(48.0f, 26.0f)
-                        .text(g_addMirror ? tr("开", "On") : tr("关", "Off"))
-                        .fontSize(11.0f)
-                        .theme(theme.components, g_addMirror)
-                        .textColor(onPrimaryColor(theme, g_addMirror))
-                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                        .onClick([] { g_addMirror = !g_addMirror; })
-                        .build();
+                    buildToggleSwitch(ui, "add.mirror.toggle", dlgW - 16.0f - 36.0f, mirrorY + 4.0f,
+                                      36.0f, 20.0f, g_addMirror, theme,
+                                      [](bool v) { g_addMirror = v; });
 
                     // ---- 分片数（0=配置默认；仅 aria2 生效）----
                     components::text(ui, "add.conn.label")

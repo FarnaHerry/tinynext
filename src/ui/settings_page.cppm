@@ -379,16 +379,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .lineHeight(kFieldH)
                     .color(theme.metaText)
                     .build();
-                components::button(r, "st.close.tray.toggle")
-                    .position(kCol2X + kLabelW, -1.0f)
-                    .size(48.0f, 24.0f)
-                    .text(g_closeToTray ? tr("开", "On") : tr("关", "Off"))
-                    .fontSize(11.0f)
-                    .theme(theme.components, g_closeToTray)
-                    .textColor(onPrimaryColor(theme, g_closeToTray))
-                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                    .onClick([] { g_closeToTray = !g_closeToTray; })
-                    .build();
+                buildToggleSwitch(r, "st.close.tray.toggle", kCol2X + kLabelW, 3.0f,
+                                  36.0f, 20.0f, g_closeToTray, theme,
+                                  [](bool v) { g_closeToTray = v; });
             }, 200);  // 行 zIndex：高于语言行（100），弹出下拉不被盖
 
             // ---- 语言（下拉框，立即生效 + 持久化）----
@@ -655,16 +648,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .lineHeight(kFieldH)
                         .color(theme.metaText)
                         .build();
-                    components::button(r, "st.bt.lpd.toggle")
-                        .position(kLabelW, -1.0f)
-                        .size(48.0f, 24.0f)
-                        .text(g_btEnableLpd ? tr("开", "On") : tr("关", "Off"))
-                        .fontSize(11.0f)
-                        .theme(theme.components, g_btEnableLpd)
-                        .textColor(onPrimaryColor(theme, g_btEnableLpd))
-                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                        .onClick([] { g_btEnableLpd = !g_btEnableLpd; })
-                        .build();
+                    buildToggleSwitch(r, "st.bt.lpd.toggle", kLabelW, 3.0f,
+                                      36.0f, 20.0f, g_btEnableLpd, theme,
+                                      [](bool v) { g_btEnableLpd = v; });
                 });
                 // ---- Tracker 服务器：额外 tracker 列表（多行，每行一个；也接受逗号分隔）----
                 row("bt.tracker", 52.0f, [&](eui::Ui& r, float w) {
@@ -744,16 +730,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .lineHeight(kFieldH)
                         .color(theme.metaText)
                         .build();
-                    components::button(r, "st.beh.rename.toggle")
-                        .position(kLabelW, -1.0f)
-                        .size(48.0f, 24.0f)
-                        .text(g_autoFileRenaming ? tr("开", "On") : tr("关", "Off"))
-                        .fontSize(11.0f)
-                        .theme(theme.components, g_autoFileRenaming)
-                        .textColor(onPrimaryColor(theme, g_autoFileRenaming))
-                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                        .onClick([] { g_autoFileRenaming = !g_autoFileRenaming; })
-                        .build();
+                    buildToggleSwitch(r, "st.beh.rename.toggle", kLabelW, 3.0f,
+                                      36.0f, 20.0f, g_autoFileRenaming, theme,
+                                      [](bool v) { g_autoFileRenaming = v; });
                 });
                 row("beh.overwrite", kFieldH, [&](eui::Ui& r, float) {
                     components::text(r, "st.beh.overwrite.label")
@@ -764,16 +743,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .lineHeight(kFieldH)
                         .color(theme.metaText)
                         .build();
-                    components::button(r, "st.beh.overwrite.toggle")
-                        .position(kLabelW, -1.0f)
-                        .size(48.0f, 24.0f)
-                        .text(g_allowOverwrite ? tr("开", "On") : tr("关", "Off"))
-                        .fontSize(11.0f)
-                        .theme(theme.components, g_allowOverwrite)
-                        .textColor(onPrimaryColor(theme, g_allowOverwrite))
-                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                        .onClick([] { g_allowOverwrite = !g_allowOverwrite; })
-                        .build();
+                    buildToggleSwitch(r, "st.beh.overwrite.toggle", kLabelW, 3.0f,
+                                      36.0f, 20.0f, g_allowOverwrite, theme,
+                                      [](bool v) { g_allowOverwrite = v; });
                 });
                 row("a.remctrl", kFieldH, [&](eui::Ui& r, float) {
                     components::text(r, "st.a.remctrl.label")
@@ -784,16 +756,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .lineHeight(kFieldH)
                         .color(theme.metaText)
                         .build();
-                    components::button(r, "st.a.remctrl.toggle")
-                        .position(kLabelW, -1.0f)
-                        .size(48.0f, 24.0f)
-                        .text(g_removeControlFile ? tr("开", "On") : tr("关", "Off"))
-                        .fontSize(11.0f)
-                        .theme(theme.components, g_removeControlFile)
-                        .textColor(onPrimaryColor(theme, g_removeControlFile))
-                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                        .onClick([] { g_removeControlFile = !g_removeControlFile; })
-                        .build();
+                    buildToggleSwitch(r, "st.a.remctrl.toggle", kLabelW, 3.0f,
+                                      36.0f, 20.0f, g_removeControlFile, theme,
+                                      [](bool v) { g_removeControlFile = v; });
                 });
                 row("a.oncomplete", kFieldH, [&](eui::Ui& r, float) {
                     field(r, "a.oncomplete", tr("完成后命令", "On-complete command"), 0, fullW, g_onCompleteText,
@@ -820,16 +785,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .lineHeight(kFieldH)
                         .color(theme.metaText)
                         .build();
-                    components::button(r, "st.chk.integrity.toggle")
-                        .position(kLabelW, -1.0f)
-                        .size(48.0f, 24.0f)
-                        .text(g_checkIntegrity ? tr("开", "On") : tr("关", "Off"))
-                        .fontSize(11.0f)
-                        .theme(theme.components, g_checkIntegrity)
-                        .textColor(onPrimaryColor(theme, g_checkIntegrity))
-                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                        .onClick([] { g_checkIntegrity = !g_checkIntegrity; })
-                        .build();
+                    buildToggleSwitch(r, "st.chk.integrity.toggle", kLabelW, 3.0f,
+                                      36.0f, 20.0f, g_checkIntegrity, theme,
+                                      [](bool v) { g_checkIntegrity = v; });
                 });
                 row("chk.checksum", kFieldH, [&](eui::Ui& r, float) {
                     field(r, "chk.checksum", tr("校验和", "Checksum"), 0, fullW, g_checksumText,
