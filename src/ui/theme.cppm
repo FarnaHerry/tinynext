@@ -64,10 +64,10 @@ export const AppTheme kDarkTheme = {
     {0.50f, 0.50f, 0.52f, 1.0f},   // 空闲 灰
     [] {
         auto tokens = components::theme::dark();
-        // 简洁极客：纯黑底 + 灰白单色。主色偏白（按钮文字/图标经 onPrimaryColor
-        // 翻转成深色才可读，见 widgets.cppm）。
-        tokens.background = {0.08f, 0.08f, 0.08f, 1.0f};
-        tokens.primary = {0.70f, 0.70f, 0.72f, 1.0f};
+        // 简洁极客（对齐 heibu geekBlack）：近纯黑底 + 纯白主色。选中/主色按钮白底，
+        // 文字经 onPrimaryColor 翻成深色才可读（见 widgets.cppm）。
+        tokens.background = {0.04f, 0.04f, 0.05f, 1.0f};
+        tokens.primary = {1.0f, 1.0f, 1.0f, 1.0f};
         // eui input 组件内部默认 `metrics_.typography.input = 17`（未按设计值书写）。
         // 0.2.10 改 uiScale 原生缩放后，app 自己的字号已回到设计值（标签 11-12），
         // 这个 17 却仍按设计值放大 → 输入框文字被放得比标签大 ~60%（比标题还大）。
@@ -91,8 +91,8 @@ export const AppTheme kLightTheme = {
     {0.50f, 0.50f, 0.52f, 1.0f},   // 空闲 灰
     [] {
         auto tokens = components::theme::light();
-        tokens.primary = {0.12f, 0.13f, 0.15f, 1.0f};   // 浅色主色：近黑（白字可读）
-        tokens.background = {0.98f, 0.98f, 0.98f, 1.0f};  // 浅色背景：白
+        tokens.primary = {0.0f, 0.0f, 0.0f, 1.0f};   // 浅色主色：纯黑（白字可读，heibu geekWhite）
+        tokens.background = {0.96f, 0.96f, 0.96f, 1.0f};  // 浅色背景：近白
         // 与深色主题一致：input 默认字号覆写为设计值 13（见 kDarkTheme 注释）。
         tokens.metrics.typography.input = 13.0f;
         return tokens;

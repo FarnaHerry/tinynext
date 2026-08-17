@@ -339,6 +339,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .text(tr(kThemeChoices[i].zh, kThemeChoices[i].en))
                         .fontSize(12.0f)
                         .theme(theme.components, active)
+                        .textColor(onPrimaryColor(theme, active))
                         .onClick([mode = kThemeChoices[i].mode] {
                             // 选择即预览；「保存」才落盘。
                             g_pendingTheme = mode;
@@ -371,6 +372,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .text(g_closeToTray ? tr("开", "On") : tr("关", "Off"))
                     .fontSize(11.0f)
                     .theme(theme.components, g_closeToTray)
+                    .textColor(onPrimaryColor(theme, g_closeToTray))
                     .onClick([] { g_closeToTray = !g_closeToTray; })
                     .build();
             });
@@ -644,6 +646,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .text(g_btEnableLpd ? tr("开", "On") : tr("关", "Off"))
                         .fontSize(11.0f)
                         .theme(theme.components, g_btEnableLpd)
+                        .textColor(onPrimaryColor(theme, g_btEnableLpd))
                         .onClick([] { g_btEnableLpd = !g_btEnableLpd; })
                         .build();
                 });
@@ -731,6 +734,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .text(g_autoFileRenaming ? tr("开", "On") : tr("关", "Off"))
                         .fontSize(11.0f)
                         .theme(theme.components, g_autoFileRenaming)
+                        .textColor(onPrimaryColor(theme, g_autoFileRenaming))
                         .onClick([] { g_autoFileRenaming = !g_autoFileRenaming; })
                         .build();
                 });
@@ -749,6 +753,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .text(g_allowOverwrite ? tr("开", "On") : tr("关", "Off"))
                         .fontSize(11.0f)
                         .theme(theme.components, g_allowOverwrite)
+                        .textColor(onPrimaryColor(theme, g_allowOverwrite))
                         .onClick([] { g_allowOverwrite = !g_allowOverwrite; })
                         .build();
                 });
@@ -767,6 +772,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .text(g_removeControlFile ? tr("开", "On") : tr("关", "Off"))
                         .fontSize(11.0f)
                         .theme(theme.components, g_removeControlFile)
+                        .textColor(onPrimaryColor(theme, g_removeControlFile))
                         .onClick([] { g_removeControlFile = !g_removeControlFile; })
                         .build();
                 });
@@ -801,6 +807,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .text(g_checkIntegrity ? tr("开", "On") : tr("关", "Off"))
                         .fontSize(11.0f)
                         .theme(theme.components, g_checkIntegrity)
+                        .textColor(onPrimaryColor(theme, g_checkIntegrity))
                         .onClick([] { g_checkIntegrity = !g_checkIntegrity; })
                         .build();
                 });

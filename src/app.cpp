@@ -55,7 +55,7 @@ const DslAppConfig& dslAppConfig() {
     static const DslAppConfig config = DslAppConfig{}
         .title("TinyNext 下载器")
         .pageId("tinynext")
-        .clearColor({0.08f, 0.08f, 0.08f, 1.0f})
+        .clearColor({0.04f, 0.04f, 0.05f, 1.0f})
         // 原生全局缩放（eui-neo 0.5.6）：uiScale 按 dpiScale*uiScale 放大整个逻辑
         // 坐标系（布局+字号），所有尺寸按设计逻辑像素书写、不再 S() 自乘。窗口
         // 物理尺寸 = 设计尺寸 * kUI（eui 创建窗口时按物理像素，不会自动乘 uiScale）。

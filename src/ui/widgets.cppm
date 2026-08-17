@@ -23,11 +23,16 @@ export core::Color glassFill(const AppTheme& theme, float alpha = 0.6f) {
     return {base.r, base.g, base.b, alpha};
 }
 
-// 主色按钮上的文字/图标色：深色主色偏白 → 配深色字才可读；浅色主色近黑 → 保持近白字
-// （eui ButtonStyle 默认恒用近白字，只适合深色主色，这里按主题翻转）。
-export core::Color onPrimaryColor(const AppTheme& theme) {
-    return theme.components.dark ? core::Color{0.08f, 0.08f, 0.10f, 1.0f}
-                                 : core::Color{0.94f, 0.97f, 1.0f, 1.0f};
+// 按钮文字/图标色（对齐 heibu 的 buttonTextColor）：primary=true（选中/主色，白底）
+// → 配深色字才可读；primary=false（次按钮，surface 底）→ 默认（深=近白字、浅=黑字）。
+// eui ButtonStyle 默认恒用近白字，只适合深色主色，这里按主题翻转。
+export core::Color onPrimaryColor(const AppTheme& theme, bool primary = true) {
+    if (primary) {
+        return theme.components.dark ? core::Color{0.03f, 0.03f, 0.03f, 1.0f}
+                                     : core::Color{0.95f, 0.95f, 0.95f, 1.0f};
+    }
+    return theme.components.dark ? core::Color{0.94f, 0.97f, 1.0f, 1.0f}
+                                 : theme.components.text;
 }
 
 export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
@@ -495,6 +500,7 @@ export void drawCardAction(eui::Ui& ui, const std::string& id, float x, float y,
         .text("")
         .iconSize(11.0f)
         .theme(theme.components, primary)
+        .iconColor(onPrimaryColor(theme, primary))  // 白底主按钮 → 深色图标
         .onClick(std::move(onClick))
         .build();
 }

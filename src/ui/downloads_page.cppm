@@ -399,6 +399,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .text(tr("直链下载", "Direct link"))
                     .fontSize(12.0f)
                     .theme(theme.components, g_addTab == AddTab::Direct)
+                    .textColor(onPrimaryColor(theme, g_addTab == AddTab::Direct))
                     .onClick([] { g_addTab = AddTab::Direct; })
                     .build();
                 components::button(ui, "add.tab.torrent")
@@ -407,6 +408,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .text(tr("种子", "Torrent"))
                     .fontSize(12.0f)
                     .theme(theme.components, g_addTab == AddTab::Torrent)
+                    .textColor(onPrimaryColor(theme, g_addTab == AddTab::Torrent))
                     .onClick([] { g_addTab = AddTab::Torrent; })
                     .build();
 
@@ -442,6 +444,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .text(g_addMirror ? tr("开", "On") : tr("关", "Off"))
                         .fontSize(11.0f)
                         .theme(theme.components, g_addMirror)
+                        .textColor(onPrimaryColor(theme, g_addMirror))
                         .onClick([] { g_addMirror = !g_addMirror; })
                         .build();
 
