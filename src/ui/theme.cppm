@@ -64,8 +64,9 @@ export const AppTheme kDarkTheme = {
     {0.55f, 0.58f, 0.62f, 1.0f},
     [] {
         auto tokens = components::theme::dark();
-        // 深色模式主色：霓虹紫（霓虹色系，暗底上醒目）。按钮/进度/激活态/背景柔光统一用它。
-        tokens.primary = {0.72f, 0.22f, 1.0f, 1.0f};
+        // 传统深色模式：纯黑背景 + 标准蓝主色（不花里胡哨，去掉霓虹色）。
+        tokens.background = {0.08f, 0.08f, 0.08f, 1.0f};
+        tokens.primary = {0.25f, 0.55f, 1.0f, 1.0f};
         // eui input 组件内部默认 `metrics_.typography.input = 17`（未按设计值书写）。
         // 0.2.10 改 uiScale 原生缩放后，app 自己的字号已回到设计值（标签 11-12），
         // 这个 17 却仍按设计值放大 → 输入框文字被放得比标签大 ~60%（比标题还大）。

@@ -55,7 +55,7 @@ const DslAppConfig& dslAppConfig() {
     static const DslAppConfig config = DslAppConfig{}
         .title("TinyNext 下载器")
         .pageId("tinynext")
-        .clearColor({0.075f, 0.085f, 0.105f, 1.0f})
+        .clearColor({0.08f, 0.08f, 0.08f, 1.0f})
         // 原生全局缩放（eui-neo 0.5.6）：uiScale 按 dpiScale*uiScale 放大整个逻辑
         // 坐标系（布局+字号），所有尺寸按设计逻辑像素书写、不再 S() 自乘。窗口
         // 物理尺寸 = 设计尺寸 * kUI（eui 创建窗口时按物理像素，不会自动乘 uiScale）。
@@ -161,36 +161,11 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
             // 根背景：渐变 + 角落主色柔光斑。毛玻璃面板（drawPanel 的 backdrop blur）
             // 背后需要有带边缘/颜色的细节才看得出磨砂感——纯色或平滑渐变被模糊后
             // 看不出差别。官方 demo 的玻璃卡也是叠在彩色背景上（blur 18）。
-            const auto& bgTok = theme.components;
-            // 深色用霓虹主色（亮光斑 + 渐变），浅色用米白背景（几乎无彩，保持干净）。
-            const float glowAlpha = bgTok.dark ? 0.16f : 0.05f;
-            const float gradMix = bgTok.dark ? 0.16f : 0.05f;
+            // 传统纯色背景（不花里胡哨）：深色纯黑 / 浅色米白，无渐变无主色柔光。
             ui.rect("theme.background")
                 .position(0, 0)
                 .size(screen.width, screen.height)
-                .gradient(bgTok.background,
-                          core::mixColor(bgTok.background, bgTok.primary, gradMix))
-                .build();
-            // 三处主色柔光（大圆角 + 低 alpha）：玻璃岛卡/弹窗会糊掉它们形成可见
-            // 磨砂感。中央那团专门垫在弹窗背后——弹窗居中，角落柔光够不到它。
-            const core::Color glow = {bgTok.primary.r, bgTok.primary.g, bgTok.primary.b, glowAlpha};
-            ui.rect("theme.glow.tl")
-                .position(-120.0f, -140.0f)
-                .size(360.0f, 300.0f)
-                .color(glow)
-                .radius(160.0f)
-                .build();
-            ui.rect("theme.glow.br")
-                .position(screen.width - 260.0f, screen.height - 260.0f)
-                .size(340.0f, 300.0f)
-                .color(glow)
-                .radius(170.0f)
-                .build();
-            ui.rect("theme.glow.c")
-                .position(screen.width * 0.5f - 240.0f, screen.height * 0.5f - 220.0f)
-                .size(480.0f, 440.0f)
-                .color(glow)
-                .radius(220.0f)
+                .color(theme.components.background)
                 .build();
 
             // ===================== 主侧边栏（图标栏） =====================
