@@ -340,7 +340,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
 
             // ===== 通用：主题 / 关闭行为 / 语言 =====
             if (g_settingsTab == SettingsTab::General) {
-            // ---- 主题：跟随系统 / 深色 / 浅色（下拉，选择即预览、保存才落盘）----
+            // ---- 主题（下拉）+ 关闭时缩到托盘（第二列/最后一列）----
+            // 主题下拉选择即预览、保存才落盘；关闭行为改后重启生效（dslAppConfig
+            // 启动时读取）。行 zIndex 用 200：高于下面语言行的 100——主题下拉弹出
+            // 会向下盖过语言行，同 zIndex 时后画（语言行）会压在弹层之上。
             row("theme", kFieldH, [&](eui::Ui& r, float) {
                 components::text(r, "st.theme.label")
                     .position(0, 0)
@@ -366,13 +369,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                         [](int i) { applyThemeChoice(i); });
                     })
                     .build();
-            }, 100);  // 行 zIndex：让弹出下拉盖过后面各行
 
-            // ---- 关闭窗口行为：缩到托盘（Windows/macOS 生效；Linux 的 eui
-            //      托盘为 stub 无效果）。改后重启生效（dslAppConfig 启动时读取）。
-            row("close.tray", kFieldH, [&](eui::Ui& r, float) {
+                // 第二列（最后一列）：关闭时缩到托盘。
                 components::text(r, "st.close.tray.label")
-                    .position(0, 0)
+                    .position(kCol2X, 0)
                     .size(kLabelW, kFieldH)
                     .text(tr("关闭时缩到托盘", "Close to tray"))
                     .fontSize(11.0f)
@@ -380,7 +380,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .color(theme.metaText)
                     .build();
                 components::button(r, "st.close.tray.toggle")
-                    .position(kLabelW, -1.0f)
+                    .position(kCol2X + kLabelW, -1.0f)
                     .size(48.0f, 24.0f)
                     .text(g_closeToTray ? tr("开", "On") : tr("关", "Off"))
                     .fontSize(11.0f)
@@ -389,7 +389,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] { g_closeToTray = !g_closeToTray; })
                     .build();
-            });
+            }, 200);  // 行 zIndex：高于语言行（100），弹出下拉不被盖
 
             // ---- 语言（下拉框，立即生效 + 持久化）----
             row("lang", kFieldH, [&](eui::Ui& r, float) {
