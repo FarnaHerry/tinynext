@@ -158,14 +158,29 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
     ui.stack("root")
         .size(screen.width, screen.height)
         .content([&] {
-            // 根背景改柔和渐变：毛玻璃面板（drawPanel 的 backdrop blur）背后需要有
-            // 变化才看得出玻璃质感——纯色背景模糊等于没模糊。底部略向主色偏移。
+            // 根背景：渐变 + 角落主色柔光斑。毛玻璃面板（drawPanel 的 backdrop blur）
+            // 背后需要有带边缘/颜色的细节才看得出磨砂感——纯色或平滑渐变被模糊后
+            // 看不出差别。官方 demo 的玻璃卡也是叠在彩色背景上（blur 18）。
+            const auto& bgTok = theme.components;
             ui.rect("theme.background")
                 .position(0, 0)
                 .size(screen.width, screen.height)
-                .gradient(theme.components.background,
-                          core::mixColor(theme.components.background,
-                                         theme.components.primary, 0.12f))
+                .gradient(bgTok.background,
+                          core::mixColor(bgTok.background, bgTok.primary, 0.16f))
+                .build();
+            // 两处主色柔光（大圆角 + 低 alpha）：玻璃岛卡会糊掉它们，形成可见磨砂感。
+            const core::Color glow = {bgTok.primary.r, bgTok.primary.g, bgTok.primary.b, 0.14f};
+            ui.rect("theme.glow.tl")
+                .position(-120.0f, -140.0f)
+                .size(360.0f, 300.0f)
+                .color(glow)
+                .radius(160.0f)
+                .build();
+            ui.rect("theme.glow.br")
+                .position(screen.width - 260.0f, screen.height - 260.0f)
+                .size(340.0f, 300.0f)
+                .color(glow)
+                .radius(170.0f)
                 .build();
 
             // ===================== 主侧边栏（图标栏） =====================
