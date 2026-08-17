@@ -17,15 +17,18 @@ import tinynext.ui.utils;
 export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
                       float w, float h, const AppTheme& theme) {
     const auto& tokens = theme.components;
-    const core::Color panelColor =
-        core::mixColor(tokens.background, tokens.surface, 0.5f);
+    // 毛玻璃面板：blur(n) 让 eui 捕获 rect 背后画面并模糊（backdrop blur，
+    // shader mix(blurred, fill.rgb, fill.a)），半透明 fill 与模糊背景混合成玻璃质感。
+    // 背景须有渐变/内容变化才有可模糊的细节（见 app.cpp 的 theme.background 渐变）。
+    const core::Color glass = core::mixColor(tokens.background, tokens.surface, 0.5f);
     const core::Color shadowColor =
         tokens.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.25f}
                     : core::Color{0.10f, 0.14f, 0.22f, 0.12f};
     ui.rect(id)
         .position(x, y)
         .size(w, h)
-        .color(panelColor)
+        .blur(12.0f)
+        .color({glass.r, glass.g, glass.b, 0.55f})
         .radius(kIslandRadius)
         .border(1.0f, components::theme::withOpacity(tokens.border, 0.6f))
         .shadow(14.0f, 3.0f, shadowColor)

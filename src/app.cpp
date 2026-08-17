@@ -158,10 +158,14 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
     ui.stack("root")
         .size(screen.width, screen.height)
         .content([&] {
+            // 根背景改柔和渐变：毛玻璃面板（drawPanel 的 backdrop blur）背后需要有
+            // 变化才看得出玻璃质感——纯色背景模糊等于没模糊。底部略向主色偏移。
             ui.rect("theme.background")
                 .position(0, 0)
                 .size(screen.width, screen.height)
-                .color(theme.components.background)
+                .gradient(theme.components.background,
+                          core::mixColor(theme.components.background,
+                                         theme.components.primary, 0.12f))
                 .build();
 
             // ===================== 主侧边栏（图标栏） =====================
