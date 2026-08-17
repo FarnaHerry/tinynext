@@ -27,7 +27,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
         .position(0, 0)
         .size(screen.width, screen.height)
         .zIndex(100)
-        .color({0.0f, 0.0f, 0.0f, 0.45f})
+        .color({0.0f, 0.0f, 0.0f, 0.32f})
         .onClick([] { g_aboutOpen = false; })
         .build();
 
@@ -40,7 +40,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
                 .position(0, 0)
                 .size(dlgW, dlgH)
                 .blur(16.0f)
-                .color(glassFill(theme, 0.65f))
+                .color(glassFill(theme, 0.52f))
                 .radius(10.0f)
                 .border(1.0f,
                         components::theme::withOpacity(

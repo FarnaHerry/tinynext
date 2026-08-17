@@ -168,8 +168,9 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 .gradient(bgTok.background,
                           core::mixColor(bgTok.background, bgTok.primary, 0.16f))
                 .build();
-            // 两处主色柔光（大圆角 + 低 alpha）：玻璃岛卡会糊掉它们，形成可见磨砂感。
-            const core::Color glow = {bgTok.primary.r, bgTok.primary.g, bgTok.primary.b, 0.14f};
+            // 三处主色柔光（大圆角 + 低 alpha）：玻璃岛卡/弹窗会糊掉它们形成可见
+            // 磨砂感。中央那团专门垫在弹窗背后——弹窗居中，角落柔光够不到它。
+            const core::Color glow = {bgTok.primary.r, bgTok.primary.g, bgTok.primary.b, 0.15f};
             ui.rect("theme.glow.tl")
                 .position(-120.0f, -140.0f)
                 .size(360.0f, 300.0f)
@@ -181,6 +182,12 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 .size(340.0f, 300.0f)
                 .color(glow)
                 .radius(170.0f)
+                .build();
+            ui.rect("theme.glow.c")
+                .position(screen.width * 0.5f - 240.0f, screen.height * 0.5f - 220.0f)
+                .size(480.0f, 440.0f)
+                .color(glow)
+                .radius(220.0f)
                 .build();
 
             // ===================== 主侧边栏（图标栏） =====================

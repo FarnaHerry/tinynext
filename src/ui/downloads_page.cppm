@@ -363,7 +363,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             .position(0, 0)
             .size(screen.width, screen.height)
             .zIndex(100)
-            .color({0.0f, 0.0f, 0.0f, 0.45f})
+            .color({0.0f, 0.0f, 0.0f, 0.32f})
             .onClick([] { g_addOpen = false; })
             .build();
 
@@ -376,7 +376,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .position(0, 0)
                     .size(dlgW, dlgH)
                     .blur(16.0f)
-                    .color(glassFill(theme, 0.65f))
+                    .color(glassFill(theme, 0.52f))
                     .radius(10.0f)
                     .border(1.0f,
                             components::theme::withOpacity(
@@ -626,7 +626,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             .position(0, 0)
             .size(screen.width, screen.height)
             .zIndex(100)
-            .color({0.0f, 0.0f, 0.0f, 0.45f})
+            .color({0.0f, 0.0f, 0.0f, 0.32f})
             .onClick([] { g_pendingDelete.reset(); })
             .build();
 
@@ -639,7 +639,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .position(0, 0)
                     .size(dlgW, dlgH)
                     .blur(16.0f)
-                    .color(glassFill(theme, 0.65f))
+                    .color(glassFill(theme, 0.52f))
                     .radius(10.0f)
                     .border(1.0f,
                             components::theme::withOpacity(
@@ -758,7 +758,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
         .position(0, 0)
         .size(screen.width, screen.height)
         .zIndex(100)
-        .color({0.0f, 0.0f, 0.0f, 0.45f})
+        .color({0.0f, 0.0f, 0.0f, 0.32f})
         .onClick([] { g_mirrorOpen = false; })
         .build();
 
