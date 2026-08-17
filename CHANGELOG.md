@@ -27,6 +27,18 @@
   heibu `buttonTextColor`）；动作按钮（提交 / 保存 / 删除 / ➕ 等）白底黑字。
 - **按钮去投影**：主色按钮去掉 eui 默认 14px 投影，消除白按钮的模糊边。
 
+### 新功能：aria2-next 引擎监控页
+- **监控页**（主侧边栏新增「引擎」导航项，fa-server）：整页单岛卡，体检引擎二进制 /
+  守护进程 / RPC 服务 / WS 推送 / 引擎版本 / RPC 端点，顶部状态圆点（正常 / 未运行 /
+  服务异常 / 引擎缺失）+ 全局统计卡（下载 / 上传速度、活动 / 等待 / 停止任务数）。
+- **后台健康检查**：`refreshHealth` 在后台命令线程发 `getVersion` + `getGlobalStat`，
+  结果写健康缓存（`health()` 纯读，UI 线程不发任何 RPC）；监控页打开时 housekeep 每
+  ~2s 自动刷新，离开即停（空闲零开销），也可手动「立即检测」。
+- **一键重启引擎**：`restartEngine` 保存会话 → 优雅退出（saveSession + forceShutdown）
+  → 停旧 WS → 清任务表 → 重新拉起并 `recoverSession` 恢复任务。进行中的下载经
+  `.aria2` 控制文件续传，**不丢**；重启期间按钮置灰「重启中…」，结果经状态条提示。
+  另提供「打开日志」直达 `configDir/tinynext-aria2.log`。
+
 ### 工程
 - **版本升 0.4.0**（`mcpp.toml` `[package].version`，`src/versions.generated.h` 重新生成）。
 

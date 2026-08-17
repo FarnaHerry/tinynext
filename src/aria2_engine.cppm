@@ -51,6 +51,9 @@ public:
                       std::function<void(bool)> onDone) override;
     std::vector<TaskView> snapshot() const override;
     void pollProgress() override;
+    HealthInfo health() const override;
+    void refreshHealth(std::function<void(const HealthInfo&)> onDone) override;
+    void restartEngine(std::function<void(bool)> onDone) override;
     bool busy() const override;
     bool engineActive() const override;
     std::string lastError() const override;
@@ -90,6 +93,10 @@ private:
     mutable void* processHandle_ = nullptr;   // HANDLE on Windows
     mutable std::chrono::steady_clock::time_point lastPoll_{};
     mutable std::unique_ptr<WsNotifier> ws_;  // 事件监听（仅收推送，请求仍走 HTTP）
+
+    // 健康缓存：refreshHealth（后台命令线程）写，health()（UI 线程）读，互斥保护。
+    mutable std::mutex healthMutex_;
+    mutable HealthInfo healthInfo_;
 
     // 命令队列 worker（串行消费动作 rpcCall，FIFO）。cmdShutdown_ 置位后 worker
     // 丢弃未处理命令并退出；shutdown() 在取 daemonMutex_ 之前 join，避免 worker 正

@@ -781,6 +781,7 @@ bool Aria2Engine::ensureDaemon() const {
         try {
             rpcCall(port_, secret_, "aria2.getVersion", nlohmann::json::array());
             daemonSpawned_ = true;
+            lastError_.clear();  // 成功拉起即清掉历史启动错误（监控页不再显示旧错误）
             // 首次拉起 daemon 后，重建上次会话（--save-session）里的未完成任务。
             recoverSession();
             // 启动 WebSocket 事件监听（仅收推送，请求仍走 HTTP）。连接失败不影响
@@ -1495,6 +1496,107 @@ void Aria2Engine::pollProgress() {
         lastPoll_ = now;
         refreshStates();
     }
+}
+
+// ---- 引擎监控：健康快照（纯读缓存）+ 后台健康检查 + 重启 ----
+
+HealthInfo Aria2Engine::health() const {
+    std::lock_guard<std::mutex> lock(healthMutex_);
+    return healthInfo_;
+}
+
+// 后台命令线程执行：一次 getVersion + getGlobalStat 刷新健康缓存。RPC 参数在
+// daemonMutex_ 下快照后释放锁再发请求（rpcCall 可能阻塞 ~3s，不能占锁）。结果
+// 写 healthInfo_（healthMutex_），UI 线程经 health() 读；onDone 后台线程调用。
+void Aria2Engine::refreshHealth(std::function<void(const HealthInfo&)> onDone) {
+    enqueue([this, onDone] {
+        HealthInfo info;
+        info.binaryFound = !engineExePath().empty();
+        int port = 0;
+        std::string secret;
+        {
+            std::lock_guard<std::mutex> lock(daemonMutex_);
+            info.daemonSpawned = daemonSpawned_;
+            info.daemonAlive = daemonSpawned_ && processHandle_ &&
+                               !processExited(processHandle_);
+            info.wsConnected = ws_ != nullptr && ws_->isConnected();
+            info.error = lastError_;
+            port = port_;
+            secret = secret_;
+        }
+        if (port != 0) {
+            try {
+                const nlohmann::json v = rpcCall(port, secret, "aria2.getVersion",
+                                                 nlohmann::json::array());
+                info.rpcReachable = true;
+                if (v.is_object()) info.version = v.value("version", "");
+                const nlohmann::json gs = rpcCall(port, secret, "aria2.getGlobalStat",
+                                                  nlohmann::json::array());
+                if (gs.is_object()) {
+                    const auto i64 = [&](const char* key) -> std::int64_t {
+                        try { return std::stoll(gs.value(key, "0")); }
+                        catch (...) { return 0; }
+                    };
+                    info.downloadSpeedBps = i64("downloadSpeed");
+                    info.uploadSpeedBps = i64("uploadSpeed");
+                    info.activeDownloads = static_cast<int>(i64("numActive"));
+                    info.waitingDownloads = static_cast<int>(i64("numWaiting"));
+                    info.stoppedDownloads = static_cast<int>(i64("numStopped"));
+                }
+                info.rpcPort = port;
+                info.error.clear();  // RPC 通了，旧错误不再有效
+            } catch (const std::exception& e) {
+                info.error = e.what();  // 服务在但无响应
+            }
+        }
+        {
+            std::lock_guard<std::mutex> lock(healthMutex_);
+            info.checked = true;  // 无论结果如何，本次检查已执行
+            healthInfo_ = info;
+        }
+        if (onDone) onDone(info);
+        core::platform::requestUiUpdate();
+    });
+}
+
+// 后台命令线程执行：保存会话 → forceShutdown → 停旧 WS → 清任务表（恢复时会
+// 从 --input-file 重建，不清会重复）→ ensureDaemon 重新拉起（内部 recoverSession
+// + 新 WS）。进行中的下载经 .aria2 控制文件续传，不丢。锁纪律与 retryOnWorker
+// 一致：ensureDaemon 在释放 daemonMutex_ 后调用（避免非递归互斥量死锁）。
+void Aria2Engine::restartEngine(std::function<void(bool)> onDone) {
+    enqueue([this, onDone] {
+        {
+            std::lock_guard<std::mutex> lock(daemonMutex_);
+            if (daemonSpawned_) {
+                try {
+                    rpcCall(port_, secret_, "aria2.saveSession", nlohmann::json::array());
+                } catch (...) {}
+                try {
+                    rpcCall(port_, secret_, "aria2.forceShutdown", nlohmann::json::array());
+                } catch (...) {}
+                if (processHandle_) {
+                    terminateProcess(processHandle_);
+                    processHandle_ = nullptr;
+                }
+                daemonSpawned_ = false;
+                port_ = 0;
+                secret_.clear();
+            }
+        }
+        // 先停掉旧 WS（stop 会 join IXWebSocket 线程，此后不再有回调），再清任务，
+        // 保证没有任何回调访问已清空的任务（顺序同 shutdown()，不可颠倒）。
+        if (ws_) {
+            ws_->stop();
+            ws_.reset();
+        }
+        {
+            std::lock_guard<std::mutex> lock(tasksMutex_);
+            tasks_.clear();
+        }
+        const bool ok = ensureDaemon();
+        if (onDone) onDone(ok);
+        core::platform::requestUiUpdate();
+    });
 }
 
 std::vector<TaskView> Aria2Engine::snapshot() const {

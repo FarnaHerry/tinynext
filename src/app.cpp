@@ -38,6 +38,7 @@ import tinynext.ui.theme;
 import tinynext.ui.widgets;
 import tinynext.ui.downloads_page;
 import tinynext.ui.settings_page;
+import tinynext.ui.engine_page;
 import tinynext.ui.about_dialog;
 import tinynext.ui.platform;
 import tinynext.ui.housekeep;
@@ -198,7 +199,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                         .verticalAlign(core::VerticalAlign::Center)
                         .build();
 
-                    // 应用页导航：下载列表（默认第一页）/ 设置。
+                    // 应用页导航：下载列表（默认第一页）/ 设置 / 引擎监控。
                     float railY = 40.0f;
                     drawRailItem(ui, "nav.downloads", railY, kRailWidth, 0xF03A,
                                  g_page_view == Page::Downloads, theme,
@@ -207,6 +208,10 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                     drawRailItem(ui, "nav.settings", railY, kRailWidth, 0xF013,
                                  g_page_view == Page::Settings, theme,
                                  [] { g_page_view = Page::Settings; });
+                    railY += 30.0f;
+                    drawRailItem(ui, "nav.engine", railY, kRailWidth, 0xF233,  // fa-server
+                                 g_page_view == Page::Monitor, theme,
+                                 [] { g_page_view = Page::Monitor; });
 
                     // 关于：主题切换上方，信息图标（circle-info），打开软件信息弹窗。
                     components::button(ui, "rail.info")
@@ -245,10 +250,10 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 .build();
 
             // ===================== 内容区（页面分发） =====================
-            if (g_page_view == Page::Downloads) {
-                drawDownloadsPage(ui, screen, theme);
-            } else {
-                drawSettingsPage(ui, screen, theme);
+            switch (g_page_view) {
+                case Page::Downloads: drawDownloadsPage(ui, screen, theme); break;
+                case Page::Settings:  drawSettingsPage(ui, screen, theme);  break;
+                case Page::Monitor:   drawEnginePage(ui, screen, theme);    break;
             }
 
             // 关于弹窗（所有页面可见）。

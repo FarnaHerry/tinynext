@@ -62,6 +62,17 @@ public:
     bool engineActive() const { return engine_->engineActive(); }
     std::string lastError() const { return engine_->lastError(); }
 
+    // ---- 引擎监控 ----
+    // 健康快照（纯读缓存，UI 线程每帧可调）；refreshHealth/restartEngine 结果经
+    // 回调在后台线程返回，UI 层自行 marshal（postStatus + requestUiUpdate）。
+    dl::HealthInfo health() const { return engine_->health(); }
+    void refreshHealth(std::function<void(const dl::HealthInfo&)> onDone) {
+        engine_->refreshHealth(std::move(onDone));
+    }
+    void restartEngine(std::function<void(bool)> onDone) {
+        engine_->restartEngine(std::move(onDone));
+    }
+
     // ---- 生命周期 ----
     // 启动预热：拉起 daemon + 恢复上次会话历史任务（可后台线程调用，引擎内部
     // 有 daemonMutex_ 与 UI 线程互斥）。见 app.cpp 的预热线程。

@@ -24,6 +24,25 @@ export struct MirrorSource {
     std::string status;   // aria2: used（在用）/ waiting（备用）/ error（失败）
 };
 
+// 引擎健康信息（监控页展示）。纯读缓存：由 refreshHealth() 在后台线程刷新，
+// health() 只读缓存、绝不发 RPC（UI 线程每帧可调用）。
+export struct HealthInfo {
+    bool checked = false;        // 是否已做过一次健康检查（未检查时页面显示"检测中…"）
+    bool binaryFound = false;    // engines/aria2-next(.exe) 存在
+    bool daemonSpawned = false;  // daemon 已拉起过（进程可能已退出，看 daemonAlive）
+    bool daemonAlive = false;    // 守护进程已拉起且进程未退出
+    bool rpcReachable = false;   // 最近一次 getVersion 成功
+    bool wsConnected = false;    // WebSocket 事件推送连接
+    std::string version;         // aria2 版本串（getVersion.version）
+    std::string error;           // 最近检测/启动失败原因（空 = 无）
+    int rpcPort = 0;             // 本地 RPC 端口（daemon 未拉起 = 0）
+    std::int64_t downloadSpeedBps = 0;   // getGlobalStat
+    std::int64_t uploadSpeedBps = 0;
+    int activeDownloads = 0;
+    int waitingDownloads = 0;
+    int stoppedDownloads = 0;
+};
+
 // Immutable snapshot of one download task, safe to read from any thread.
 export struct TaskView {
     std::uint64_t id;
@@ -92,6 +111,24 @@ public:
     // （内部 ~1s 节流）。UI 线程不要调用——snapshot 已剥离 RPC，进度刷新由
     // housekeep 等后台线程驱动。默认空实现。
     virtual void pollProgress() {}
+
+    // 引擎健康快照（纯读缓存，不发 RPC）。UI 线程每帧可调用；引擎不支持健康
+    // 监控时返回默认（全 false / 空）。
+    virtual HealthInfo health() const { return {}; }
+
+    // 异步健康检查：后台线程发一次 getVersion/getGlobalStat 刷新缓存，结果经
+    // onDone 回传（后台线程调用，UI 层自行 marshal，如 requestUiUpdate）。引擎
+    // 不支持时立即回调默认值。
+    virtual void refreshHealth(std::function<void(const HealthInfo&)> onDone) {
+        if (onDone) onDone(HealthInfo{});
+    }
+
+    // 重启引擎运行时：保存会话 → 优雅退出 → 重新拉起（进行中任务经会话恢复
+    // --input-file 重载，不会丢）。结果经 onDone(bool) 回传（后台线程调用）。
+    // 默认实现直接回调 true（无运行时可重启）。
+    virtual void restartEngine(std::function<void(bool)> onDone) {
+        if (onDone) onDone(true);
+    }
 
     // 向已有任务追加镜像源（aria2.changeUri add）。仅活动任务有效。RPC 在后台
     // 线程执行，结果经 onDone(bool) 回传（后台线程调用，UI 层自行 marshal，如
