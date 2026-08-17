@@ -162,15 +162,18 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
             // 背后需要有带边缘/颜色的细节才看得出磨砂感——纯色或平滑渐变被模糊后
             // 看不出差别。官方 demo 的玻璃卡也是叠在彩色背景上（blur 18）。
             const auto& bgTok = theme.components;
+            // 深色用霓虹主色（亮光斑 + 渐变），浅色用米白背景（几乎无彩，保持干净）。
+            const float glowAlpha = bgTok.dark ? 0.16f : 0.05f;
+            const float gradMix = bgTok.dark ? 0.16f : 0.05f;
             ui.rect("theme.background")
                 .position(0, 0)
                 .size(screen.width, screen.height)
                 .gradient(bgTok.background,
-                          core::mixColor(bgTok.background, bgTok.primary, 0.16f))
+                          core::mixColor(bgTok.background, bgTok.primary, gradMix))
                 .build();
             // 三处主色柔光（大圆角 + 低 alpha）：玻璃岛卡/弹窗会糊掉它们形成可见
             // 磨砂感。中央那团专门垫在弹窗背后——弹窗居中，角落柔光够不到它。
-            const core::Color glow = {bgTok.primary.r, bgTok.primary.g, bgTok.primary.b, 0.15f};
+            const core::Color glow = {bgTok.primary.r, bgTok.primary.g, bgTok.primary.b, glowAlpha};
             ui.rect("theme.glow.tl")
                 .position(-120.0f, -140.0f)
                 .size(360.0f, 300.0f)
