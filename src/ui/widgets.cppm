@@ -26,17 +26,17 @@ export core::Color glassFill(const AppTheme& theme, float alpha = 0.6f) {
 export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
                       float w, float h, const AppTheme& theme) {
     const auto& tokens = theme.components;
-    // 毛玻璃面板：blur(n) 让 eui 捕获 rect 背后画面并模糊（backdrop blur，
-    // shader mix(blurred, fill.rgb, fill.a)），半透明 fill 与模糊背景混合成玻璃质感。
-    // 背景须有渐变/内容变化才有可模糊的细节（见 app.cpp 的 theme.background 渐变）。
+    // 全屏岛卡不做 backdrop blur：blur 在整屏面积上每帧几十次纹理采样，主题切换
+    // 触发多帧全量重绘会卡死（实测 blur 18/10 都卡）。保留半透明玻璃色让背景
+    // 柔光透出（玻璃质感靠透色 + 柔光），磨砂感略减但流畅优先。
+    // 弹窗/下拉是小面积，仍可保留 backdrop blur（见各弹窗）。
     const core::Color shadowColor =
         tokens.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.25f}
                     : core::Color{0.10f, 0.14f, 0.22f, 0.12f};
     ui.rect(id)
         .position(x, y)
         .size(w, h)
-        .blur(10.0f)  // 全屏岛卡是最大成本：blur 18 实测主题切换卡死，降到 10（仍显磨砂）
-        .color(glassFill(theme, 0.55f))
+        .color(glassFill(theme, 0.62f))
         .radius(kIslandRadius)
         .border(1.0f, components::theme::withOpacity(tokens.border, 0.6f))
         .shadow(14.0f, 3.0f, shadowColor)
