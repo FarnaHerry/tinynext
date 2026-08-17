@@ -259,7 +259,8 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             ui.rect("pager.card.bg")
                 .position(0, 0)
                 .size(pagerCardW, pagerCardH)
-                .color(theme.components.surface)
+                .blur(10.0f)
+                .color(glassFill(theme, 0.6f))
                 .radius(8.0f)
                 .border(1.0f, components::theme::withOpacity(theme.components.border, 0.55f))
                 .shadow(8.0f, 2.0f,
@@ -374,7 +375,8 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 ui.rect("add.dialog.bg")
                     .position(0, 0)
                     .size(dlgW, dlgH)
-                    .color(theme.components.surface)
+                    .blur(12.0f)
+                    .color(glassFill(theme, 0.65f))
                     .radius(10.0f)
                     .border(1.0f,
                             components::theme::withOpacity(
@@ -636,7 +638,8 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 ui.rect("del.dialog.bg")
                     .position(0, 0)
                     .size(dlgW, dlgH)
-                    .color(theme.components.surface)
+                    .blur(12.0f)
+                    .color(glassFill(theme, 0.65f))
                     .radius(10.0f)
                     .border(1.0f,
                             components::theme::withOpacity(
@@ -767,7 +770,8 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
             ui.rect("mirror.dialog.bg")
                 .position(0, 0)
                 .size(dlgW, dlgH)
-                .color(theme.components.surface)
+                .blur(12.0f)
+                .color(glassFill(theme, 0.65f))
                 .radius(10.0f)
                 .border(1.0f,
                         components::theme::withOpacity(

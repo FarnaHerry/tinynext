@@ -14,13 +14,21 @@ import tinynext.ui.utils;
 // 岛屿卡片风：内容区 / 侧边栏都做成浮在页面背景上的圆角"岛"。底色取
 // background↔surface 的中间色调，保证与纯 surface 的内层卡片（如任务卡）分层，
 // 不会糊在一起；统一圆角 + 细边框 + 柔和投影。
+// 毛玻璃填充色：surface 基色半透明，与背后被模糊的背景混合成玻璃质感。
+// alpha 越高越实、越低越透。drawPanel（整页岛卡）与各弹窗 / 任务卡 / 翻页 /
+// 下拉弹层复用同一套玻璃色。
+export core::Color glassFill(const AppTheme& theme, float alpha = 0.6f) {
+    const core::Color base = core::mixColor(theme.components.background,
+                                            theme.components.surface, 0.5f);
+    return {base.r, base.g, base.b, alpha};
+}
+
 export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
                       float w, float h, const AppTheme& theme) {
     const auto& tokens = theme.components;
     // 毛玻璃面板：blur(n) 让 eui 捕获 rect 背后画面并模糊（backdrop blur，
     // shader mix(blurred, fill.rgb, fill.a)），半透明 fill 与模糊背景混合成玻璃质感。
     // 背景须有渐变/内容变化才有可模糊的细节（见 app.cpp 的 theme.background 渐变）。
-    const core::Color glass = core::mixColor(tokens.background, tokens.surface, 0.5f);
     const core::Color shadowColor =
         tokens.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.25f}
                     : core::Color{0.10f, 0.14f, 0.22f, 0.12f};
@@ -28,7 +36,7 @@ export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
         .position(x, y)
         .size(w, h)
         .blur(12.0f)
-        .color({glass.r, glass.g, glass.b, 0.55f})
+        .color(glassFill(theme, 0.55f))
         .radius(kIslandRadius)
         .border(1.0f, components::theme::withOpacity(tokens.border, 0.6f))
         .shadow(14.0f, 3.0f, shadowColor)
@@ -213,7 +221,8 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
                     .content([&] {
                         ui.rect(id + ".popup.bg")
                             .size(popWidth, popupHeight)
-                            .color(tokens.dark ? tokens.surfaceActive : tokens.surface)
+                            .blur(8.0f)
+                            .color(glassFill(theme, 0.7f))
                             .radius(8.0f)
                             .border(1.0f, components::theme::withOpacity(tokens.border, 0.78f))
                             .onClick([] {})  // 吞掉弹层内部空白点击，避免穿透到遮罩关闭弹窗

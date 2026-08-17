@@ -11,6 +11,7 @@ import tinynext.config;
 import tinynext.i18n;   // tr（关于弹窗文案）
 import tinynext.ui.theme;
 import tinynext.ui.utils;
+import tinynext.ui.widgets;     // glassFill（毛玻璃填充色）
 import tinynext.store.dialogs;  // g_aboutOpen
 import tinynext.ui.platform;
 
@@ -38,7 +39,8 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
             ui.rect("about.dialog.bg")
                 .position(0, 0)
                 .size(dlgW, dlgH)
-                .color(theme.components.surface)
+                .blur(12.0f)
+                .color(glassFill(theme, 0.65f))
                 .radius(10.0f)
                 .border(1.0f,
                         components::theme::withOpacity(
