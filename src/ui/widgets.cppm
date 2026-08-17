@@ -35,7 +35,7 @@ export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
     ui.rect(id)
         .position(x, y)
         .size(w, h)
-        .blur(18.0f)  // 官方 demo 的玻璃强度（gallery_controls.h 用 18）
+        .blur(10.0f)  // 全屏岛卡是最大成本：blur 18 实测主题切换卡死，降到 10（仍显磨砂）
         .color(glassFill(theme, 0.55f))
         .radius(kIslandRadius)
         .border(1.0f, components::theme::withOpacity(tokens.border, 0.6f))
@@ -221,7 +221,7 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
                     .content([&] {
                         ui.rect(id + ".popup.bg")
                             .size(popWidth, popupHeight)
-                            .blur(12.0f)
+                            .blur(8.0f)
                             .color(glassFill(theme, 0.7f))
                             .radius(8.0f)
                             .border(1.0f, components::theme::withOpacity(tokens.border, 0.78f))

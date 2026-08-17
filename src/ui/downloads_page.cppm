@@ -259,7 +259,6 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             ui.rect("pager.card.bg")
                 .position(0, 0)
                 .size(pagerCardW, pagerCardH)
-                .blur(14.0f)
                 .color(glassFill(theme, 0.6f))
                 .radius(8.0f)
                 .border(1.0f, components::theme::withOpacity(theme.components.border, 0.55f))
@@ -375,7 +374,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 ui.rect("add.dialog.bg")
                     .position(0, 0)
                     .size(dlgW, dlgH)
-                    .blur(16.0f)
+                    .blur(10.0f)
                     .color(glassFill(theme, 0.52f))
                     .radius(10.0f)
                     .border(1.0f,
@@ -638,7 +637,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 ui.rect("del.dialog.bg")
                     .position(0, 0)
                     .size(dlgW, dlgH)
-                    .blur(16.0f)
+                    .blur(10.0f)
                     .color(glassFill(theme, 0.52f))
                     .radius(10.0f)
                     .border(1.0f,

@@ -150,11 +150,12 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
         .height(kCardHeight)
         .content([&] {
             // 卡片底：圆角表面 + 细边框 + 柔和投影（岛屿卡片风：与内容大卡分层）。
+            // 任务卡不做 backdrop blur：它糊的本来就是已糊过的岛卡，视觉无差，却要
+            // 每张多一次全卡 blur（性能杀手）。半透明玻璃色即可叠在磨砂岛面上。
             ui.rect(fid + ".bg")
                 .position(0, 0)
                 .size(cardWidth, kCardHeight)
-                .blur(12.0f)
-                .color(glassFill(theme, 0.55f))
+                .color(glassFill(theme, 0.6f))
                 .radius(8.0f)
                 .border(1.0f, components::theme::withOpacity(theme.components.border, 0.55f))
                 .shadow(8.0f, 2.0f,

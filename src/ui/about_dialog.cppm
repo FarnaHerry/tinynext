@@ -39,7 +39,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
             ui.rect("about.dialog.bg")
                 .position(0, 0)
                 .size(dlgW, dlgH)
-                .blur(16.0f)
+                .blur(10.0f)
                 .color(glassFill(theme, 0.52f))
                 .radius(10.0f)
                 .border(1.0f,
