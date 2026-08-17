@@ -23,6 +23,13 @@ export core::Color glassFill(const AppTheme& theme, float alpha = 0.6f) {
     return {base.r, base.g, base.b, alpha};
 }
 
+// 主色按钮上的文字/图标色：深色主色偏白 → 配深色字才可读；浅色主色近黑 → 保持近白字
+// （eui ButtonStyle 默认恒用近白字，只适合深色主色，这里按主题翻转）。
+export core::Color onPrimaryColor(const AppTheme& theme) {
+    return theme.components.dark ? core::Color{0.08f, 0.08f, 0.10f, 1.0f}
+                                 : core::Color{0.94f, 0.97f, 1.0f, 1.0f};
+}
+
 export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
                       float w, float h, const AppTheme& theme) {
     const auto& tokens = theme.components;
@@ -76,6 +83,7 @@ export void drawToolbarIconButton(eui::Ui& ui, const std::string& id, float x, f
             .text("")
             .iconSize(13.0f)
             .theme(tokens, true)
+            .iconColor(onPrimaryColor(theme))  // 深色白按钮 → 深色图标
             .radius(radius)
             .onClick(std::move(onClick))
             .build();

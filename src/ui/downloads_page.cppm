@@ -603,6 +603,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .text(tr("提交", "Submit"))
                     .fontSize(12.0f)
                     .theme(theme.components, true)
+                    .textColor(onPrimaryColor(theme))
                     .onClick([] { if (addDownload()) g_addOpen = false; })
                     .build();
             })
@@ -706,6 +707,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .text(tr("删除", "Delete"))
                     .fontSize(11.0f)
                     .theme(theme.components, true)
+                    .textColor(onPrimaryColor(theme))
                     .onClick([] {
                         const dl::TaskView task = *g_pendingDelete;
                         g_pendingDelete.reset();
@@ -923,6 +925,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                     .text(tr("添加", "Add"))
                     .fontSize(11.0f)
                     .theme(theme.components, true)
+                    .textColor(onPrimaryColor(theme))
                     .onClick([] {
                         std::string url = trimText(g_mirrorAddText);
                         if (url.empty()) {
@@ -954,6 +957,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                 .text(tr("关闭", "Close"))
                 .fontSize(12.0f)
                 .theme(theme.components, true)
+                .textColor(onPrimaryColor(theme))
                 .onClick([] { g_mirrorOpen = false; })
                 .build();
         })

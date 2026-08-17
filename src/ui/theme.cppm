@@ -64,10 +64,10 @@ export const AppTheme kDarkTheme = {
     {0.50f, 0.50f, 0.52f, 1.0f},   // 空闲 灰
     [] {
         auto tokens = components::theme::dark();
-        // 简洁极客：纯黑底 + 灰白单色。主色用中灰（eui 主色按钮文字恒为近白，
-        // 中灰才能保证白字可读且暗底可见）。
+        // 简洁极客：纯黑底 + 灰白单色。主色偏白（按钮文字/图标经 onPrimaryColor
+        // 翻转成深色才可读，见 widgets.cppm）。
         tokens.background = {0.08f, 0.08f, 0.08f, 1.0f};
-        tokens.primary = {0.50f, 0.52f, 0.56f, 1.0f};
+        tokens.primary = {0.70f, 0.70f, 0.72f, 1.0f};
         // eui input 组件内部默认 `metrics_.typography.input = 17`（未按设计值书写）。
         // 0.2.10 改 uiScale 原生缩放后，app 自己的字号已回到设计值（标签 11-12），
         // 这个 17 却仍按设计值放大 → 输入框文字被放得比标签大 ~60%（比标题还大）。

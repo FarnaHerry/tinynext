@@ -871,6 +871,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         .text(tr("保存", "Save"))
         .fontSize(12.0f)
         .theme(theme.components, true)
+        .textColor(onPrimaryColor(theme))
         .onClick([] {
             const std::string t = trimText(g_downloadDirText);
             if (t.empty()) {

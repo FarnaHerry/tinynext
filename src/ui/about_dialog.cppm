@@ -128,6 +128,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
                 .text(tr("关闭", "Close"))
                 .fontSize(12.0f)
                 .theme(theme.components, true)
+                .textColor(onPrimaryColor(theme))
                 .onClick([] { g_aboutOpen = false; })
                 .build();
         })
