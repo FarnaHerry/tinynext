@@ -213,9 +213,11 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                                  g_page_view == Page::Monitor, theme,
                                  [] { g_page_view = Page::Monitor; });
 
-                    // 关于：主题切换上方，信息图标（circle-info），打开软件信息弹窗。
+                    // 关于：信息图标（circle-info）排在导航最后一项下方，顺列排列。
+                    // 左下角不再放任何东西（深色模式切换已删除，主题在设置页选）。
+                    railY += 30.0f;
                     components::button(ui, "rail.info")
-                        .position((kRailWidth - 22.0f) * 0.5f, screen.height - 54.0f)
+                        .position((kRailWidth - 22.0f) * 0.5f, railY + 2.0f)
                         .size(22.0f, 22.0f)
                         .icon(0xF05A)  // circle-info
                         .text("")
@@ -223,28 +225,6 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                         .theme(theme.components, false)
                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] { g_aboutOpen = true; })
-                        .build();
-
-                    // 主题切换：底部，仅图标（月亮/太阳）。
-                    components::button(ui, "theme.toggle")
-                        .position((kRailWidth - 22.0f) * 0.5f, screen.height - 28.0f)
-                        .size(22.0f, 22.0f)
-                        .icon(g_dark ? 0xF186 : 0xF185)  // moon / sun
-                        .text("")
-                        .iconSize(11.0f)
-                        .theme(theme.components, false)
-                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                        .onClick([] {
-                            // Quick flip switches to the opposite explicit mode
-                            // (overrides follow-system) and persists immediately;
-                            // the settings pending value follows so a later
-                            // 「保存」 doesn't clobber it.
-                            g_themeMode = g_dark ? cfg::ThemeMode::Light
-                                                 : cfg::ThemeMode::Dark;
-                            g_pendingTheme = g_themeMode;
-                            g_dark = !g_dark;
-                            cfg::setThemeMode(g_themeMode);
-                        })
                         .build();
                 })
                 .build();
