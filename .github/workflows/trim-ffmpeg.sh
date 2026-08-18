@@ -67,12 +67,16 @@ fi
 ./configure "${common[@]}" "${extra[@]}"
 
 # 并行编译只出 ffmpeg 程序（avcodec/avformat 等 lib 作为依赖自动编，-j 并行）。
-make -j"$(nproc)" ffmpeg
+# 并行编译。ffmpeg 的 Makefile 无独立 `ffmpeg` target（主目标是 `all`，经
+# PROGS 生成 `ffmpeg`/`ffmpeg_g`），直接给 target 名会报 "No rule"，所以用默认
+# all 目标（--disable-programs 后 `all` 只编唯一启用的 ffmpeg 程序）。
+make -j"$(nproc)"
 
-# 产物拷到 actions 期望的位置。ffmpeg 编译出的 CLI 程序名固定是 `ffmpeg`
-# （--disable-debug 时没有 `_g` 后缀）；Windows 下 msys 的 exe 也以 `ffmpeg` 命名。
+# 产物拷到 actions 期望的位置。mingw/msys 下程序名带 .exe，unix 无后缀。
 mkdir -p "$GITHUB_WORKSPACE/engines"
-cp -f "./ffmpeg" "$GITHUB_WORKSPACE/engines/$outname"
+out_src="ffmpeg"
+[ "$os" = "Windows" ] && out_src="ffmpeg.exe"
+cp -f "./$out_src" "$GITHUB_WORKSPACE/engines/$outname"
 
 echo "=== 产物大小 ==="
 ls -lh "$GITHUB_WORKSPACE/engines/$outname"
