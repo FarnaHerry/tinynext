@@ -101,7 +101,8 @@ jobs:
   build:
     name: build-${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    needs: trim-ffmpeg     # ffmpeg 依赖瘦身产物（从 artifact 拉，替代 108MB 完整版）
+    # 不加 needs：build（编主程序）与 trim-ffmpeg（编 ffmpeg）并行跑，各自 ~2min /
+    # ~10min。真正要两者都就绪的是下面的 package job。
     strategy:
       fail-fast: false
       matrix:
@@ -213,19 +214,6 @@ jobs:
           mv "engines/${{ matrix.engine_asset }}" "${{ matrix.engine_file }}"
           chmod +x "${{ matrix.engine_file }}"
 
-      # ffmpeg：用 trim-ffmpeg job 从源码编的瘦身静态版（~5MB/平台），替代下载
-      # 108MB 完整静态版。artifact 名 = trimmed-ffmpeg-<matrix.name>，单文件。
-      - name: Download trimmed ffmpeg
-        uses: actions/download-artifact@v8
-        with:
-          name: trimmed-ffmpeg-${{ matrix.name }}
-          path: engines
-
-      - name: Make ffmpeg executable (unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: chmod +x engines/ffmpeg
-
       - name: Fetch yt-dlp engine (video parse / YouTube native)
         # yt-dlp 是 PyInstaller 单文件（~18MB，无法裁剪），保持官方 latest。
         shell: bash
@@ -237,11 +225,101 @@ jobs:
           mv "${{ matrix.ytdlp_asset }}" "${{ matrix.ytdlp_file }}"
           ls -la engines/
 
+      - name: Upload build artifact (compiled binary + engines)
+        # 给 package job 用：编译好的主程序（target/）+ aria2/yt-dlp（engines/）。
+        # package job 再从 trim-ffmpeg job 拉瘦身 ffmpeg，三方凑齐才打包。
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-${{ matrix.name }}
+          path: |
+            target/
+            engines/
+          if-no-files-found: error
+
+  # —— package：等 build（主程序）与 trim-ffmpeg（ffmpeg）都就绪后统一打包 ----
+  # build 和 trim-ffmpeg 并行跑，package 串在两者之后：总时长 ≈ max(build≈2min,
+  # ffmpeg≈10min) + 打包≈3min；build 编译错误能提前 ~8min 浮现（build ~2min 就完，
+  # 不必等 ffmpeg）。
+  package:
+    name: package-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    needs: [build, trim-ffmpeg]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: win64
+            os: windows-latest
+            pkg_cmd: powershell -NoProfile -ExecutionPolicy Bypass -File packaging/make-win-pkg.ps1
+            pkg_glob: tinynext-v*
+          - name: linux-x64
+            os: ubuntu-latest
+            pkg_cmd: bash packaging/make-linux-pkg.sh
+            pkg_glob: tinynext-v*
+          - name: macos-arm64
+            os: macos-latest
+            pkg_cmd: bash make-dist.sh macos arm64
+            pkg_glob: tinynext-v*.tar.gz
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download trimmed ffmpeg
+        uses: actions/download-artifact@v8
+        with:
+          name: trimmed-ffmpeg-${{ matrix.name }}
+          path: engines
+
+      - name: Make ffmpeg executable (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: chmod +x engines/ffmpeg
+
+      - name: Download compiled app + engines (from build job)
+        uses: actions/download-artifact@v8
+        with:
+          name: build-${{ matrix.name }}
+          path: .
+
+      # Package step 需要 mcpp（pkg 脚本内部会重跑 mcpp build --release，见
+      # make-dist.ps1 / make-dist.sh）+ NSIS（win）/ rpm（linux）。
+      - name: Install mcpp (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          curl -fsSL https://github.com/mcpp-community/mcpp/releases/latest/download/install.sh | bash
+          echo "$HOME/.mcpp/bin" >> "$GITHUB_PATH"
+
+      - name: Install mcpp (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          irm https://d2learn.org/xlings-install.ps1.txt | iex
+          & "$env:USERPROFILE\.xlings\bin\xlings.exe" update
+          & "$env:USERPROFILE\.xlings\bin\xlings.exe" install mcpp@2026.8.16.1 -y
+          "$env:USERPROFILE\.xlings\subos\default\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Install NSIS (Windows packaging)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          curl.exe -fsSL --retry 3 --retry-delay 5 -o "$env:RUNNER_TEMP\nsis.zip" "https://sourceforge.net/projects/nsis/files/NSIS%203/3.10/nsis-3.10.zip/download"
+          if (-not (Test-Path "$env:RUNNER_TEMP\nsis.zip")) { throw "nsis.zip download failed" }
+          Expand-Archive -Path "$env:RUNNER_TEMP\nsis.zip" -DestinationPath "$env:RUNNER_TEMP\nsis" -Force
+          if (-not (Test-Path "$env:RUNNER_TEMP\nsis\nsis-3.10\makensis.exe")) { throw "NSIS extract failed" }
+          "$env:RUNNER_TEMP\nsis\nsis-3.10" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Install rpm (Linux packaging)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
+
       - name: Package
         shell: bash
         run: ${{ matrix.pkg_cmd }}
 
-      - name: Upload artifact
+      - name: Upload packaged artifact
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}
@@ -251,7 +329,7 @@ jobs:
   release:
     name: Create GitHub Release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: build
+    needs: package
     runs-on: ubuntu-latest
     permissions:
       contents: write
