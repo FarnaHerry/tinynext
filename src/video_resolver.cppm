@@ -75,7 +75,8 @@ export struct VideoInfo {
 
 export struct ResolveResult {
     bool ok = false;
-    std::string error;                // 失败原因（UI 直接显示）
+    bool canceled = false;        // 用户主动取消（与失败区分，UI 不弹错误）
+    std::string error;            // 失败原因（UI 直接显示）
     std::optional<VideoInfo> info;
 };
 
@@ -86,6 +87,7 @@ struct CapturedProc {
     int exitCode = -1;
     std::string out;        // stdout（JSON）
     bool timedOut = false;
+    bool canceled = false;  // 用户主动取消
 };
 
 #ifdef _WIN32
@@ -110,11 +112,13 @@ std::wstring quoteArg(const std::string& s) {
 #endif
 
 // spawn 进程并捕获 stdout（stderr 重定向到 stderrFile 供报错）。带超时：轮询
-// 管道 + 进程退出，超时则强杀。返回 stdout 全文与退出码。
+// 管道 + 进程退出，超时则强杀。cancel 非空时轮询其中置位即主动终止进程（供取消
+// 操作用）。返回 stdout 全文与退出码。
 CapturedProc runCapture(const std::string& exe,
                         const std::vector<std::string>& args,
                         const std::filesystem::path& stderrFile,
-                        int timeoutSec) {
+                        int timeoutSec,
+                        std::atomic<bool>* cancel = nullptr) {
     CapturedProc result;
 #ifdef _WIN32
     SECURITY_ATTRIBUTES sa{};
@@ -150,6 +154,11 @@ CapturedProc runCapture(const std::string& exe,
     const DWORD deadline = GetTickCount() + (DWORD)timeoutSec * 1000;
     bool exited = false;
     for (;;) {
+        if (cancel && cancel->load()) {
+            TerminateProcess(pi.hProcess, 1);
+            result.canceled = true;
+            break;
+        }
         DWORD avail = 0;
         if (PeekNamedPipe(readPipe, nullptr, 0, nullptr, &avail, nullptr) && avail > 0) {
             char buf[8192];
@@ -219,6 +228,12 @@ CapturedProc runCapture(const std::string& exe,
     int status = 0;
     bool exited = false;
     for (;;) {
+        if (cancel && cancel->load()) {
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0);
+            result.canceled = true;
+            break;
+        }
         char buf[8192];
         const ssize_t n = read(pipefd[0], buf, sizeof(buf));
         if (n > 0) { result.out.append(buf, (std::size_t)n); continue; }
@@ -570,9 +585,10 @@ export int downloadNativeMerged(const std::string& pageUrl,
 }
 
 // 解析视频网页地址 → 标题 + 各画质流。sessdata 为空走匿名。proxy 非空时加
-// --proxy 参数。同步阻塞。
+// --proxy 参数。cancel 置位时终止进程并返回 canceled=true。同步阻塞。
 export ResolveResult resolveVideoUrl(const std::string& url, const std::string& sessdata,
-                                     const std::string& proxy = "") {
+                                     const std::string& proxy = "",
+                                     std::atomic<bool>* cancel = nullptr) {
     ResolveResult rr;
     const std::string exe = findEngineBinary("yt-dlp");
     if (exe.empty()) {
@@ -600,7 +616,11 @@ export ResolveResult resolveVideoUrl(const std::string& url, const std::string& 
     args.push_back(url);
 
     const std::filesystem::path errFile = cfg::configDir() / "tinynext-yt-dlp-stderr.log";
-    const CapturedProc proc = runCapture(exe, args, errFile, 60);
+    const CapturedProc proc = runCapture(exe, args, errFile, 60, cancel);
+    if (proc.canceled) {
+        rr.canceled = true;
+        return rr;
+    }
     if (proc.timedOut) {
         rr.error = tr("解析超时（解析器启动过慢或网络异常）", "Parse timed out (resolver slow to start or network error)");
         return rr;

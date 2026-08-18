@@ -36,7 +36,8 @@ bool g_qualityOpen = false;                  // 画质选择器弹层
 std::mutex g_parseMutex;
 std::optional<video::ResolveResult> g_parseResult; // 待消费的解析结果
 std::atomic<bool> g_parsing{false};
-std::atomic<std::uint64_t> g_parseGen{0}; // 代数：丢弃过期的旧解析结果
+std::atomic<std::uint64_t> g_parseGen{0};     // 代数：丢弃过期的旧解析结果
+std::atomic<bool> g_cancelParse{false};       // 取消当前解析（仅在一次解析存活期内有效）
 
 // 配置默认画质 → 格式索引：label 包含配置串即命中，否则 0（最高画质，formats
 // 已按 高度降序）。
@@ -75,10 +76,11 @@ void startParse() {
   }
   g_videoError.clear();
   g_parsing.store(true);
+  g_cancelParse.store(false);
   const std::uint64_t gen = g_parseGen.fetch_add(1) + 1;
   const std::string cookie = cfg::videoConfig().bilibiliCookie;
   std::thread([url, cookie, gen] {
-    video::ResolveResult r = video::resolveVideoUrl(url, cookie);
+    video::ResolveResult r = video::resolveVideoUrl(url, cookie, "", &g_cancelParse);
     // 只落地最新一代的结果：旧线程晚返回时直接丢弃（也不清 parsing 标志——
     // 那是新一代的事）。
     if (gen == g_parseGen.load()) {
@@ -90,6 +92,15 @@ void startParse() {
     }
     core::platform::requestUiUpdate();
   }).detach();
+}
+
+// 取消当前解析（UI 线程调用）：置 cancel 标志，后台 runCapture 轮询到即强杀
+// yt-dlp 进程并返回 canceled=true。
+void cancelParse() {
+  if (!g_parsing.load())
+    return;
+  g_cancelParse.store(true);
+  showStatus(tr("正在取消…", "Canceling…"));
 }
 
 } // namespace
@@ -108,8 +119,12 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
       g_parseResult.reset();
     }
     if (pending.has_value()) {
-      if (pending->ok && pending->info.has_value() &&
-          !pending->info->formats.empty()) {
+      if (pending->canceled) {
+        // 用户主动取消：保留上一次的解析结果/错误，仅退出解析态。
+        g_videoError.clear();
+        showStatus(tr("已取消解析", "Parse canceled"));
+      } else if (pending->ok && pending->info.has_value() &&
+                 !pending->info->formats.empty()) {
         g_videoInfo = std::move(*pending->info);
         g_videoError.clear();
         g_selectedFormat = defaultFormatIndex(*g_videoInfo);
@@ -178,28 +193,55 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
   const float urlY = islandTop + pad + 30.0f;
   const float parseBtnW = 76.0f;
   const bool parsing = g_parsing.load();
+  // 解析中多占一个「取消」按钮位：URL 输入框相应变窄。
+  const float btnRowW = parsing ? parseBtnW * 2.0f + 10.0f : parseBtnW;
   components::input(ui, "video.url")
       .position(contentX, urlY)
-      .size(contentW - parseBtnW - 10.0f, kInputHeight)
+      .size(contentW - btnRowW - 10.0f, kInputHeight)
       .placeholder(tr("粘贴 YouTube / bilibili 等视频页链接…",
                       "Paste a YouTube / bilibili / other video page URL…"))
       .value(g_videoUrlText)
       .fontFamily("") // 用应用字体（Noto Sans SC）
       .theme(tokens)
       .onChange([](const std::string &v) { g_videoUrlText = v; })
-      .onEnter([] { startParse(); })
+      .onEnter(parsing ? static_cast<void (*)()>(cancelParse)
+                       : static_cast<void (*)()>(startParse))
       .build();
-  components::button(ui, "video.parse")
-      .position(contentX + contentW - parseBtnW, urlY)
-      .size(parseBtnW, kInputHeight)
-      .text(parsing ? tr("解析中…", "Parsing…") : tr("解析", "Parse"))
-      .fontSize(12.0f)
-      .theme(tokens, true)
-      .textColor(onPrimaryColor(theme))
-      .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-      .disabled(parsing)
-      .onClick([] { startParse(); })
-      .build();
+  if (parsing) {
+    // 解析中：解析按钮置灰 + 右侧取消按钮（可打断解析）。
+    components::button(ui, "video.parse")
+        .position(contentX + contentW - btnRowW, urlY)
+        .size(parseBtnW, kInputHeight)
+        .text(tr("解析中…", "Parsing…"))
+        .fontSize(12.0f)
+        .theme(tokens, true)
+        .textColor(onPrimaryColor(theme))
+        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
+        .disabled(true)
+        .build();
+    components::button(ui, "video.cancel")
+        .position(contentX + contentW - parseBtnW, urlY)
+        .size(parseBtnW, kInputHeight)
+        .text(tr("取消", "Cancel"))
+        .fontSize(12.0f)
+        .theme(tokens, true)
+        .textColor(onPrimaryColor(theme))
+        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
+        .onClick([] { cancelParse(); })
+        .build();
+  } else {
+    components::button(ui, "video.parse")
+        .position(contentX + contentW - parseBtnW, urlY)
+        .size(parseBtnW, kInputHeight)
+        .text(tr("解析", "Parse"))
+        .fontSize(12.0f)
+        .theme(tokens, true)
+        .textColor(onPrimaryColor(theme))
+        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
+        .disabled(parsing)
+        .onClick([] { startParse(); })
+        .build();
+  }
 
   // ---- 状态 / 错误行 ----
   const float statusY = urlY + kInputHeight + 14.0f;
