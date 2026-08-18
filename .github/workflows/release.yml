@@ -31,6 +31,73 @@ permissions:
   contents: write
 
 jobs:
+  # —— 瘦身 ffmpeg（0.5.2）：编译只留合并所需的最小静态版，替代 108MB 完整包 ----
+  # 完整静态 ffmpeg（BtbN/gyan）单文件 ~100MB，塞进安装包太夸张。我们只做 DASH
+  # 音视频合并（-c:v copy -c:a copy|aac），不需要任何 GPL 编码器（无 libx264/
+  # libmp3lame）。用 --disable-everything + LGPL 编出 ~6-15MB 单二进制，从源码
+  # 三平台各编一次。
+  #
+  # 产物作为 artifact 上传，供 build job 拉取（也可以用 workflow_dispatch 手动
+  # 触发单独验证体积/耗时）。
+  trim-ffmpeg:
+    name: trim-ffmpeg-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: win64
+            os: windows-latest
+            out: ffmpeg.exe
+          - name: linux-x64
+            os: ubuntu-latest
+            out: ffmpeg
+          - name: macos-arm64
+            os: macos-latest
+            out: ffmpeg
+    steps:
+      - uses: actions/checkout@v7
+
+      # 共用 configure 参数（Windows 额外 --enable-cross-compile --target-os=mingw32，
+      # 由下面的 shell 分支拼进去）。
+      - name: Setup build (Windows: msys2 mingw64)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-nasm
+            make
+            diffutils
+
+      - name: Build trimmed ffmpeg (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            sudo apt-get update && sudo apt-get install -y nasm yasm
+          fi
+          bash .github/workflows/trim-ffmpeg.sh \
+            "${{ runner.os }}" "${{ matrix.out }}"
+
+      - name: Build trimmed ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          bash .github/workflows/trim-ffmpeg.sh \
+            "Windows" "${{ matrix.out }}"
+
+      - name: Upload trimmed ffmpeg artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: trimmed-ffmpeg-${{ matrix.name }}
+          path: engines/${{ matrix.out }}
+          if-no-files-found: error
+
   build:
     name: build-${{ matrix.name }}
     runs-on: ${{ matrix.os }}
