@@ -41,9 +41,10 @@ namespace core::platform { void requestUiUpdate(); }
 export module tinynext.cli;
 
 import std;
+import tinynext.i18n;          // tr / trf（CLI 下载/视频页提示按用户语言）
 import tinynext.store.tasks;   // g_tasks.startFromUrl（下载流程唯一入口）
 import tinynext.store.ui;      // showStatus（转发/CLI 添加下载的结果提示）
-import tinynext.utils;         // isDownloadableSource（下载源白名单，一处维护）
+import tinynext.utils;         // isDownloadableSource / isLikelyVideoPageUrl（下载源白名单 + 视频页检测）
 import tinynext.download_engine;  // dl::StartOptions（--mirror 的多源任务）
 import tinynext.headless;  // --headless 脚本模式（CliBoot 在 main 前接管）
 
@@ -296,8 +297,9 @@ USAGE
   tinynext --headless <url> [more-urls...]  Script mode: NO window. Download(s) run under
                                           TinyNext's own config (dir / connections), process
                                           exits 0 on success / 1 on any failure.
-  tinynext --resolve <video-page-url>     Parse a video page (bilibili) via yt-dlp and print
-                                          the quality list. No window, no download.
+  tinynext --resolve <video-page-url>     Parse a video page via yt-dlp (YouTube / bilibili /
+                                          more) and print the quality list. No window, no
+                                          download.
   tinynext --video-dl <video-page-url> [quality-keyword]
                                           Resolve + download a web video: DASH qualities
                                           auto-merge to mp4 via ffmpeg. The keyword matches
@@ -510,6 +512,7 @@ export void startCliIpc() {
 // 按行启动下载：普通行 = 单 URL 任务；"mirror:<主URL> <镜像...>" 行 = 多源合一
 // 任务（downloadLines 的编码，socket / inbox / 自身 CLI 三路共用）。
 // 结果消息走状态条（UI 线程调用，与弹窗添加一致）。
+// 视频页 URL（YouTube/bilibili 等）直接拦截，不裸下载 HTML，提示用 --resolve。
 void startFromLines(const std::vector<std::string>& lines) {
     for (const auto& line : lines) {
         if (line.starts_with("mirror:")) {
@@ -524,6 +527,14 @@ void startFromLines(const std::vector<std::string>& lines) {
             } else if (!parts.empty()) {
                 showStatus(g_tasks.startFromUrl(parts[0], 0).message);
             }
+            continue;
+        }
+        // 视频页 URL 检测：YouTube / bilibili 等已知站点网页不应作普通直链下载 HTML，
+        // 而是在状态条提示用户用 --resolve / --video-dl。
+        if (isLikelyVideoPageUrl(line)) {
+            showStatus("[警告] 视频页链接请用 --resolve 查看画质或 --video-dl 下载\n"
+                       "        tinynext --resolve <URL>\n"
+                       "        tinynext --video-dl <URL> [画质关键词]");
             continue;
         }
         showStatus(g_tasks.startFromUrl(line, 0).message);

@@ -29,16 +29,19 @@ TinyNext 随发行包附带以下第三方程序（均在 `engines/` 目录）�
 
 ## ffmpeg
 
-- **版本**：滚动 latest（Windows gyan.dev essentials 9.0.1 起）
+- **版本**：滚动 latest（BtbN FFmpeg-Builds master-latest，全平台统一）
 - **用途**：DASH 音视频流合并 / 视频转码。
-- **来源**：https://ffmpeg.org ；按平台构建渠道不同：
-  - Windows：https://www.gyan.dev/ffmpeg/builds/（essentials build）
-  - Linux x64：https://github.com/BtbN/FFmpeg-Builds（master-latest linux64-gpl）
-  - macOS arm64：https://evermeet.cx/ffmpeg/
-- **许可**：**GPL**（gyan / BtbN 构建内含 x264 / x265 等 GPL 组件，因此整体按 GPL
-  授权；FFmpeg 本体源码可依 LGPL-2.1+ 或 GPL 选择）。
-- **说明**：如果你的使用场景需要严格的 LGPL 版本，请从提供 LGPL 构建的渠道获取
-  并自行替换 `engines/ffmpeg(.exe)`。官许可文本见 https://ffmpeg.org/legal.html
+- **来源**：https://ffmpeg.org ；全平台统一通过 BtbN/FFmpeg-Builds（GitHub Releases）
+  获取。各平台对应 asset：
+  - Windows win64：`ffmpeg-master-latest-win64-lgpl.zip`（~18MB 单 binary）
+  - Linux x64：`ffmpeg-master-latest-linux64-lgpl.tar.xz`（~15MB 单 binary）
+  - macOS arm64：evermeet.cx universal binary（~26MB 单 binary，比 BtbN 的
+    macos-universal-gpl 小一半以上）
+- **许可**：**LGPL-2.1+**（BtbN LGPL 构建不含 GPL-only 的 x264/x265 等编码器；
+  TinyNext 只用到 demuxer + `-c:v copy` / `-c:a copy|aac`，不需要任何 GPL
+  编码器。FFmpeg 本体源码可依 LGPL-2.1+ 或 GPL 选择）。
+- **说明**：如果你的使用场景依赖 GPL 编码器（x264/x265 等），请从提供 GPL 构建
+  的渠道获取并自行替换 `engines/ffmpeg(.exe)`。官方许可文本见 https://ffmpeg.org/legal.html
 - **二进制**：`engines/ffmpeg`（unix）/ `engines/ffmpeg.exe`（Windows）
 
 ---

@@ -19,6 +19,7 @@ namespace core::platform { void requestUiUpdate(); }
 export module tinynext.video_merge;
 
 import std;
+import tinynext.config;
 import tinynext.download_engine;   // dl::DownloadEngine/TaskView/State/StartOptions
 import tinynext.video_resolver;    // VideoInfo/VideoFormat + findEngineBinary/runProcessLogged
 import tinynext.i18n;              // tr / trf（合并错误文案）
@@ -153,9 +154,10 @@ public:
         const std::uint64_t vid = nextVisibleId();
         const int maxH = format.height;
         // 线程全用拷贝（字符串/path/shared_ptr）；不引用调用方局部变量。
-        std::thread([this, vid, run, page, maxH, out, keepParts] {
+        const std::string proxy = cfg::aria2Config().proxy;
+    std::thread([this, vid, run, page, maxH, out, keepParts, proxy] {
             const std::filesystem::path log = out.parent_path() / "tinynext-ytdlp.log";
-            const int code = downloadNativeMerged(page, maxH, out, log, &run->requestCancel);
+            const int code = downloadNativeMerged(page, maxH, out, log, &run->requestCancel, proxy);
             std::error_code ec;
             const bool ok = code == 0 && std::filesystem::exists(out, ec) &&
                             std::filesystem::file_size(out, ec) > 0;
@@ -228,9 +230,10 @@ public:
         job.nativeRun = run;
         job.phase = Job::Phase::Downloading;
         job.error.clear();
-        std::thread([this, vid, run, page, maxH, out] {
+        const std::string proxy = cfg::aria2Config().proxy;
+        std::thread([this, vid, run, page, maxH, out, proxy] {
             const std::filesystem::path log = out.parent_path() / "tinynext-ytdlp.log";
-            const int code = downloadNativeMerged(page, maxH, out, log, &run->requestCancel);
+            const int code = downloadNativeMerged(page, maxH, out, log, &run->requestCancel, proxy);
             std::error_code ec;
             const bool ok = code == 0 && std::filesystem::exists(out, ec) &&
                             std::filesystem::file_size(out, ec) > 0;

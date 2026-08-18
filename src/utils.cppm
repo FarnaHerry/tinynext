@@ -56,6 +56,34 @@ export bool isDownloadableSource(const std::string& s) {
            s.starts_with("sftp://") || s.starts_with("magnet:");
 }
 
+// 检查 URL 是否为已知视频站点网页（而非直链）。CLI 遇到这类 URL 不应裸
+// 下载 HTML，应提示用户用 --resolve / --video-dl。
+// 仅检查域名后缀，不发起网络请求；yt-dlp 驱动的站点远不止这些，这里只覆盖
+// 最常被用户粘贴到 CLI 的；即使漏检，结果也只是下载到无用 HTML（无害）。
+export bool isLikelyVideoPageUrl(const std::string& url) {
+    // 先检查是否为 http(s) URL，排除 magnet/ftp/本地路径。
+    if (!url.starts_with("http://") && !url.starts_with("https://"))
+        return false;
+    // 检查常见视频站点域名（主域名 + www 前缀 + 子域名模式）。
+    // YouTube / shorts / youtu.be
+    if (url.find(".youtube.com") != std::string::npos ||
+        url.find("youtu.be") != std::string::npos)
+        return true;
+    // bilibili
+    if (url.find(".bilibili.com") != std::string::npos ||
+        url.find("b23.tv") != std::string::npos)
+        return true;
+    // 其它常见 yt-dlp 站点
+    if (url.find(".nicovideo.jp") != std::string::npos ||
+        url.find(".twitch.tv") != std::string::npos ||
+        url.find(".vimeo.com") != std::string::npos ||
+        url.find(".dailymotion.com") != std::string::npos ||
+        url.find(".niconico.jp") != std::string::npos ||
+        url.find(".bilibili.tv") != std::string::npos)
+        return true;
+    return false;
+}
+
 export std::string fileNameFromUrl(const std::string& url) {
     const std::size_t cut = url.find_first_of("?#");
     const std::string base = cut == std::string::npos ? url : url.substr(0, cut);

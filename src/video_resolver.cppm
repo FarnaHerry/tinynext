@@ -541,7 +541,8 @@ export int downloadNativeMerged(const std::string& pageUrl,
                                 int maxHeight,
                                 const std::filesystem::path& outPath,
                                 const std::filesystem::path& logFile,
-                                std::atomic<bool>* cancel = nullptr) {
+                                std::atomic<bool>* cancel = nullptr,
+                                const std::string& proxy = "") {
     const std::string exe = findEngineBinary("yt-dlp");
     if (exe.empty()) return -1;
     std::vector<std::string> args = {
@@ -553,6 +554,10 @@ export int downloadNativeMerged(const std::string& pageUrl,
             : "bv*+ba/b",
         "--merge-output-format", "mp4",
     };
+    if (!proxy.empty()) {
+        args.push_back("--proxy");
+        args.push_back(proxy);
+    }
     const std::string ffmpeg = findEngineBinary("ffmpeg");
     if (!ffmpeg.empty()) {
         args.push_back("--ffmpeg-location");
@@ -564,8 +569,10 @@ export int downloadNativeMerged(const std::string& pageUrl,
     return runProcessLogged(exe, args, logFile, 1800, cancel);
 }
 
-// 解析视频网页地址 → 标题 + 各画质流。sessdata 为空走匿名。同步阻塞。
-export ResolveResult resolveVideoUrl(const std::string& url, const std::string& sessdata) {
+// 解析视频网页地址 → 标题 + 各画质流。sessdata 为空走匿名。proxy 非空时加
+// --proxy 参数。同步阻塞。
+export ResolveResult resolveVideoUrl(const std::string& url, const std::string& sessdata,
+                                     const std::string& proxy = "") {
     ResolveResult rr;
     const std::string exe = findEngineBinary("yt-dlp");
     if (exe.empty()) {
@@ -578,6 +585,10 @@ export ResolveResult resolveVideoUrl(const std::string& url, const std::string& 
         "--no-warnings", "--no-check-certificates",
         "--dump-single-json", "--no-update", "--no-playlist",
     };
+    if (!proxy.empty()) {
+        args.push_back("--proxy");
+        args.push_back(proxy);
+    }
     // SESSDATA 只对 bilibili 主机有效，其它站点（YouTube 等）不挂 cookie 走匿名。
     const bool isBilibili = url.find("bilibili.com") != std::string::npos;
     const std::filesystem::path cookieFile =

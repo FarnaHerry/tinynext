@@ -127,7 +127,8 @@ export int runResolve() {
                   << "\n";
         return 1;
     }
-    const video::ResolveResult r = video::resolveVideoUrl(url, cfg::videoConfig().bilibiliCookie);
+    const std::string proxy = cfg::aria2Config().proxy;
+    const video::ResolveResult r = video::resolveVideoUrl(url, cfg::videoConfig().bilibiliCookie, proxy);
     if (!r.ok || !r.info.has_value()) {
         std::cerr << "tinynext: "
                   << trf("解析失败：{}", "Resolve failed: {}", r.error) << "\n";
@@ -177,7 +178,8 @@ export int runVideoDownload() {
         return 1;
     }
 
-    const video::ResolveResult r = video::resolveVideoUrl(url, cfg::videoConfig().bilibiliCookie);
+    const std::string proxy = cfg::aria2Config().proxy;
+    const video::ResolveResult r = video::resolveVideoUrl(url, cfg::videoConfig().bilibiliCookie, proxy);
     if (!r.ok || !r.info.has_value()) {
         std::cerr << "tinynext: "
                   << trf("解析失败：{}", "Resolve failed: {}", r.error) << "\n";
@@ -253,7 +255,13 @@ export int run() {
     std::vector<std::string> urls;
     for (const auto& a : commandLineArgs()) {
         if (a == "--headless") continue;
-        if (isDownloadableSource(a) || a.ends_with(".torrent")) urls.push_back(a);
+        if (isLikelyVideoPageUrl(a)) {
+                std::cerr << "tinynext: "
+                          << tr("视频页链接请用 --video-dl 下载", "Video page URL -- use --video-dl instead")
+                          << "\n";
+                continue;
+            }
+            if (isDownloadableSource(a) || a.ends_with(".torrent")) urls.push_back(a);
     }
     if (urls.empty()) {
         std::cerr << "tinynext: "

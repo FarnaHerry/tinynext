@@ -164,14 +164,17 @@ jobs:
           mkdir -p ffmpeg-stage
           case "${{ runner.os }}" in
             Windows)
+              # BtbN win64-gpl ~40MB（gyan.dev essentials 111MB → 改用 BtbN 缩小
+              # 3 倍下载体积，与 Linux 共享同一 provider，发行包最终只含 ffmpeg.exe
+              # 单 binary）。BtbN zip 布局同 Linux：bin/ffmpeg.exe 在顶层目录内。
               curl -fL --retry 3 -o ffmpeg.zip \
-                "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+                "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-lgpl.zip"
               unzip -q -o ffmpeg.zip -d ffmpeg-stage
               mv ffmpeg-stage/*/bin/ffmpeg.exe engines/ffmpeg.exe
               ;;
             Linux)
               curl -fL --retry 3 -o ffmpeg.tar.xz \
-                "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-linux64-gpl.tar.xz"
+                "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-linux64-lgpl.tar.xz"
               tar -xJf ffmpeg.tar.xz -C ffmpeg-stage
               mv ffmpeg-stage/*/bin/ffmpeg engines/ffmpeg
               chmod +x engines/ffmpeg
