@@ -101,6 +101,7 @@ jobs:
   build:
     name: build-${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    needs: trim-ffmpeg     # ffmpeg 依赖瘦身产物（从 artifact 拉，替代 108MB 完整版）
     strategy:
       fail-fast: false
       matrix:
@@ -212,49 +213,28 @@ jobs:
           mv "engines/${{ matrix.engine_asset }}" "${{ matrix.engine_file }}"
           chmod +x "${{ matrix.engine_file }}"
 
-      - name: Fetch yt-dlp + ffmpeg engines (video parse/merge)
-        # 视频功能的两份新依赖：yt-dlp（解析 + YouTube 原生下载）与 ffmpeg（DASH 合并）。
-        # 均取滚动 latest、不做 checksum 校验（更新频繁，运行时完整性校验只对 aria2 做；
-        # 缺失仅影响视频功能）。ffmpeg 按平台来源：Win = gyan.dev（GPL essentials）、
-        # Linux = BtbN GitHub builds（GPL，比 johnvansickle 稳定）、macOS = evermeet.cx。
+      # ffmpeg：用 trim-ffmpeg job 从源码编的瘦身静态版（~5MB/平台），替代下载
+      # 108MB 完整静态版。artifact 名 = trimmed-ffmpeg-<matrix.name>，单文件。
+      - name: Download trimmed ffmpeg
+        uses: actions/download-artifact@v8
+        with:
+          name: trimmed-ffmpeg-${{ matrix.name }}
+          path: engines
+
+      - name: Make ffmpeg executable (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: chmod +x engines/ffmpeg
+
+      - name: Fetch yt-dlp engine (video parse / YouTube native)
+        # yt-dlp 是 PyInstaller 单文件（~18MB，无法裁剪），保持官方 latest。
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p engines
-          # yt-dlp：官方 latest release（滚动更新，不做 checksum——见上方注释）。
           curl -fL --retry 3 -o "${{ matrix.ytdlp_asset }}" \
             "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${{ matrix.ytdlp_asset }}"
           chmod +x "${{ matrix.ytdlp_asset }}"
           mv "${{ matrix.ytdlp_asset }}" "${{ matrix.ytdlp_file }}"
-          # ffmpeg：解压用仓库内相对路径（Windows Git Bash 对 $RUNNER_TEMP 的 msys/
-          # native 路径转换不可靠），用后即删暂存。
-          mkdir -p ffmpeg-stage
-          case "${{ runner.os }}" in
-            Windows)
-              # BtbN win64-gpl ~40MB（gyan.dev essentials 111MB → 改用 BtbN 缩小
-              # 3 倍下载体积，与 Linux 共享同一 provider，发行包最终只含 ffmpeg.exe
-              # 单 binary）。BtbN zip 布局同 Linux：bin/ffmpeg.exe 在顶层目录内。
-              curl -fL --retry 3 -o ffmpeg.zip \
-                "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-lgpl.zip"
-              unzip -q -o ffmpeg.zip -d ffmpeg-stage
-              mv ffmpeg-stage/*/bin/ffmpeg.exe engines/ffmpeg.exe
-              ;;
-            Linux)
-              curl -fL --retry 3 -o ffmpeg.tar.xz \
-                "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-linux64-lgpl.tar.xz"
-              tar -xJf ffmpeg.tar.xz -C ffmpeg-stage
-              mv ffmpeg-stage/*/bin/ffmpeg engines/ffmpeg
-              chmod +x engines/ffmpeg
-              ;;
-            macOS)
-              curl -fL --retry 3 -o ffmpeg.zip \
-                "https://evermeet.cx/ffmpeg/getrelease/zip"
-              unzip -q -o ffmpeg.zip -d ffmpeg-stage
-              mv ffmpeg-stage/ffmpeg engines/ffmpeg
-              chmod +x engines/ffmpeg
-              ;;
-          esac
-          rm -rf ffmpeg.zip ffmpeg.tar.xz ffmpeg-stage
           ls -la engines/
 
       - name: Package
