@@ -315,6 +315,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y rpm
 
+      # make-dist.sh / make-linux-pkg.sh 假定 target/<triple>/<hash>/bin/tinynext
+      # 已存在（从 build artifact 下载的 target/ 层级可能在 make-dist.sh 的
+      # `ls -dt target/*/*/bin` 匹配不到），所以打包前显式重编一次保证产物就位。
+      # make-win-pkg.ps1 内部本来就会 mcpp build；这一步对三平台都无害（走缓存秒过）。
+      - name: Build release (ensure target/ for packaging)
+        run: mcpp build --release
+
       - name: Package
         shell: bash
         run: ${{ matrix.pkg_cmd }}
