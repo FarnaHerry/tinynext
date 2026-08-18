@@ -662,13 +662,17 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .color(theme.titleText)
                     .build();
 
+                // 任务名可能超长：先 eliy 成可直接显示的单行（eui 的 maxWidth 只换行
+                // 不省略，超长会溢出弹窗）。用真实字体度量截断加 "…"，与渲染一致。
+                const float delNameW = dlgW - 32.0f;
                 components::text(ui, "del.name")
                     .position(16.0f, 34.0f)
-                    .size(dlgW - 32.0f, 18.0f)
-                    .text(trf("删除「{}」？", "Delete \"{}\"?", delName))
+                    .size(delNameW, 18.0f)
+                    .text(ellipsizeText(
+                        trf("删除「{}」？", "Delete \"{}\"?", delName),
+                        delNameW, 12.0f))
                     .fontSize(12.0f)
                     .lineHeight(18.0f)
-                    .maxWidth(dlgW - 32.0f)
                     .color(theme.nameText)
                     .build();
 
@@ -822,7 +826,8 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
             components::text(ui, "mirror.task")
                 .position(16.0f, 36.0f)
                 .size(dlgW - 32.0f, 18.0f)
-                .text(task ? taskDisplayName(*task) : tr("任务已结束", "Task ended"))
+                .text(task ? ellipsizeText(taskDisplayName(*task), dlgW - 32.0f, 11.0f)
+                           : tr("任务已结束", "Task ended"))
                 .fontSize(11.0f)
                 .lineHeight(18.0f)
                 .color(theme.metaText)
@@ -842,15 +847,15 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                             .width(w)
                             .height(26.0f)
                             .content([&] {
-                                std::string shown = uri;
-                                if (shown.size() > 40) shown = shown.substr(0, 40) + "…";
+                                // URL 超长用真实字体度量截断（不再按字符数硬切 40，省
+                                // 略号宽度与渲染一致）。
+                                const float uriW = w - 96.0f;
                                 components::text(sv, rowId + ".uri")
                                     .position(6.0f, 0)
-                                    .size(w - 96.0f, 26.0f)
-                                    .text(shown)
+                                    .size(uriW, 26.0f)
+                                    .text(ellipsizeText(uri, uriW, 10.0f))
                                     .fontSize(10.0f)
                                     .lineHeight(26.0f)
-                                    .maxWidth(w - 96.0f)
                                     .color(theme.nameText)
                                     .build();
                                 const char* st = status == "used" ? tr("在用", "used")

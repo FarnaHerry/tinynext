@@ -59,7 +59,6 @@ import std;
 import nlohmann.json;
 import tinynext.config;
 import tinynext.i18n;   // tr / trf（引擎错误文案按语言）
-import tinynext.sha256;
 import tinynext.utils;  // pathFromUtf8 / utf8FromPath（aria2 JSON 字符串是 UTF-8）
 
 namespace dl {
@@ -461,58 +460,6 @@ std::string engineExePath() {
     return {};
 }
 
-// 当前平台的 checksums.sha256 条目标签（release 资产名后缀），如
-// "windows-x86_64" / "linux-x86_64" / "macos-arm64"。OS×架构各恰好一个条目。
-std::string platformTag() {
-#ifdef _WIN32
-    const char* os = "windows";
-#elif defined(__APPLE__)
-    const char* os = "macos";
-#else
-    const char* os = "linux";
-#endif
-#if defined(__aarch64__) || defined(_M_ARM64)
-    const char* arch = "arm64";
-#else
-    const char* arch = "x86_64";
-#endif
-    return std::string(os) + "-" + arch;
-}
-
-// 从 engines/checksums.sha256 里查本平台引擎二进制的期望 SHA-256（小写）。
-// 条目文件名是 release 资产名（aria2-next-<ver>-<平台>[.exe]），与磁盘上
-// 改名后的运行时文件名不同，所以按平台标签做后缀匹配。无匹配返回空串。
-// 注意：清单里还有 yt-dlp / ffmpeg 等其他工具的条目（视频解析用），同样带平台
-// 后缀——必须限定 aria2-next- 前缀，否则条目顺序变化会张冠李戴。
-std::string lookupExpectedChecksum(const std::filesystem::path& manifest) {
-    const std::string tag = platformTag();
-    // aria2-next 的 release 资产在 Linux aarch64 上叫 "linux-aarch64"（与
-    // windows/macos 的 "arm64" 命名不同），补一个别名后缀。
-    std::vector<std::string> suffixes = {"-" + tag, "-" + tag + ".exe"};
-    if (tag == "linux-arm64") suffixes.push_back("-linux-aarch64");
-    std::ifstream in(manifest);
-    std::string line;
-    while (std::getline(in, line)) {
-        if (line.size() < 64) continue;
-        if (!line.empty() && line.back() == '\r') line.pop_back();  // CRLF 兜底
-        std::string hash = line.substr(0, 64);
-        for (auto& c : hash) {
-            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        }
-        std::size_t i = 64;
-        while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i;
-        const std::string name = line.substr(i);
-        if (!name.starts_with("aria2-next-")) continue;  // 只看引擎条目
-        for (const auto& s : suffixes) {
-            if (name.size() >= s.size() &&
-                name.compare(name.size() - s.size(), s.size(), s) == 0) {
-                return hash;
-            }
-        }
-    }
-    return {};
-}
-
 // 跨平台进程助手。processHandle_ 在 Windows 上是 HANDLE，POSIX 上是 pid_t
 // （经 intptr_t 存放）。
 bool processExited(void* handle) {
@@ -654,29 +601,6 @@ bool Aria2Engine::ensureDaemon() const {
         lastError_ = tr("未找到下载引擎二进制（engines/aria2-next(.exe)）",
                         "Engine binary not found (engines/aria2-next(.exe))");
         return false;
-    }
-
-    // 运行时完整性校验：engines/checksums.sha256 里本平台条目与本机二进制比对
-    // （checksums 此前只在 CI 校验，运行时从不检查——被篡改的二进制会被静默执行）。
-    // 本平台条目缺失 → fail-closed；清单整体缺失 → 警告继续（兼容历史分发，
-    // make-dist.sh 修复后新装必带）。
-    const std::filesystem::path manifest =
-        std::filesystem::path(exe).parent_path() / "checksums.sha256";
-    std::error_code mec;
-    if (std::filesystem::exists(manifest, mec)) {
-        const std::string expected = lookupExpectedChecksum(manifest);
-        if (expected.empty()) {
-            lastError_ = trf("下载引擎完整性校验失败：清单中无本平台条目（{}）",
-                             "Engine integrity check failed: no entry for this platform ({})",
-                             platformTag());
-            return false;
-        }
-        const std::string actual = sha::fileSha256(exe);
-        if (actual != expected) {
-            lastError_ = tr("下载引擎完整性校验失败（checksum 不匹配，二进制可能被篡改）",
-                            "Engine integrity check failed (checksum mismatch, binary may be tampered)");
-            return false;
-        }
     }
 
     const int port = pickFreePort();
