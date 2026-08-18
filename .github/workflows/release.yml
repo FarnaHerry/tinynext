@@ -60,7 +60,7 @@ jobs:
 
       # 共用 configure 参数（Windows 额外 --enable-cross-compile --target-os=mingw32，
       # 由下面的 shell 分支拼进去）。
-      - name: Setup build (Windows: msys2 mingw64)
+      - name: "Setup msys2 (Windows)"
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
         with:
