@@ -560,4 +560,39 @@ export void setAria2Config(const Aria2Config& c) {
     saveConfig(j);
 }
 
+// ---- 视频解析（yt-dlp/ffmpeg 外挂；配置存 JSON "video" 节）----
+export struct VideoConfig {
+    std::string bilibiliCookie;   // bilibili SESSDATA 值（解锁 1080p+/会员画质）；空=匿名
+    std::string defaultQuality;   // 默认画质 format_id/质量代码；空 = 解析后自动选最佳
+    bool keepM4sParts = false;    // 合并后保留音视频 .m4s 分片（默认删除）
+};
+
+export VideoConfig videoConfig() {
+    const auto j = loadConfig();
+    VideoConfig c;
+    if (j.contains("video") && j["video"].is_object()) {
+        const auto& v = j["video"];
+        if (v.contains("bilibili_cookie") && v["bilibili_cookie"].is_string()) {
+            c.bilibiliCookie = v["bilibili_cookie"].get<std::string>();
+        }
+        if (v.contains("default_quality") && v["default_quality"].is_string()) {
+            c.defaultQuality = v["default_quality"].get<std::string>();
+        }
+        if (v.contains("keep_m4s_parts") && v["keep_m4s_parts"].is_boolean()) {
+            c.keepM4sParts = v["keep_m4s_parts"].get<bool>();
+        }
+    }
+    return c;
+}
+
+export void setVideoConfig(const VideoConfig& c) {
+    auto j = loadConfig();
+    nlohmann::json v = nlohmann::json::object();
+    v["bilibili_cookie"] = c.bilibiliCookie;
+    v["default_quality"] = c.defaultQuality;
+    v["keep_m4s_parts"] = c.keepM4sParts;
+    j["video"] = v;
+    saveConfig(j);
+}
+
 } // namespace cfg

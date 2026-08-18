@@ -4,12 +4,123 @@ module;
 
 #include "eui_ui.h"
 
+// 悬浮气泡/点击暂停等需要 UI 重绘一帧（纯状态变化不走 eui 内建 re-compose）。
+namespace core::platform { void requestUiUpdate(); }
+
 export module tinynext.ui.widgets;
 
 import std;
 import tinynext.ui.theme;
 import tinynext.ui.utils;
 
+namespace {
+// ---- 悬浮提示（tooltip）状态与延迟逻辑 ----
+// 用模块级 atomic 状态按 id 存放：eui 的 ui.state 不是线程安全的，延迟线程只碰
+// 这里（cross-thread race-free）。hover 进入后延迟 hoverDelayMs 才置 shown，让
+// 气泡「等一小会」再出现，避免鼠标一碰就弹。
+struct TipState {
+    std::atomic<bool> hovered{false};
+    std::atomic<bool> shown{false};
+};
+std::mutex g_tipMutex;
+std::unordered_map<std::string, TipState> g_tips;
+
+TipState& tipState(const std::string& id) {
+    std::lock_guard<std::mutex> lock(g_tipMutex);
+    return g_tips[id];
+}
+
+// .onHover 回调：进入/离开 hover 时更新状态并在延迟后显示气泡。h 恒为当前 hover。
+void onTipHover(const std::string& id, bool h) {
+    TipState& s = tipState(id);
+    const bool prev = s.hovered.exchange(h);
+    if (h == prev) return;
+    if (!h) {
+        s.shown.store(false);
+        core::platform::requestUiUpdate();
+        return;
+    }
+    // 进入 hover：spawn 一个延迟线程，400ms 后若仍 hovered 才显示气泡。
+    std::thread([id] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
+        TipState& st = tipState(id);
+        if (st.hovered.load()) {
+            st.shown.store(true);
+            core::platform::requestUiUpdate();
+        }
+    }).detach();
+}
+
+// 画气泡 + 尾巴。气泡在图标栏右侧，尾巴是向左的小三角形（用 polygon，局部坐标，
+// 相对 .position 的左上角），指向图标栏上的按钮。btnY/btnH 是按钮位置尺寸，
+// railWidth 是图标栏宽。
+void drawTipBubble(eui::Ui& ui, const std::string& id, float btnY, float btnH,
+                   float railWidth, const std::string& text, const AppTheme& theme) {
+    const TipState& s = tipState(id);
+    if (!s.shown.load() || text.empty()) return;
+    const float tipH = 20.0f;
+    const float tipInnerPad = 8.0f;
+    const float tailW = 7.0f;                        // 尾巴宽度（连接条）
+    const float tipW = std::max(
+        core::TextPrimitive::measureTextWidth(text, "", 11.0f) + tipInnerPad * 2.0f, 22.0f);
+    const float tipX = railWidth + tailW + 2.0f;   // 气泡左缘
+    const float tipY = btnY + (btnH - tipH) * 0.5f;  // 气泡垂直居中于按钮
+    // 气泡配色随主题：深色用比背景亮一档的深灰面板、浅色用近白——比原来的「深浅主题都
+    // 近黑」更贴合主题；文字色也随主题翻转（深色近白字 / 浅色主题正文色）。
+    const core::Color tipBg = theme.dark
+        ? core::Color{0.14f, 0.15f, 0.18f, 0.97f}
+        : core::Color{0.99f, 0.99f, 1.0f, 0.99f};
+    const core::Color tipText = theme.dark
+        ? core::Color{0.92f, 0.93f, 0.95f, 1.0f}
+        : theme.components.text;
+
+    // 气泡主体（绝对定位的圆角矩形）。**不加边框**：边框会在尾巴与气泡相接处切出竖线，
+    // 造成「割裂」感。改用低透明度投影提供层次（分离感由阴影承担），尾巴与气泡同色重叠
+    // → 视觉上气泡直接延伸出小箭头。
+    ui.stack(id + ".tip")
+        .position(tipX, tipY)
+        .size(tipW, tipH)
+        .zIndex(60)
+        .content([&] {
+            ui.rect(id + ".tip.bg")
+                .size(tipW, tipH)
+                .color(tipBg)
+                .radius(6.0f)
+                .shadow(6.0f, 1.5f, core::Color{0.0f, 0.0f, 0.0f, 0.18f})
+                .build();
+            ui.text(id + ".tip.label")
+                .size(tipW, tipH)
+                .text(text)
+                .fontSize(11.0f)
+                .lineHeight(tipH)
+                .color(tipText)
+                .horizontalAlign(core::HorizontalAlign::Center)
+                .verticalAlign(core::VerticalAlign::Center)
+                .build();
+        })
+        .build();
+
+    // 尾巴：向左的圆角小三角（polygon，局部坐标相对 .position 左上角）。尖端贴图标栏
+    // 右缘、垂直居中于按钮；底边**伸进气泡内部 tailOverlap 深**，与气泡同色重叠盖住
+    // 接缝 → 无割裂，气泡直接延伸出箭头（polygon 的 .radius 就是 eui 版的「伪元素
+    // 圆角」，效果等同 CSS 气泡 ::after）。zIndex 盖在气泡主体之上。
+    const float tailH = 16.0f;                              // 三角形高（垂直居中于按钮）
+    const float tailOverlap = 3.0f;                         // 底边伸进气泡的深度（藏接缝）
+    const float tailGap = std::max(0.0f, tipX - railWidth) + tailOverlap;
+    const float tailX = railWidth;                          // 尖端贴图标栏右缘
+    const float tailY = btnY + (btnH - tailH) * 0.5f;       // 垂直居中于按钮
+    ui.polygon(id + ".tip.tail")
+        .position(tailX, tailY)
+        .size(tailGap, tailH)
+        .point(0.0f, tailH * 0.5f)     // 尖端：左，垂直居中
+        .point(tailGap, 0.0f)          // 底边右上（伸进气泡）
+        .point(tailGap, tailH)         // 底边右下
+        .radius(3.0f)                  // 圆角三个顶点
+        .color(tipBg)
+        .zIndex(61)
+        .build();
+}
+} // namespace
 // ----------------------------------------------------- 外层"岛"卡片背景 --
 // 岛屿卡片风：内容区 / 侧边栏都做成浮在页面背景上的圆角"岛"。底色取
 // background↔surface 的中间色调，保证与纯 surface 的内层卡片（如任务卡）分层，
@@ -437,10 +548,49 @@ export void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y
     }
 }
 
+// 侧边栏底部的小图标按钮（如「关于」）：rect + 图标，hover 反馈 + 点击 + 悬浮气泡
+// 都在同一元素上（避免用透明遮罩叠按钮导致的点击穿透问题）。railWidth 是图标栏宽，
+// 供气泡定位。
+export void drawRailInfoButton(eui::Ui& ui, const std::string& id, float x, float y,
+                               float w, float h, unsigned int icon, float railWidth,
+                               const std::string& text, const AppTheme& theme,
+                               std::function<void()> onClick) {
+    const auto& tokens = theme.components;
+    const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
+    const core::Color transparent{0.0f, 0.0f, 0.0f, 0.0f};
+    const float radius = std::min(w, h) * 0.5f;
+
+    ui.rect(id)
+        .position(x, y)
+        .size(w, h)
+        .states(transparent, tokens.surfaceHover, tokens.surfaceActive)
+        .radius(radius)
+        .border(1.0f, transparent)
+        .transition(transition)
+        .onHover([id](bool hh) { onTipHover(id, hh); })
+        .onClick(std::move(onClick))
+        .build();
+
+    ui.text(id + ".icon")
+        .position(x, y)
+        .size(w, h)
+        .icon(icon)
+        .fontSize(11.0f)
+        .lineHeight(h)
+        .color(tokens.text)
+        .horizontalAlign(core::HorizontalAlign::Center)
+        .verticalAlign(core::VerticalAlign::Center)
+        .build();
+
+    if (!text.empty()) {
+        drawTipBubble(ui, id, y, h, railWidth, text, theme);
+    }
+}
+
 // 主侧边栏（图标栏）列表项：仅图标、无文字，激活时主色高亮 + 左侧竖条。
 export void drawRailItem(eui::Ui& ui, const std::string& id, float y, float railWidth,
                          unsigned int icon, bool active, const AppTheme& theme,
-                         std::function<void()> onClick) {
+                         std::function<void()> onClick, const std::string& tooltip = {}) {
     const auto& tokens = theme.components;
     const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
     const core::Color idle = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -468,13 +618,14 @@ export void drawRailItem(eui::Ui& ui, const std::string& id, float y, float rail
             .build();
     }
 
-    // 点击命中区（悬停反馈）。
+    // 点击命中区 + 悬停状态（有 tooltip 时，hover 走延迟显示逻辑）。
     ui.rect(id + ".hit")
         .position(x, y)
         .size(itemW, 24.0f)
         .states(idle, active ? idle : tokens.surfaceHover, tokens.surfaceActive)
         .radius(7.0f)
         .transition(transition)
+        .onHover([id](bool h) { onTipHover(id, h); })
         .onClick(std::move(onClick))
         .build();
 
@@ -489,6 +640,11 @@ export void drawRailItem(eui::Ui& ui, const std::string& id, float y, float rail
         .horizontalAlign(core::HorizontalAlign::Center)
         .verticalAlign(core::VerticalAlign::Center)
         .build();
+
+    // 悬浮提示气泡（带尾巴，延迟显示）。
+    if (!tooltip.empty()) {
+        drawTipBubble(ui, id, y, 24.0f, railWidth, tooltip, theme);
+    }
 }
 
 // 卡片内的小图标操作按钮：纯图标、无文字，hover/按下反馈走组件默认状态。

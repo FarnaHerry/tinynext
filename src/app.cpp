@@ -37,6 +37,7 @@ import tinynext.ui.theme_watch;
 import tinynext.ui.theme;
 import tinynext.ui.widgets;
 import tinynext.ui.downloads_page;
+import tinynext.ui.video_page;
 import tinynext.ui.settings_page;
 import tinynext.ui.engine_page;
 import tinynext.ui.about_dialog;
@@ -199,39 +200,42 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                         .verticalAlign(core::VerticalAlign::Center)
                         .build();
 
-                    // 应用页导航：下载列表（默认第一页）/ 设置 / 引擎监控。
+                    // 应用页导航：下载列表（默认第一页）/ 视频解析 / 设置 / 引擎监控。
                     float railY = 40.0f;
                     drawRailItem(ui, "nav.downloads", railY, kRailWidth, 0xF03A,
                                  g_page_view == Page::Downloads, theme,
-                                 [] { g_page_view = Page::Downloads; });
+                                 [] { g_page_view = Page::Downloads; },
+                                 tr("下载列表", "Downloads"));
+                    railY += 30.0f;
+                    drawRailItem(ui, "nav.video", railY, kRailWidth, 0xF03D,  // fa-video
+                                 g_page_view == Page::Video, theme,
+                                 [] { g_page_view = Page::Video; },
+                                 tr("视频解析", "Video"));
                     railY += 30.0f;
                     drawRailItem(ui, "nav.settings", railY, kRailWidth, 0xF013,
                                  g_page_view == Page::Settings, theme,
-                                 [] { g_page_view = Page::Settings; });
+                                 [] { g_page_view = Page::Settings; },
+                                 tr("设置", "Settings"));
                     railY += 30.0f;
                     drawRailItem(ui, "nav.engine", railY, kRailWidth, 0xF233,  // fa-server
                                  g_page_view == Page::Monitor, theme,
-                                 [] { g_page_view = Page::Monitor; });
+                                 [] { g_page_view = Page::Monitor; },
+                                 tr("引擎监控", "Monitor"));
 
                     // 关于：信息图标（circle-info）排在导航最后一项下方，顺列排列。
                     // 左下角不再放任何东西（深色模式切换已删除，主题在设置页选）。
                     railY += 30.0f;
-                    components::button(ui, "rail.info")
-                        .position((kRailWidth - 22.0f) * 0.5f, railY + 2.0f)
-                        .size(22.0f, 22.0f)
-                        .icon(0xF05A)  // circle-info
-                        .text("")
-                        .iconSize(11.0f)
-                        .theme(theme.components, false)
-                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                        .onClick([] { g_aboutOpen = true; })
-                        .build();
+                    drawRailInfoButton(ui, "rail.info", (kRailWidth - 22.0f) * 0.5f,
+                                       railY + 2.0f, 22.0f, 22.0f, 0xF05A,  // circle-info
+                                       kRailWidth, tr("关于", "About"), theme,
+                                       [] { g_aboutOpen = true; });
                 })
                 .build();
 
             // ===================== 内容区（页面分发） =====================
             switch (g_page_view) {
                 case Page::Downloads: drawDownloadsPage(ui, screen, theme); break;
+                case Page::Video:     drawVideoPage(ui, screen, theme);     break;
                 case Page::Settings:  drawSettingsPage(ui, screen, theme);  break;
                 case Page::Monitor:   drawEnginePage(ui, screen, theme);    break;
             }

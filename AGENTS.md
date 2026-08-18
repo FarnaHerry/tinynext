@@ -46,11 +46,40 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
 | `tinynext.store.ui` | `src/store/ui.cppm` | 视图 store：状态消息 / 页面 / 筛选·排序·分页 |
 | `tinynext.store.dialogs` | `src/store/dialogs.cppm` | 视图 store：弹窗状态机 + addDownload/requestDelete |
 | `tinynext.cli` | `src/cli.cppm` | 单实例 + 命令行 URL + TCP socket 转发 |
-| `tinynext.ui.*` | `src/ui/*.cppm` | utils（布局常量）/ theme / platform / housekeep / widgets / cards / downloads_page / settings_page / about_dialog |
+| `tinynext.video_resolver` | `src/video_resolver.cppm` | 视频解析（外挂 yt-dlp 进程，`-J` JSON → `VideoInfo`/`VideoFormat`；领域层无 eui） |
+| `tinynext.video_merge` | `src/video_merge.cppm` | DASH 音视频合并编排：`MergeTracker` 聚合两个 aria2 子任务成单个合成任务 + ffmpeg 合并 |
+| `tinynext.ui.*` | `src/ui/*.cppm` | utils（布局常量）/ theme / platform / housekeep / widgets / cards / downloads_page / video_page / settings_page / about_dialog |
 | `src/app.cpp` | 普通 TU | 入口：`app::dslAppConfig()` + `app::compose()` |
 
 页面已按职责拆成独立模块（`pages.cppm` 已删除）：
-`downloads_page`（下载页 + 添加下载弹窗）、`settings_page`（设置页）、`about_dialog`（关于弹窗）。
+`downloads_page`（下载页 + 添加下载弹窗）、`video_page`（视频解析页：粘链接 →
+yt-dlp 解析 → 选画质 → 下载）、`settings_page`（设置页）、`about_dialog`（关于弹窗）。
+
+### 视频解析（YouTube / bilibili，v0.5）
+
+- **两条下载路线**：
+  - **bilibili / 常规站点**：`aria2-next` 做下载引擎——`engines/yt-dlp(.exe)` 只做
+    解析（出直链 + 请求头），`engines/ffmpeg(.exe)` 只做 DASH 合并（`-c copy`）。
+    两者经 `findEngineBinary` 定位（`<exeDir>/engines/` → cwd/engines/），缺失时仅
+    视频功能不可用。
+  - **YouTube（googlevideo CDN）**：这类 CDN 拒绝对开放 Range 的首请求（直连 403，
+    有代理拦截时更甚，aria2 拿不全流），所以 `VideoFormat::rangeBootstrap` 标记的
+    格式走 `MergeTracker::startNativeJob`——yt-dlp **原生下载两个流并自行 ffmpeg 合并**
+    （单线程跑 `downloadNativeMerged`），进度按输出文件大小估。这是「使用解析器原生
+    能力」的决策，勿改回纯 aria2。
+- b 站高画质是音视频分离 DASH：`MergeTracker` 起两个 aria2 子任务（带 yt-dlp 给的
+  Referer/UA 头，否则 CDN 403），对外聚合成**单个合成任务**（id ≥ 1,000,000 高段，
+  `dl::State::Merging` 表示 ffmpeg 合并中）；housekeep 500ms 轮询触发合并。
+- **合并路径坑**：aria2 的 `--auto-file-renaming` 会在重名时把落盘改名为 `xxx (1).m4s`，
+  但 MergeTracker 预设路径是原名——ffmpeg 会去开不存在的文件。合并前必须用子任务
+  快照的**真实 `destPath`**（`files[0].path`）覆盖预设路径（`pollMerges` 里做）。
+- **音频容器**：合并参数按配对音频流决定 `-c:a copy`（aac/m4a 可直装 mp4）还是
+  `-c:a aac`（YouTube 的 opus/vorbis 装不进 mp4，需转码）；视频恒 `-c:v copy`。
+- bilibili SESSDATA / 默认画质 / 保留 .m4s 在设置页「视频」tab（`cfg::VideoConfig`，
+  JSON key `"video"`）；SESSDATA 只对 bilibili 主机下发（`resolveVideoUrl` 里按 URL
+  判断），其它站点走匿名。
+- 已知边界：下载中重启 app，任务表丢失、不再自动合并（bilibili 子任务被会话恢复成
+  普通任务 / YouTube 原生任务不恢复），重新下载即可（v1 接受）。
 
 ## 关键约定（改代码前必读）
 

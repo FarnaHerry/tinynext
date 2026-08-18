@@ -296,6 +296,13 @@ USAGE
   tinynext --headless <url> [more-urls...]  Script mode: NO window. Download(s) run under
                                           TinyNext's own config (dir / connections), process
                                           exits 0 on success / 1 on any failure.
+  tinynext --resolve <video-page-url>     Parse a video page (bilibili) via yt-dlp and print
+                                          the quality list. No window, no download.
+  tinynext --video-dl <video-page-url> [quality-keyword]
+                                          Resolve + download a web video: DASH qualities
+                                          auto-merge to mp4 via ffmpeg. The keyword matches
+                                          the quality label (e.g. 1080); default = configured
+                                          default quality, else best available.
   tinynext agent                          Print this usage guide (what you are reading now).
 
 RULES
@@ -473,6 +480,16 @@ struct CliBoot {
         // GUI 冲突、也不转发 URL。
         if (headless::requested()) {
             std::exit(headless::run());
+        }
+        // `tinynext --resolve <视频页URL>`：只解析打印画质列表（yt-dlp），不开窗。
+        // 同样在抢单实例锁之前接管（纯只读操作，不与运行中的实例交互）。
+        if (headless::resolveRequested()) {
+            std::exit(headless::runResolve());
+        }
+        // `tinynext --video-dl <视频页URL> [画质关键词]`：解析 + 下载 + DASH 自动
+        // 合并，不开窗（headless 视频版，独立 daemon，不与运行中的 GUI 冲突）。
+        if (headless::videoDlRequested()) {
+            std::exit(headless::runVideoDownload());
         }
         if (!acquireSingleInstance()) {
             forwardToRunningInstance(downloadLines());

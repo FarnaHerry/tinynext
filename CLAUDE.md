@@ -62,7 +62,9 @@ tinynext agent                           # 打印 CLI 使用教学（给 AI 用�
 | `tinynext.store.ui` | `src/store/ui.cppm` | 视图 store：状态消息 / 页面 / 筛选·排序·分页（无 eui） |
 | `tinynext.store.dialogs` | `src/store/dialogs.cppm` | 视图 store：添加/镜像/删除/关于弹窗状态机 + `addDownload`/`requestDelete`（无 eui） |
 | `tinynext.cli` | `src/cli.cppm` | 单实例锁 + 命令行 URL + TCP socket 转发 + CliBoot 引导 |
-| `tinynext.ui.*` | `src/ui/*.cppm` | utils（布局常量）/ theme / platform / housekeep / widgets / cards / downloads_page / settings_page / about_dialog |
+| `tinynext.video_resolver` | `src/video_resolver.cppm` | 视频解析：外挂 yt-dlp 进程出直链（`VideoInfo`/`VideoFormat`），领域层无 eui |
+| `tinynext.video_merge` | `src/video_merge.cppm` | DASH 编排：`MergeTracker` 聚合音/视频子任务成单个合成任务 + ffmpeg 合并 |
+| `tinynext.ui.*` | `src/ui/*.cppm` | utils（布局常量）/ theme / platform / housekeep / widgets / cards / downloads_page / video_page / settings_page / about_dialog |
 | `src/app.cpp` | 普通 TU | 薄入口：`app::dslAppConfig()` + `app::compose()` |
 
 **入口**：`main()` 由 eui-neo 的 `app-main` 提供（GLFW 入口），任何 TU 都不能再定义

@@ -4,6 +4,21 @@
 // 历史：这些函数原来在 ui/utils.cppm，store 化拆分时下移到这里，让领域层
 // （tinynext.store.tasks / headless）不必 import 任何 ui.* 模块。ui/utils.cppm
 // 现在只保留布局常量，并 export import 本模块转发（既有 UI 代码不用改）。
+module;
+
+// pathFromUtf8/utf8FromPath 在 Windows 需要 MultiByteToWideChar/WideCharToMultiByte。
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+// minwindef.h 会定义 min/max 宏，漏掉 NOMINMAX 会让模块 purview 里的 std::max
+// 变成宏展开（其它 TU 都定义了，这里保持一致）。
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 export module tinynext.utils;
 
 import std;
@@ -77,6 +92,46 @@ export std::string trimText(std::string s) {
     const std::size_t f = s.find_first_not_of(" \t\r\n");
     const std::size_t l = s.find_last_not_of(" \t\r\n");
     return f == std::string::npos ? "" : s.substr(f, l - f + 1);
+}
+
+// ---- 路径编码（Windows 关键）----
+// Windows 上 std::filesystem::path 的窄字符串构造/提取走系统 ANSI 代码页（中文系统
+// 是 GBK）：把 UTF-8 串直接构造 path 会乱码，遇到非法 GBK 字节对还会抛
+// ERROR_NO_UNICODE_TRANSLATION（如 b 站中文视频标题）。本应用的字符串约定是
+// UTF-8（aria2 JSON-RPC、yt-dlp 输出都是 UTF-8），所以字符串↔path 必须经这两个
+// helper 显式按 UTF-8 转换。POSIX 窄字符串天然 UTF-8，直接透传。
+
+// UTF-8 字符串 → path。
+export std::filesystem::path pathFromUtf8(const std::string& utf8) {
+#ifdef _WIN32
+    if (utf8.empty()) return {};
+    const int n = MultiByteToWideChar(CP_UTF8, 0, utf8.data(),
+                                      static_cast<int>(utf8.size()), nullptr, 0);
+    if (n <= 0) return {};  // 非法 UTF-8：返回空 path（调用方按空处理）
+    std::wstring w(static_cast<std::size_t>(n), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()),
+                        w.data(), n);
+    return std::filesystem::path(std::move(w));
+#else
+    return std::filesystem::path(utf8);
+#endif
+}
+
+// path → UTF-8 字符串（给 JSON-RPC / 进程参数等 UTF-8 语境用）。
+export std::string utf8FromPath(const std::filesystem::path& p) {
+#ifdef _WIN32
+    const std::wstring w = p.wstring();
+    if (w.empty()) return {};
+    const int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()),
+                                      nullptr, 0, nullptr, nullptr);
+    if (n <= 0) return {};
+    std::string out(static_cast<std::size_t>(n), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()),
+                        out.data(), n, nullptr, nullptr);
+    return out;
+#else
+    return p.string();
+#endif
 }
 
 // 解析整数并夹取到 [lo, hi]；解析失败返回 fallback。

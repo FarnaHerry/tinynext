@@ -36,11 +36,18 @@ void checkDownloadNotifications() {
     for (const auto& t : tasks) {
         seen.insert(t.id);
         const auto it = lastStates.find(t.id);
+        // 会话恢复的历史任务（fromSession）一律不通知：它们是本次启动之前就存在/
+        // 完成的下载，重新载入时不应再弹「完成/失败」提醒。
+        if (t.fromSession) {
+            lastStates[t.id] = t.state;
+            continue;
+        }
         if (it != lastStates.end()) {
             const dl::State prev = it->second;
             const bool wasActive = prev == dl::State::Queued ||
                                    prev == dl::State::Downloading ||
-                                   prev == dl::State::Paused;
+                                   prev == dl::State::Paused ||
+                                   prev == dl::State::Merging;  // 视频合并中→完成也通知
             if (wasActive && prev != t.state) {
                 const std::string name = taskDisplayName(t);
                 if (t.state == dl::State::Done) {
@@ -78,6 +85,11 @@ void housekeepLoop() {
         checkDownloadNotifications();
         if (g_tasks.busy()) {
             g_tasks.pollProgress();
+            core::platform::requestUiUpdate();
+        }
+        // DASH 视频合并：两个子任务都下完则触发 ffmpeg 合并（有触发才唤醒 UI 显示
+        // 「合并中」；snapshot 是纯缓存读，空闲零开销）。
+        if (g_tasks.pollVideoMerges()) {
             core::platform::requestUiUpdate();
         }
         // 引擎监控页打开时 ~2s 刷新一次健康信息（getVersion/getGlobalStat RPC 在

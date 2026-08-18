@@ -60,6 +60,7 @@ import nlohmann.json;
 import tinynext.config;
 import tinynext.i18n;   // tr / trf（引擎错误文案按语言）
 import tinynext.sha256;
+import tinynext.utils;  // pathFromUtf8 / utf8FromPath（aria2 JSON 字符串是 UTF-8）
 
 namespace dl {
 
@@ -312,15 +313,18 @@ std::string randomHex(std::size_t n) {
 
 int pickFreePort() {
     std::mt19937 rng(std::random_device{}());
-    std::uniform_int_distribution<int> dist(20000, 50000);
-    for (int attempt = 0; attempt < 16; ++attempt) {
+    // 高段范围随机探测空闲端口（避开常见服务区）。connect 探测：无人监听会立即
+    // ECONNREFUSED → 判定可用；被占则跳过。绝不写死固定口——全部被占（极罕见）
+    // 就再给一个随机口，aria2 若仍绑定失败会在启动时快速失败，不长期占一个端口。
+    std::uniform_int_distribution<int> dist(20000, 60000);
+    for (int attempt = 0; attempt < 32; ++attempt) {
         const int candidate = dist(rng);
         LocalSocket probe;
         if (!probe.connect("127.0.0.1", candidate, 300)) {
             return candidate;  // nothing listening → free
         }
     }
-    return 16800;
+    return dist(rng);
 }
 
 // daemon 级参数（除分片/连接数外的全部 --xxx 选项）：仅非空/非默认才传，
@@ -478,9 +482,14 @@ std::string platformTag() {
 // 从 engines/checksums.sha256 里查本平台引擎二进制的期望 SHA-256（小写）。
 // 条目文件名是 release 资产名（aria2-next-<ver>-<平台>[.exe]），与磁盘上
 // 改名后的运行时文件名不同，所以按平台标签做后缀匹配。无匹配返回空串。
+// 注意：清单里还有 yt-dlp / ffmpeg 等其他工具的条目（视频解析用），同样带平台
+// 后缀——必须限定 aria2-next- 前缀，否则条目顺序变化会张冠李戴。
 std::string lookupExpectedChecksum(const std::filesystem::path& manifest) {
     const std::string tag = platformTag();
-    const std::string suffix[] = {"-" + tag, "-" + tag + ".exe"};
+    // aria2-next 的 release 资产在 Linux aarch64 上叫 "linux-aarch64"（与
+    // windows/macos 的 "arm64" 命名不同），补一个别名后缀。
+    std::vector<std::string> suffixes = {"-" + tag, "-" + tag + ".exe"};
+    if (tag == "linux-arm64") suffixes.push_back("-linux-aarch64");
     std::ifstream in(manifest);
     std::string line;
     while (std::getline(in, line)) {
@@ -493,7 +502,8 @@ std::string lookupExpectedChecksum(const std::filesystem::path& manifest) {
         std::size_t i = 64;
         while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i;
         const std::string name = line.substr(i);
-        for (const auto& s : suffix) {
+        if (!name.starts_with("aria2-next-")) continue;  // 只看引擎条目
+        for (const auto& s : suffixes) {
             if (name.size() >= s.size() &&
                 name.compare(name.size() - s.size(), s.size(), s) == 0) {
                 return hash;
@@ -599,6 +609,7 @@ struct Aria2Engine::Task {
     bool needsFinalize = false;   // WS 事件置位：下一轮 poll 补一次 tellStatus 拿最终字节/错误
     std::string displayName;      // BT/磁力拿到元数据后的真实名（bittorrent.info.name）
     std::vector<dl::MirrorSource> mirrors;  // 实时源列表（去重，aria2 uris 按 URL 合并，含状态）
+    bool fromSession = false;     // 从会话恢复的历史任务（不触发完成/失败通知）
 };
 
 Aria2Engine::Aria2Engine() {
@@ -832,7 +843,7 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
     std::filesystem::create_directories(dir, ec);
 
     nlohmann::json optionsJ = nlohmann::json::object();
-    optionsJ["dir"] = dir.string();
+    optionsJ["dir"] = utf8FromPath(dir);  // aria2 JSON 是 UTF-8，.string() 在 Windows 走 ANSI
     optionsJ["split"] = std::to_string(connections);
     optionsJ["max-connection-per-server"] = std::to_string(connections);
     optionsJ["min-split-size"] = a2.minSplitSize;
@@ -851,6 +862,19 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
     if (a2.maxDownloadLimit > 0) {
         optionsJ["max-download-limit"] = std::to_string(a2.maxDownloadLimit);
     }
+
+    // 每任务 HTTP 头（视频解析等 CDN 受限源，如 bilibili 强制 Referer）：aria2
+    // 原生支持每任务 header/user-agent/referer 选项，覆盖 daemon 级配置。空则不
+    // 加，行为与之前一致。
+    if (!options.headers.empty()) {
+        nlohmann::json hdrs = nlohmann::json::array();
+        for (const auto& h : options.headers) {
+            if (!h.empty()) hdrs.push_back(h);
+        }
+        if (!hdrs.empty()) optionsJ["header"] = std::move(hdrs);
+    }
+    if (!options.userAgent.empty()) optionsJ["user-agent"] = options.userAgent;
+    if (!options.referer.empty()) optionsJ["referer"] = options.referer;
 
     // 磁力/BT：内容名由种子决定，只设 dir 不设 out；destPath 用占位，等
     // refreshStates() 从 files[0].path 更新为真实路径。
@@ -876,7 +900,7 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
             std::lock_guard<std::mutex> lock(tasksMutex_);
             task->state = State::Failed;
             task->error = tr("种子文件读取失败或为空：", "Torrent file read failed or empty: ") +
-                          options.torrentPath.string();
+                          utf8FromPath(options.torrentPath);
             tasks_.push_back(task);
             return task->id;
         }
@@ -890,9 +914,11 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
         if (magnet) {
             task->destPath = dir / ("magnet-" + std::to_string(task->id));
         } else if (!options.outputName.empty()) {
+            // outputName 是 UTF-8（UI 输入 / 视频标题），拼 path 经 pathFromUtf8；
+            // out 回 JSON 经 utf8FromPath。
             const std::filesystem::path uniqueDest =
-                makeUniqueDest(dir / options.outputName);
-            optionsJ["out"] = uniqueDest.filename().string();
+                makeUniqueDest(dir / pathFromUtf8(options.outputName));
+            optionsJ["out"] = utf8FromPath(uniqueDest.filename());
             task->destPath = uniqueDest;
         } else {
             task->destPath = dir / destPath.filename();
@@ -1133,7 +1159,7 @@ void Aria2Engine::retryOnWorker(std::uint64_t id) {
         ? std::clamp(task->opts.connections, 1, 64)
         : a2.split;
     nlohmann::json optionsJ = nlohmann::json::object();
-    optionsJ["dir"] = task->destPath.parent_path().string();
+    optionsJ["dir"] = utf8FromPath(task->destPath.parent_path());
     optionsJ["split"] = std::to_string(connections);
     optionsJ["max-connection-per-server"] = std::to_string(connections);
     optionsJ["min-split-size"] = a2.minSplitSize;
@@ -1150,6 +1176,16 @@ void Aria2Engine::retryOnWorker(std::uint64_t id) {
     if (a2.maxDownloadLimit > 0) {
         optionsJ["max-download-limit"] = std::to_string(a2.maxDownloadLimit);
     }
+    // 每任务 HTTP 头（视频解析等 CDN 受限源）：retry 复用 task->opts，头随重试保留。
+    if (!task->opts.headers.empty()) {
+        nlohmann::json hdrs = nlohmann::json::array();
+        for (const auto& h : task->opts.headers) {
+            if (!h.empty()) hdrs.push_back(h);
+        }
+        if (!hdrs.empty()) optionsJ["header"] = std::move(hdrs);
+    }
+    if (!task->opts.userAgent.empty()) optionsJ["user-agent"] = task->opts.userAgent;
+    if (!task->opts.referer.empty()) optionsJ["referer"] = task->opts.referer;
     // 磁力/BT 不设 out（内容名由种子决定）；HTTP 仅当显式重命名时才强制 out
     // （否则重新走 Content-Disposition 解析，避免续传回来仍是 uuid 名）。
     nlohmann::json params;
@@ -1164,7 +1200,7 @@ void Aria2Engine::retryOnWorker(std::uint64_t id) {
         if (bytes.empty()) {
             task->state = State::Failed;
             task->error = tr("种子文件读取失败或为空：", "Torrent file read failed or empty: ") +
-                          task->opts.torrentPath.string();
+                          utf8FromPath(task->opts.torrentPath);
             return;
         }
         params = nlohmann::json::array();
@@ -1174,7 +1210,7 @@ void Aria2Engine::retryOnWorker(std::uint64_t id) {
         method = "aria2.addTorrent";
     } else {
         if (!task->url.starts_with("magnet:") && !task->opts.outputName.empty()) {
-            optionsJ["out"] = task->destPath.filename().string();
+            optionsJ["out"] = utf8FromPath(task->destPath.filename());
         }
         // 重下同样带上镜像源（opts.mirrors 从原任务复用）。
         nlohmann::json uriArray = nlohmann::json::array();
@@ -1301,7 +1337,7 @@ void Aria2Engine::recoverSession() const {
         task->gid = st.value("gid", "");
         if (st.contains("files") && st["files"].is_array() && !st["files"].empty()) {
             const auto& file = st["files"][0];
-            task->destPath = std::filesystem::path(file.value("path", ""));
+            task->destPath = pathFromUtf8(file.value("path", ""));  // aria2 JSON 是 UTF-8
             if (file.contains("uris") && file["uris"].is_array() && !file["uris"].empty()) {
                 task->url = file["uris"][0].value("uri", "");
                 // 镜像源随会话恢复：files[0].uris 是 aria2 去重后的全部源（实测顺序
@@ -1346,6 +1382,7 @@ void Aria2Engine::recoverSession() const {
         } else {
             task->state = State::Cancelled;
         }
+        task->fromSession = true;   // 会话恢复的历史任务：不再发完成/失败通知
         recovered.push_back(std::move(task));
     };
 
@@ -1399,7 +1436,7 @@ void Aria2Engine::applyTellStatus(const std::shared_ptr<Task>& task,
     if (st.contains("files") && st["files"].is_array() &&
         !st["files"].empty()) {
         const std::string p = st["files"][0].value("path", "");
-        if (!p.empty()) task->destPath = std::filesystem::path(p);
+        if (!p.empty()) task->destPath = pathFromUtf8(p);  // aria2 JSON 是 UTF-8
         // 实时源列表：files[0].uris 按 URL 去重（aria2 对同一 URL 分片会生成多个
         // URIResult），状态合并取最优（used > waiting > error）。
         task->mirrors.clear();
@@ -1613,7 +1650,7 @@ std::vector<TaskView> Aria2Engine::snapshot() const {
                                task.error, task.speedBps, task.connections,
                                task.displayName,
                                static_cast<int>(task.opts.mirrors.size()),
-                               task.mirrors});
+                               task.mirrors, task.fromSession});
     }
     return out;
 }
@@ -1720,10 +1757,12 @@ std::filesystem::path Aria2Engine::makeUniqueDest(const std::filesystem::path& d
     if (!taken(dest)) return dest;
 
     const std::filesystem::path parent = dest.parent_path();
-    const std::string stem = dest.stem().string();
-    const std::string ext = dest.extension().string();
+    // stem/ext 拼接按宽字符做（Windows 窄串会走 ANSI 代码页，中文名抛异常）。
+    const std::wstring stem = dest.stem().wstring();
+    const std::wstring ext = dest.extension().wstring();
     for (int i = 1;; ++i) {
-        const auto candidate = parent / (stem + " (" + std::to_string(i) + ")" + ext);
+        const auto candidate =
+            parent / (stem + L" (" + std::to_wstring(i) + L")" + ext);
         if (!taken(candidate)) return candidate;
     }
 }

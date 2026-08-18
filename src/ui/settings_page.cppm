@@ -24,7 +24,7 @@ import tinynext.ui.platform;
 // 设置页左侧配置分组：每组一个独立"子页面"，避免全部参数挤在一屏滚动过长。
 // 分组对齐 MotrixNext：通用 / 下载 / BitTorrent / ED2K / 网络 / 高级（MotrixNext
 // 同为 aria2-next 引擎，其分组是此类下载器的标准布局）。
-enum class SettingsTab { General, Download, BitTorrent, Ed2k, Network, Advanced };
+enum class SettingsTab { General, Download, Video, BitTorrent, Ed2k, Network, Advanced };
 SettingsTab g_settingsTab = SettingsTab::General;
 // 下载目录待提交值（默认保存目录；点「保存」才写入配置）。
 std::string g_downloadDirText = cfg::downloadDir().string();
@@ -88,6 +88,10 @@ std::string g_ed2kListenPortText = cfg::aria2Config().ed2kListenPort;
 std::string g_ed2kUdpPortText = cfg::aria2Config().ed2kUdpListenPort;
 std::string g_ed2kUploadSlotsText =
     std::to_string(cfg::aria2Config().ed2kUploadSlots);
+// ---- 视频解析配置项（VideoConfig，独立于 aria2 daemon，保存即生效）----
+std::string g_videoCookieText = cfg::videoConfig().bilibiliCookie;
+std::string g_videoQualityText = cfg::videoConfig().defaultQuality;
+bool g_videoKeepParts = cfg::videoConfig().keepM4sParts;
 
 namespace {
 
@@ -224,6 +228,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             const TabItem kTabs[] = {
                 {tr("通用", "General"), "general", 0xF013, SettingsTab::General},
                 {tr("下载", "Download"), "download", 0xF0AC, SettingsTab::Download},
+                {tr("视频", "Video"), "video", 0xF03D, SettingsTab::Video},
                 {tr("BitTorrent", "BitTorrent"), "bittorrent", 0xF0E7, SettingsTab::BitTorrent},
                 {tr("ED2K", "ED2K"), "ed2k", 0xF0C0, SettingsTab::Ed2k},
                 {tr("网络", "Network"), "network", 0xF0D7, SettingsTab::Network},
@@ -564,6 +569,46 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 });
             }  // 下载 tab 结束
 
+            // ============== 视频 tab（解析 cookie / 默认画质 / 保留分片）==============
+            if (g_settingsTab == SettingsTab::Video) {
+                row("video.cookie", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "video.cookie", "SESSDATA", 0, fullW, g_videoCookieText,
+                          [](const std::string& v) { g_videoCookieText = v; },
+                          tr("bilibili Cookie 的 SESSDATA 值；空=匿名画质",
+                             "bilibili SESSDATA cookie; empty = anonymous quality"));
+                });
+                row("video.cookie.hint", 18.0f, [&](eui::Ui& r, float w) {
+                    components::text(r, "st.video.cookie.hint")
+                        .position(kLabelW, 0)
+                        .size(std::max(160.0f, w - 16.0f - kLabelW), 18.0f)
+                        .text(tr("获取：登录 bilibili → F12 → 应用 → Cookies → SESSDATA",
+                                 "How: log in to bilibili → F12 → Application → Cookies → SESSDATA"))
+                        .fontSize(10.0f)
+                        .lineHeight(18.0f)
+                        .color(theme.metaText)
+                        .build();
+                });
+                row("video.quality", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "video.quality", tr("默认画质", "Default quality"), 0, fullW,
+                          g_videoQualityText,
+                          [](const std::string& v) { g_videoQualityText = v; },
+                          tr("如 1080；空=自动选最高", "e.g. 1080; empty = best available"));
+                });
+                row("video.keep", kFieldH, [&](eui::Ui& r, float) {
+                    components::text(r, "st.video.keep.label")
+                        .position(0, 0)
+                        .size(kLabelW, kFieldH)
+                        .text(tr("保留音视频分片", "Keep .m4s parts"))
+                        .fontSize(11.0f)
+                        .lineHeight(kFieldH)
+                        .color(theme.metaText)
+                        .build();
+                    buildToggleSwitch(r, "st.video.keep.toggle", kLabelW, 3.0f,
+                                      36.0f, 20.0f, g_videoKeepParts, theme,
+                                      [](bool v) { g_videoKeepParts = v; });
+                });
+            }  // 视频 tab 结束
+
             // ============== 网络 tab（代理 / UA / Referer / 请求头 / Cookie）==============
             if (g_settingsTab == SettingsTab::Network) {
                 row("a.proxy", kFieldH, [&](eui::Ui& r, float) {
@@ -860,6 +905,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_ed2kListenPortText = d.ed2kListenPort;
             g_ed2kUdpPortText = d.ed2kUdpListenPort;
             g_ed2kUploadSlotsText = std::to_string(d.ed2kUploadSlots);
+            const cfg::VideoConfig vd;  // 视频配置回默认
+            g_videoCookieText = vd.bilibiliCookie;
+            g_videoQualityText = vd.defaultQuality;
+            g_videoKeepParts = vd.keepM4sParts;
             showStatus(tr("已恢复默认（点「保存」生效）", "Defaults restored (click Save to apply)"));
         })
         .build();
@@ -1031,6 +1080,15 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             // 下载路径：落盘（立即生效，不用重启 daemon）。
             cfg::setDownloadDir(g_downloadDirText);
 
+            // 视频解析配置：独立落盘（与 aria2 daemon 无关，保存即生效）。
+            cfg::VideoConfig vc;
+            vc.bilibiliCookie = trimText(g_videoCookieText);
+            vc.defaultQuality = trimText(g_videoQualityText);
+            vc.keepM4sParts = g_videoKeepParts;
+            cfg::setVideoConfig(vc);
+            g_videoCookieText = vc.bilibiliCookie;
+            g_videoQualityText = vc.defaultQuality;
+
             // 汇总提示：aria2 daemon 已启动时，参数保存后需重启才生效。
             if (trayChanged) {
                 showStatus(a2Changed && g_tasks.engineActive()
@@ -1092,6 +1150,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_ed2kListenPortText = a2.ed2kListenPort;
             g_ed2kUdpPortText = a2.ed2kUdpListenPort;
             g_ed2kUploadSlotsText = std::to_string(a2.ed2kUploadSlots);
+            const cfg::VideoConfig vc = cfg::videoConfig();
+            g_videoCookieText = vc.bilibiliCookie;
+            g_videoQualityText = vc.defaultQuality;
+            g_videoKeepParts = vc.keepM4sParts;
             showStatus(tr("已放弃更改", "Changes discarded"));
         })
         .build();

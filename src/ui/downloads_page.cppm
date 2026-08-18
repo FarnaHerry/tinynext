@@ -674,6 +674,13 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
 
                 // 复选框：是否同时删除源文件。默认勾选（移到回收站，可恢复）。
                 // checkbox builder 无定位，外包 stack 定位。
+                // eui 的 CheckboxStyle 把勾号 mark 硬编码成白色，而本应用深色主题的
+                // 主色是纯白 → 勾选后白勾落在白底上看不见（同滑动开关滑块那次）。按主题
+                // 反色 mark：深色用深勾、浅色用白勾（主色黑底）。
+                components::CheckboxStyle cbStyle(theme.components);
+                cbStyle.mark = theme.dark
+                    ? core::Color{0.05f, 0.05f, 0.06f, 1.0f}
+                    : core::Color{1.0f, 1.0f, 1.0f, 1.0f};
                 ui.stack("del.checkbox.wrap")
                     .position(16.0f, 54.0f)
                     .size(dlgW - 32.0f, 20.0f)
@@ -684,6 +691,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                             .text(tr("同时删除源文件", "Also delete source file"))
                             .fontSize(11.0f)
                             .theme(theme.components)
+                            .style(cbStyle)   // 覆盖 mark 颜色（其余同 theme）
                             .onChange([](bool v) { g_deleteIncludeFiles = v; })
                             .build();
                     })

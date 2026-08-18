@@ -29,6 +29,8 @@ import tinynext.download_engine;
 import tinynext.aria2_engine;
 import tinynext.i18n;   // tr / trf（终端输出按语言）
 import tinynext.utils;  // isDownloadableSource / fileNameFromUrl（纯 std，无 eui 依赖）
+import tinynext.video_resolver;  // --resolve 视频解析（yt-dlp）
+import tinynext.store.tasks;     // --video-dl 走 TaskStore（含 MergeTracker 合并编排）
 
 namespace headless {
 
@@ -99,6 +101,151 @@ export bool requested() {
     return cached;
 }
 
+// 命令行是否含 --resolve（视频解析脚本模式：只解析打印画质列表，不下载不开窗）。
+export bool resolveRequested() {
+    static const bool cached = [] {
+        for (const auto& a : commandLineArgs()) {
+            if (a == "--resolve") return true;
+        }
+        return false;
+    }();
+    return cached;
+}
+
+// 执行视频解析：`tinynext --resolve <视频页URL>` → 打印标题 + 各画质（含是否
+// DASH 需合并）。用设置里的 SESSDATA。返回 0 = 解析成功，1 = 失败。
+export int runResolve() {
+    std::string url;
+    for (const auto& a : commandLineArgs()) {
+        if (a == "--resolve") continue;
+        if (a.starts_with("http://") || a.starts_with("https://")) { url = a; break; }
+    }
+    if (url.empty()) {
+        std::cerr << "tinynext: "
+                  << tr("--resolve 需要一个视频页链接（http(s)）",
+                        "--resolve needs a video page URL (http(s))")
+                  << "\n";
+        return 1;
+    }
+    const video::ResolveResult r = video::resolveVideoUrl(url, cfg::videoConfig().bilibiliCookie);
+    if (!r.ok || !r.info.has_value()) {
+        std::cerr << "tinynext: "
+                  << trf("解析失败：{}", "Resolve failed: {}", r.error) << "\n";
+        return 1;
+    }
+    const video::VideoInfo& info = *r.info;
+    std::cout << tr("标题：", "Title: ") << info.title << "\n";
+    std::cout << trf("共 {} 个画质：", "{} qualities:", info.formats.size()) << "\n";
+    for (const auto& f : info.formats) {
+        std::cout << "  " << f.label << " · " << (f.ext.empty() ? "mp4" : f.ext);
+        if (f.filesizeApprox > 0) std::cout << " · ~" << formatBytes(f.filesizeApprox);
+        std::cout << (f.audioUrl.empty() ? tr("（合流，免合并）", " (combined, no merge)")
+                                         : tr("（DASH，需合并）", " (DASH, needs merge)"))
+                  << "\n";
+    }
+    return 0;
+}
+
+// 命令行是否含 --video-dl（视频下载脚本模式：解析 + 下载 + DASH 自动合并，不开窗）。
+export bool videoDlRequested() {
+    static const bool cached = [] {
+        for (const auto& a : commandLineArgs()) {
+            if (a == "--video-dl") return true;
+        }
+        return false;
+    }();
+    return cached;
+}
+
+// 执行视频下载：`tinynext --video-dl <视频页URL> [画质关键词]`。画质关键词按
+// label 子串匹配（如 "1080"），缺省用设置的默认画质、再缺省最高画质。全程走
+// g_tasks（TaskStore）：DASH 经 MergeTracker 聚合成一个任务并自动 ffmpeg 合并。
+// 返回 0 = 完成，1 = 解析/下载/合并失败。
+export int runVideoDownload() {
+    std::string url;
+    std::string quality;
+    for (const auto& a : commandLineArgs()) {
+        if (a == "--video-dl") continue;
+        if (a.starts_with("http://") || a.starts_with("https://")) { url = a; continue; }
+        if (!a.empty() && a.front() != '-' && quality.empty()) quality = a;
+    }
+    if (url.empty()) {
+        std::cerr << "tinynext: "
+                  << tr("--video-dl 需要一个视频页链接（http(s)）",
+                        "--video-dl needs a video page URL (http(s))")
+                  << "\n";
+        return 1;
+    }
+
+    const video::ResolveResult r = video::resolveVideoUrl(url, cfg::videoConfig().bilibiliCookie);
+    if (!r.ok || !r.info.has_value()) {
+        std::cerr << "tinynext: "
+                  << trf("解析失败：{}", "Resolve failed: {}", r.error) << "\n";
+        return 1;
+    }
+    const video::VideoInfo& info = *r.info;
+
+    // 选画质：命令行关键词 > 设置默认画质 > 最高（formats 已按高度降序）。
+    std::string want = quality.empty() ? cfg::videoConfig().defaultQuality : quality;
+    int pick = 0;
+    if (!want.empty()) {
+        for (int i = 0; i < static_cast<int>(info.formats.size()); ++i) {
+            if (info.formats[i].label.find(want) != std::string::npos) { pick = i; break; }
+        }
+    }
+    const video::VideoFormat& format = info.formats[pick];
+    std::cerr << "tinynext: " << tr("已解析：", "Resolved: ") << info.title << "\n"
+              << "tinynext: " << trf("画质：{}", "Quality: {}", format.label)
+              << (format.rangeBootstrap
+                      ? tr("（原生下载+合并）", " (native download+merge)")
+                      : format.audioUrl.empty()
+                        ? tr("（合流）", " (combined)")
+                        : tr("（DASH，下载后自动合并）", " (DASH, auto-merge)"))
+              << "\n";
+
+    // 走 TaskStore 完整链路（含 MergeTracker 的 DASH 编排与 ffmpeg 合并）。
+    g_tasks.warmup();
+    if (!g_tasks.engineActive()) {
+        std::cerr << "tinynext: "
+                  << trf("引擎启动失败：{}", "Engine start failed: {}", g_tasks.lastError())
+                  << "\n";
+        return 1;
+    }
+    const StartResult sr = g_tasks.startVideoDownload(info, format, dl::StartOptions{});
+    if (!sr.ok) {
+        std::cerr << "tinynext: " << sr.message << "\n";
+        g_tasks.shutdown();
+        return 1;
+    }
+    std::cerr << "tinynext: " << sr.message << "\n";
+
+    // 轮询到任务离开活动状态（Merging 也算活动：等 ffmpeg 合并完）。
+    for (;;) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        g_tasks.pollProgress();
+        g_tasks.pollVideoMerges();
+        const auto tasks = g_tasks.snapshot();
+        const dl::TaskView* t = nullptr;
+        for (const auto& v : tasks) {
+            if (v.id == sr.id) { t = &v; break; }
+        }
+        if (!t) continue;  // 会话恢复竞态下可能暂时缺帧，继续等
+        if (t->state == dl::State::Done) {
+            std::cerr << "tinynext: " << tr("[完成]", "[Done]") << " "
+                      << utf8FromPath(t->destPath) << "\n";
+            g_tasks.shutdown();
+            return 0;
+        }
+        if (t->state == dl::State::Failed || t->state == dl::State::Cancelled) {
+            std::cerr << "tinynext: " << tr("[失败]", "[Failed]") << " "
+                      << (t->error.empty() ? tr("未知错误", "Unknown error") : t->error)
+                      << "\n";
+            g_tasks.shutdown();
+            return 1;
+        }
+    }
+}
+
 // 执行 headless 下载：起 daemon → 逐个加入任务 → 轮询到全部结束 → shutdown。
 // 返回进程 exit code（0 = 全部成功，1 = 任一失败或引擎不可用）。
 export int run() {
@@ -123,7 +270,7 @@ export int run() {
 
     std::cerr << "tinynext: "
               << trf("开始下载 {} 个任务 → {}", "Starting {} download(s) → {}",
-                     urls.size(), dir.string())
+                     urls.size(), utf8FromPath(dir))
               << "\n";
 
     for (const auto& url : urls) {
@@ -138,7 +285,8 @@ export int run() {
             name = fileNameFromUrl(url);
         }
         if (name.empty()) name = "torrent";
-        const std::uint64_t id = engine.start(url, dir / name, opts);
+        // name 是 UTF-8（URL 文件名），path 拼接经 pathFromUtf8。
+        const std::uint64_t id = engine.start(url, dir / pathFromUtf8(name), opts);
         if (id == 0) {
             const std::string err = engine.lastError();
             std::cerr << "tinynext: "
@@ -172,15 +320,17 @@ export int run() {
     }
 
     // 汇总结果（打印到 stderr，脚本可 redirect；stdout 留给需要解析的调用方）。
+    // 路径经 utf8FromPath 打印（Windows 窄串会走 ANSI 代码页，中文路径乱码）。
     const auto tasks = engine.snapshot();
     for (const auto& t : tasks) {
+        const std::string p = utf8FromPath(t.destPath);
         if (t.state == dl::State::Done) {
-            std::cerr << "tinynext: " << tr("[完成]", "[Done]") << " " << t.destPath.string() << "\n";
+            std::cerr << "tinynext: " << tr("[完成]", "[Done]") << " " << p << "\n";
         } else if (t.state == dl::State::Failed) {
-            std::cerr << "tinynext: " << tr("[失败]", "[Failed]") << " " << t.destPath.string()
+            std::cerr << "tinynext: " << tr("[失败]", "[Failed]") << " " << p
                       << " — " << (t.error.empty() ? tr("未知错误", "Unknown error") : t.error) << "\n";
         } else if (t.state == dl::State::Cancelled) {
-            std::cerr << "tinynext: " << tr("[已取消]", "[Cancelled]") << " " << t.destPath.string() << "\n";
+            std::cerr << "tinynext: " << tr("[已取消]", "[Cancelled]") << " " << p << "\n";
         }
     }
 

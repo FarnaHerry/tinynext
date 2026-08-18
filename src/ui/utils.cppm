@@ -1,6 +1,11 @@
-// ui/utils.cppm — UI 布局常量（设计逻辑像素）+ 缩放系数 kUI。
+// ui/utils.cppm — UI 布局常量（设计逻辑像素）+ 缩放系数 kUI +
+// 精确文本截断（用 eui 真实字体度量）。
 // 纯 string/number 帮助函数已下移到 tinynext.utils（src/utils.cppm），这里
 // export import 转发，既有 UI 模块继续只 import tinynext.ui.utils 即可。
+module;
+
+#include "eui_ui.h"   // core::TextPrimitive::measureTextWidth（真实字体测宽，截断精确）
+
 export module tinynext.ui.utils;
 
 import std;
@@ -31,3 +36,63 @@ export constexpr float kIslandGap = 2.0f;
 export constexpr float kIslandVInset = 6.0f;   // 岛卡距窗口上/下的空隙（卡片感）
 export constexpr float kPanelPad = 10.0f;
 export constexpr float kIslandRadius = 10.0f;
+
+namespace {
+// s 里的码点数（UTF-8）。
+std::size_t utf8CodepointCount(const std::string& s) {
+    std::size_t n = 0;
+    for (std::size_t i = 0; i < s.size();) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        int seq = 1;
+        if ((c & 0x80) == 0) seq = 1;
+        else if ((c & 0xE0) == 0xC0) seq = 2;
+        else if ((c & 0xF0) == 0xE0) seq = 3;
+        else if ((c & 0xF8) == 0xF0) seq = 4;
+        i += seq;
+        ++n;
+    }
+    return n;
+}
+// 取前 k 个码点（不切断多字节字符）。
+std::string takeCodepoints(const std::string& s, std::size_t k) {
+    std::size_t byteOff = 0, count = 0;
+    while (byteOff < s.size() && count < k) {
+        const unsigned char c = static_cast<unsigned char>(s[byteOff]);
+        int seq = 1;
+        if ((c & 0x80) == 0) seq = 1;
+        else if ((c & 0xE0) == 0xC0) seq = 2;
+        else if ((c & 0xF0) == 0xE0) seq = 3;
+        else if ((c & 0xF8) == 0xF0) seq = 4;
+        byteOff += seq;
+        ++count;
+    }
+    return s.substr(0, byteOff);
+}
+} // namespace
+
+// ---- 精确单行截断 ----
+// 用 eui 的真实字体度量（core::TextPrimitive::measureTextWidth）算宽，超出可用宽度
+// 就截断并补省略号 "…"。相比按字号比例猜宽，交给字体自身度量 → 与渲染完全一致，
+// 不存在估算偏差（中英混排也正确）。fontFamily/fontWeight 与文本一致（默认应用字体）。
+// 返回完整字符串当放得下，否则截断。
+export std::string ellipsizeText(const std::string& s, float widthPx, float fontSize,
+                                 const std::string& fontFamily = {}, int fontWeight = 400) {
+    if (s.empty() || widthPx <= 0.0f) return s;
+    const float fullW = core::TextPrimitive::measureTextWidth(s, fontFamily, fontSize, fontWeight);
+    if (fullW <= widthPx) return s;
+    const float dotW = core::TextPrimitive::measureTextWidth("…", fontFamily, fontSize, fontWeight);
+    const std::size_t total = utf8CodepointCount(s);
+
+    // 二分：在 [0, total] 里找最大的 k，使得 前 k 个码点 + "…" 的宽 ≤ widthPx。
+    auto widthOf = [&](std::size_t k) {
+        return core::TextPrimitive::measureTextWidth(takeCodepoints(s, k), fontFamily, fontSize, fontWeight);
+    };
+    std::size_t lo = 0, hi = total;
+    while (lo < hi) {
+        const std::size_t mid = lo + (hi - lo + 1) / 2;
+        if (widthOf(mid) + dotW <= widthPx) lo = mid;
+        else hi = mid - 1;
+    }
+    // lo 个码点放得下；若连 1 个都放不下，只留省略号。
+    return lo == 0 ? "…" : takeCodepoints(s, lo) + "…";
+}

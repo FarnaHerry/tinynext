@@ -16,6 +16,7 @@ export enum class State {
     Done,
     Failed,
     Cancelled,
+    Merging,   // 视频音视频流已下完，ffmpeg 合并中（视频下载合成任务的中间态）
 };
 
 // 镜像任务的一个源（aria2 files[0].uris 的去重后结果）。
@@ -57,6 +58,7 @@ export struct TaskView {
     std::string displayName;      // 真实显示名（BT/磁力用种子的 info.name；HTTP 不用，取 destPath 文件名）
     int mirrorCount = 0;          // 配置的镜像源数（除主 URL 外的源数；0 = 单源）
     std::vector<MirrorSource> mirrors;  // 实时源列表（去重，含主 URL 与运行时 changeUri 增删）
+    bool fromSession = false;           // 从上次会话恢复的历史任务：不触发「完成/失败」通知
 };
 
 // Per-task start options. connections == 0 means "use the engine default from
@@ -69,6 +71,11 @@ export struct StartOptions {
     std::filesystem::path torrentPath;    // 本地 .torrent 文件；空 = 普通 URL 下载
     std::vector<std::string> mirrors;     // 镜像源（同一任务多源）；空 = 单 URL
     // 限速不在这里：每任务单独限速已移除（无意义），统一走配置的 maxDownloadLimit。
+    // 每任务 HTTP 头（视频解析等 CDN 受限源用，如 bilibili 强制 Referer 否则 403）。
+    // 全部可空；空则不加对应 aria2 选项，行为与之前完全一致（向后兼容）。
+    std::vector<std::string> headers;     // 原始 "Key: Value" 行（如 Cookie）
+    std::string userAgent;                // 覆盖 daemon 级 UA（仅本任务）
+    std::string referer;                  // 覆盖 daemon 级 Referer（仅本任务）
 };
 
 // Abstract download engine contract. Implementations are owned by the app

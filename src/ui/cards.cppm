@@ -21,6 +21,7 @@ export eui::Color stateColor(dl::State state) {
     const AppTheme& theme = currentTheme();
     switch (state) {
         case dl::State::Downloading: return theme.downloading;
+        case dl::State::Merging:     return theme.downloading;
         case dl::State::Paused:      return theme.paused;
         case dl::State::Done:        return theme.done;
         case dl::State::Failed:      return theme.failed;
@@ -35,6 +36,7 @@ export std::string stateLabel(dl::State state) {
     switch (state) {
         case dl::State::Queued:      return tr("等待中", "Queued");
         case dl::State::Downloading: return tr("下载中", "Downloading");
+        case dl::State::Merging:     return tr("合并中", "Merging");
         case dl::State::Paused:      return tr("已暂停", "Paused");
         case dl::State::Done:        return tr("已完成", "Done");
         case dl::State::Cancelled:   return tr("已取消", "Cancelled");
@@ -47,6 +49,7 @@ export std::string stateLabel(dl::State state) {
 export std::string cardInfoText(const dl::TaskView& task) {
     switch (task.state) {
         case dl::State::Queued: return tr("等待队列中", "Waiting in queue");
+        case dl::State::Merging: return tr("音视频合并中…", "Merging audio/video…");
         case dl::State::Paused: return tr("已暂停", "Paused");
         case dl::State::Cancelled: return tr("已取消", "Cancelled");
         case dl::State::Done:
@@ -164,15 +167,16 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                             : core::Color{0.10f, 0.14f, 0.22f, 0.08f})
                 .build();
 
-            // ---- 第 1 行：文件名 + 状态 ----
+            // ---- 第 1 行：文件名 + 状态 ----（文件名超长用省略号截断成单行）
             const float stateW = 46.0f;
+            const float nameW = inner - stateW - 6.0f;
             components::text(ui, fid + ".name")
                 .position(kCardPad, 9.0f)
-                .size(inner - stateW - 6.0f, 15.0f)
-                .text(taskDisplayName(task))
+                .size(nameW, 15.0f)
+                .text(ellipsizeText(taskDisplayName(task), nameW, 13.0f))
                 .fontSize(13.0f)
                 .lineHeight(15.0f)
-                .maxWidth(inner - stateW - 6.0f)
+                .maxWidth(nameW)
                 .color(theme.nameText)
                 .build();
             components::text(ui, fid + ".state")

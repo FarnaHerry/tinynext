@@ -36,6 +36,10 @@ mkdir -p "$dist/engines"
 cp "$build_bin/tinynext" "$dist/tinynext"
 chmod +x "$dist/tinynext"
 cp -r "$root/assets" "$dist/assets"
+# 第三方二进制（aria2-next / yt-dlp / ffmpeg）的许可与来源声明，随包带到根目录。
+if [ -f "$root/THIRD-PARTY-NOTICES.md" ]; then
+    cp "$root/THIRD-PARTY-NOTICES.md" "$dist/THIRD-PARTY-NOTICES.md"
+fi
 
 if [ -x "$root/engines/aria2-next" ]; then
     cp "$root/engines/aria2-next" "$dist/engines/aria2-next"
