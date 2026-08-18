@@ -329,7 +329,10 @@ jobs:
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.name }}
+          # 用 pkg- 前缀：release job 只下载 pkg-* 的安装包，避免混入 build-*/
+          # trimmed-ffmpeg-* 的中间产物（target/、engines/ 里的 aria2/yt-dlp/ffmpeg
+          # 等裸二进制）。
+          name: pkg-${{ matrix.name }}
           path: ${{ matrix.pkg_glob }}
           if-no-files-found: error
 
@@ -343,10 +346,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Download artifacts
+      - name: Download installers
         uses: actions/download-artifact@v8
         with:
           path: artifacts
+          # 只拿 package job 上传的 pkg-* 安装包，过滤 build-*/trimmed-ffmpeg-*
+          # 的中间产物，避免 release 混进裸二进制（mac/linux/win 各自区分）。
+          pattern: 'pkg-*'
           merge-multiple: true
 
       - name: Publish Release
