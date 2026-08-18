@@ -785,23 +785,56 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
     const float labelW = 64.0f;      // 字段名
     const float rowH = 18.0f;
 
-    // 估算换行后的行数（eui 12px 下每个中英文混排字符 ≈ 8px，按最坏 8px 估），
-    // 决定弹窗高度。long 文本（URL/报错）允许换行而非截断。
-    auto wrapLines = [&](const std::string& s) {
+    // 弹窗显示的串先做安全化：eui 文本整形对 NUL/控制字符/非法 UTF-8 可能栈溢出
+    // （failed 视频任务的报错/URL 可能含脏字节）。按码点清洗 + 截到 cap 码点
+    // （超出加省略号），保证交给 eui 的总是干净、有界、合法 UTF-8。
+    auto sanitizeForDisplay = [](const std::string& s, size_t cap) {
+        std::string out;
+        out.reserve(std::min(s.size(), cap * 4u + 4u));
+        size_t codepoints = 0, i = 0;
         const size_t n = s.size();
-        const size_t perLine = n > 0 ? (size_t)(contentW / 8.0f) : 1;
-        const size_t lines = (n + perLine - 1) / perLine;
-        return std::clamp(lines, (size_t)1, (size_t)8);
+        while (i < n) {
+            const unsigned char c = (unsigned char)s[i];
+            // C0 控制（含 NUL）+ DEL：替换成空格，不计数。
+            if (c < 0x20 || c == 0x7f) { out += ' '; ++i; continue; }
+            // 解 UTF-8 序列长度并校验延后字节。
+            size_t len = 1; unsigned cp = 0;
+            if (c < 0x80) { len = 1; cp = c; }
+            else if ((c & 0xE0) == 0xC0) { len = 2; cp = (unsigned)c & 0x1F; }
+            else if ((c & 0xF0) == 0xE0) { len = 3; cp = (unsigned)c & 0x0F; }
+            else if ((c & 0xF8) == 0xF0) { len = 4; cp = (unsigned)c & 0x07; }
+            else { out += ' '; ++i; continue; }                    // 非法首字节
+            if (i + len > n) { out += ' '; break; }                // 截断的序列
+            bool ok = true;
+            for (size_t k = 1; k < len; ++k) {
+                const unsigned char cc = (unsigned char)s[i + k];
+                if ((cc & 0xC0) != 0x80) { ok = false; break; }
+                cp = (cp << 6) | (cc & 0x3F);
+            }
+            if (!ok || cp == 0 || cp > 0x10FFFF) { out += ' '; i += len; continue; }
+            if (codepoints >= cap) { out += "…"; break; }
+            out.append(s, i, len);
+            ++codepoints; i += len;
+        }
+        return out;
+    };
+    // 估算 .wrap(true) 后最多几行（11px 下按最坏 7px/字符近似；封顶 6 行）。
+    auto wrapLines = [&](const std::string& s, float boxW) {
+        const size_t perLine = s.empty() ? 1 : (size_t)std::max(1.0f, boxW / 7.0f);
+        return std::clamp((s.size() + perLine - 1) / perLine, (size_t)1, (size_t)6);
     };
 
-    const std::string urlText = task.url;
-    const std::string errText = task.error;
+    // 单段封顶 6 行：~300px 字段宽 / 7px ≈ 42 码点每行 → 6 行 ≈ 250 码点。
+    const std::string urlText = sanitizeForDisplay(task.url, 250);
+    const std::string errText = sanitizeForDisplay(task.error, 250);
     const bool hasErr = !errText.empty();
+    const float urlBoxW = contentW - labelW;
+    const float errBoxW = contentW - labelW;
 
-    // 行数 = 标签行 + 名称 + URL + 状态/大小 + 路径(+错误块)。
-    // 每段高度：1 行 → rowH，多行 → 该段行数 × rowH（给足但封顶）。
-    const float urlH = wrapLines(urlText) * rowH;
-    const float errH = hasErr ? wrapLines(errText) * rowH : 0.0f;
+    // 行数 = 标签行 + 名称 + URL + 状态/进度 + 路径 + 错误(可无)。多行高度按
+    // 换行后行数给足（封顶 6 行），eui 不裁切、只可能略高于估算。
+    const float urlH = wrapLines(urlText, urlBoxW) * rowH;
+    const float errH = hasErr ? wrapLines(errText, errBoxW) * rowH : 0.0f;
     // 垂直堆叠：标题 + 名称 + URL + 状态行 + 路径 + 错误(可无) + 按钮。
     const float titleY = 12.0f;
     const float nameY = titleY + 22.0f;
@@ -809,9 +842,9 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
     const float statY = urlY + urlH + 4.0f;
     const float sizeY = statY + rowH;
     const float pathY = sizeY + rowH;
-    const float errY = pathY + rowH;
-    const float btnY = errY + errH + 8.0f;
-    const float dlgH = btnY + 34.0f;
+    const float errY = pathY;
+    const float btnY = errY + errH + 10.0f;
+    const float dlgH = btnY + 36.0f;
 
     const float dlgX = (screen.width - dlgW) * 0.5f;
     const float dlgY = (screen.height - dlgH) * 0.5f;
@@ -875,6 +908,7 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
                 .fontSize(11.0f)
                 .lineHeight(rowH)
                 .maxWidth(contentW - labelW)
+                .wrap(true)
                 .color(theme.metaText)
                 .build();
 
@@ -891,7 +925,8 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
 
             // 保存路径（可换行）。大小/进度已在上方状态行（cardInfoText）展示。
             const std::string pathText = task.destPath.empty()
-                ? std::string(tr("（未知）", "(unknown)")) : task.destPath.string();
+                ? std::string(tr("（未知）", "(unknown)"))
+                : sanitizeForDisplay(task.destPath.string(), 200);
             components::text(ui, "info.path.label")
                 .position(pad, sizeY)
                 .size(labelW, rowH)
@@ -907,6 +942,7 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
                 .fontSize(11.0f)
                 .lineHeight(rowH)
                 .maxWidth(contentW - labelW)
+                .wrap(true)
                 .color(theme.metaText)
                 .build();
 
@@ -927,6 +963,7 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
                     .fontSize(11.0f)
                     .lineHeight(rowH)
                     .maxWidth(contentW - labelW)
+                    .wrap(true)
                     .color(theme.failed)
                     .build();
             }
