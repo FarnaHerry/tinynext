@@ -67,10 +67,18 @@ fi
 ./configure "${common[@]}" "${extra[@]}"
 
 # 并行编译只出 ffmpeg 程序（avcodec/avformat 等 lib 作为依赖自动编，-j 并行）。
-# 并行编译。ffmpeg 的 Makefile 无独立 `ffmpeg` target（主目标是 `all`，经
-# PROGS 生成 `ffmpeg`/`ffmpeg_g`），直接给 target 名会报 "No rule"，所以用默认
-# all 目标（--disable-programs 后 `all` 只编唯一启用的 ffmpeg 程序）。
-make -j"$(nproc)"
+# 并行编译（跨平台并行数）：nproc 只有 Linux 有，macOS 用 sysctl，msys2 下取
+# NUMBER_OF_PROCESSORS 环境变量。ffmpeg 的 Makefile 无独立 `ffmpeg` target（主
+# 目标是 `all`，经 PROGS 生成 `ffmpeg`/`ffmpeg_g`），直接给 target 名会报
+# "No rule"，所以用默认 all 目标（--disable-programs 后只编 ffmpeg 程序）。
+if [ "$(uname)" = "Darwin" ]; then
+    njobs="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+elif [ -n "${NUMBER_OF_PROCESSORS:-}" ]; then
+    njobs="$NUMBER_OF_PROCESSORS"   # Windows/msys2
+else
+    njobs="$(nproc 2>/dev/null || echo 4)"
+fi
+make -j"$njobs"
 
 # 产物拷到 actions 期望的位置。mingw/msys 下程序名带 .exe，unix 无后缀。
 mkdir -p "$GITHUB_WORKSPACE/engines"
