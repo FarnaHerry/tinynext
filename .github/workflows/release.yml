@@ -271,7 +271,7 @@ jobs:
           (cd engines && sha256sum -c checksums.sha256 --ignore-missing) || {
             echo "aria2-next checksum mismatch — aborting" >&2; exit 1; }
           mv "engines/${{ matrix.engine_asset }}" "${{ matrix.engine_file }}"
-          chmod +x "engines/${{ matrix.engine_file }}"
+          chmod +x "${{ matrix.engine_file }}"
 
       - name: Fetch yt-dlp engine
         shell: bash
