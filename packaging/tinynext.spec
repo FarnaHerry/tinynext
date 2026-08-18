@@ -34,6 +34,12 @@ chmod +x %{buildroot}/opt/tinynext/tinynext
 if [ -x %{buildroot}/opt/tinynext/engines/aria2-next ]; then
     chmod +x %{buildroot}/opt/tinynext/engines/aria2-next
 fi
+# 视频依赖同样给执行位（make-dist.sh 已在 dist 里 +x，这里兜底）。
+for name in yt-dlp ffmpeg; do
+    if [ -x %{buildroot}/opt/tinynext/engines/$name ]; then
+        chmod +x %{buildroot}/opt/tinynext/engines/$name
+    fi
+done
 
 cat > %{buildroot}/usr/bin/tinynext <<'EOF'
 #!/bin/sh

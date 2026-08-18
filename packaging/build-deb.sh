@@ -44,6 +44,12 @@ chmod +x "$work/opt/tinynext/tinynext"
 if [ -x "$work/opt/tinynext/engines/aria2-next" ]; then
     chmod +x "$work/opt/tinynext/engines/aria2-next"
 fi
+# 视频依赖同样给执行位（make-dist.sh 已在 dist 里 +x，这里兜底）。
+for name in yt-dlp ffmpeg; do
+    if [ -x "$work/opt/tinynext/engines/$name" ]; then
+        chmod +x "$work/opt/tinynext/engines/$name"
+    fi
+done
 
 # ---- launcher (先 cd 到安装目录：ld.so 拉起时 /proc/self/exe 指向 loader，eui 靠
 #      CWD 的 assets/ 解析字体/图标；配置读写走 XDG，不受 CWD 影响) ----

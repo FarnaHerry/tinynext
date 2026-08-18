@@ -42,18 +42,24 @@ jobs:
             os: windows-latest
             engine_asset: aria2-next-2.5.5-windows-x86_64.exe
             engine_file: engines/aria2-next.exe
+            ytdlp_asset: yt-dlp.exe
+            ytdlp_file: engines/yt-dlp.exe
             pkg_cmd: powershell -NoProfile -ExecutionPolicy Bypass -File packaging/make-win-pkg.ps1
             pkg_glob: tinynext-v*
           - name: linux-x64
             os: ubuntu-latest
             engine_asset: aria2-next-2.5.5-linux-x86_64
             engine_file: engines/aria2-next
+            ytdlp_asset: yt-dlp_linux
+            ytdlp_file: engines/yt-dlp
             pkg_cmd: bash packaging/make-linux-pkg.sh
             pkg_glob: tinynext-v*
           - name: macos-arm64
             os: macos-latest
             engine_asset: aria2-next-2.5.5-macos-arm64
             engine_file: engines/aria2-next
+            ytdlp_asset: yt-dlp_macos
+            ytdlp_file: engines/yt-dlp
             pkg_cmd: bash make-dist.sh macos arm64
             pkg_glob: tinynext-v*.tar.gz
 
@@ -139,6 +145,48 @@ jobs:
           mv "engines/${{ matrix.engine_asset }}" "${{ matrix.engine_file }}"
           chmod +x "${{ matrix.engine_file }}"
 
+      - name: Fetch yt-dlp + ffmpeg engines (video parse/merge)
+        # 视频功能的两份新依赖：yt-dlp（解析 + YouTube 原生下载）与 ffmpeg（DASH 合并）。
+        # 均取滚动 latest、不做 checksum 校验（更新频繁，运行时完整性校验只对 aria2 做；
+        # 缺失仅影响视频功能）。ffmpeg 按平台来源：Win = gyan.dev（GPL essentials）、
+        # Linux = BtbN GitHub builds（GPL，比 johnvansickle 稳定）、macOS = evermeet.cx。
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p engines
+          # yt-dlp：官方 latest release（滚动更新，不做 checksum——见上方注释）。
+          curl -fL --retry 3 -o "${{ matrix.ytdlp_asset }}" \
+            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${{ matrix.ytdlp_asset }}"
+          chmod +x "${{ matrix.ytdlp_asset }}"
+          mv "${{ matrix.ytdlp_asset }}" "${{ matrix.ytdlp_file }}"
+          # ffmpeg：解压用仓库内相对路径（Windows Git Bash 对 $RUNNER_TEMP 的 msys/
+          # native 路径转换不可靠），用后即删暂存。
+          mkdir -p ffmpeg-stage
+          case "${{ runner.os }}" in
+            Windows)
+              curl -fL --retry 3 -o ffmpeg.zip \
+                "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+              unzip -q -o ffmpeg.zip -d ffmpeg-stage
+              mv ffmpeg-stage/*/bin/ffmpeg.exe engines/ffmpeg.exe
+              ;;
+            Linux)
+              curl -fL --retry 3 -o ffmpeg.tar.xz \
+                "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-linux64-gpl.tar.xz"
+              tar -xJf ffmpeg.tar.xz -C ffmpeg-stage
+              mv ffmpeg-stage/*/bin/ffmpeg engines/ffmpeg
+              chmod +x engines/ffmpeg
+              ;;
+            macOS)
+              curl -fL --retry 3 -o ffmpeg.zip \
+                "https://evermeet.cx/ffmpeg/getrelease/zip"
+              unzip -q -o ffmpeg.zip -d ffmpeg-stage
+              mv ffmpeg-stage/ffmpeg engines/ffmpeg
+              chmod +x engines/ffmpeg
+              ;;
+          esac
+          rm -rf ffmpeg.zip ffmpeg.tar.xz ffmpeg-stage
+          ls -la engines/
+
       - name: Package
         shell: bash
         run: ${{ matrix.pkg_cmd }}
@@ -188,6 +236,7 @@ jobs:
             - **Linux x64**: `tinynext-v*-linux-x86_64.tar.gz`（内含 `run.sh` 启动脚本）
             - **macOS Apple Silicon**: `tinynext-v*-macos-arm64.tar.gz`（暂未做 dmg）
 
-            下载引擎 `aria2-next`（分片多连接、断点续传、磁力/BT，已随包附带）。
+            下载引擎 `aria2-next`（分片多连接、断点续传、磁力/BT）与视频依赖
+            `yt-dlp` + `ffmpeg`（视频解析 / DASH 合并）均已随包附带。
             设置页可修改下载路径、主题与 aria2 参数（并发/代理/重试/限速等）。
           files: artifacts/*
