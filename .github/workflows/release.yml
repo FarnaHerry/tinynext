@@ -109,28 +109,10 @@ jobs:
         include:
           - name: win64
             os: windows-latest
-            engine_asset: aria2-next-2.5.5-windows-x86_64.exe
-            engine_file: engines/aria2-next.exe
-            ytdlp_asset: yt-dlp.exe
-            ytdlp_file: engines/yt-dlp.exe
-            pkg_cmd: powershell -NoProfile -ExecutionPolicy Bypass -File packaging/make-win-pkg.ps1
-            pkg_glob: tinynext-v*
           - name: linux-x64
             os: ubuntu-latest
-            engine_asset: aria2-next-2.5.5-linux-x86_64
-            engine_file: engines/aria2-next
-            ytdlp_asset: yt-dlp_linux
-            ytdlp_file: engines/yt-dlp
-            pkg_cmd: bash packaging/make-linux-pkg.sh
-            pkg_glob: tinynext-v*
           - name: macos-arm64
             os: macos-latest
-            engine_asset: aria2-next-2.5.5-macos-arm64
-            engine_file: engines/aria2-next
-            ytdlp_asset: yt-dlp_macos
-            ytdlp_file: engines/yt-dlp
-            pkg_cmd: bash make-dist.sh macos arm64
-            pkg_glob: tinynext-v*.tar.gz
 
     steps:
       - uses: actions/checkout@v7
@@ -198,48 +180,36 @@ jobs:
       - name: Build release
         run: mcpp build --release
 
-      - name: Fetch aria2-next engine (checksum-verified)
-        shell: bash
-        run: |
-          mkdir -p engines
-          curl -fL -o "engines/${{ matrix.engine_asset }}" \
-            "https://github.com/AnInsomniacy/aria2-next/releases/download/v2.5.5/${{ matrix.engine_asset }}"
-          # 防御性去掉 CR：Windows runner 检出 checksums.sha256 可能带 \r，
-          # 导致 sha256sum 把文件名当成带 \r 而匹配不到（".gitattributes" 已强制
-          # LF，这里再兜底一层；tr 跨 BSD/GNU 通用）。
-          tr -d '\r' < engines/checksums.sha256 > engines/checksums.tmp
-          mv engines/checksums.tmp engines/checksums.sha256
-          (cd engines && sha256sum -c checksums.sha256 --ignore-missing) || {
-            echo "aria2-next checksum mismatch — aborting" >&2; exit 1; }
-          mv "engines/${{ matrix.engine_asset }}" "${{ matrix.engine_file }}"
-          chmod +x "${{ matrix.engine_file }}"
-
-      - name: Fetch yt-dlp engine (video parse / YouTube native)
-        # yt-dlp 是 PyInstaller 单文件（~18MB，无法裁剪），保持官方 latest。
+      - name: Stage compiled exe (locate via latest target, in-job reliable)
         shell: bash
         run: |
           set -euo pipefail
-          curl -fL --retry 3 -o "${{ matrix.ytdlp_asset }}" \
-            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${{ matrix.ytdlp_asset }}"
-          chmod +x "${{ matrix.ytdlp_asset }}"
-          mv "${{ matrix.ytdlp_asset }}" "${{ matrix.ytdlp_file }}"
-          ls -la engines/
+          bin="$(ls -dt target/*/*/bin | head -1)"
+          src="$(find "$bin" -maxdepth 1 -name 'tinynext*' -type f | head -1)"
+          [ -n "$src" ] || { echo "compiled binary not found in $bin" >&2; exit 1; }
+          mkdir -p dist-src
+          # 保留平台扩展名：Windows 拷贝为 tinynext.exe（ci-package.ps1 期望），
+          # unix 拷贝为 tinynext。
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp "$src" dist-src/tinynext.exe
+          else
+            cp "$src" dist-src/tinynext
+          fi
+          ls -lh dist-src/
 
-      - name: Upload build artifact (compiled binary + engines)
-        # 给 package job 用：编译好的主程序（target/）+ aria2/yt-dlp（engines/）。
-        # package job 再从 trim-ffmpeg job 拉瘦身 ffmpeg，三方凑齐才打包。
+      - name: Upload compiled exe
         uses: actions/upload-artifact@v7
         with:
+          # 只传编译好的主程序 exe（不再传易错的整个 target/ 多 hash 目录，
+          # 也不在 build 阶段 fetch engines——引擎由 package job 统一就位）。
           name: build-${{ matrix.name }}
-          path: |
-            target/
-            engines/
+          path: dist-src/
           if-no-files-found: error
 
-  # —— package：等 build（主程序）与 trim-ffmpeg（ffmpeg）都就绪后统一打包 ----
+  # —— package：等 build（主程序 exe）与 trim-ffmpeg（ffmpeg）都就绪后统一打包 ----
   # build 和 trim-ffmpeg 并行跑，package 串在两者之后：总时长 ≈ max(build≈2min,
-  # ffmpeg≈10min) + 打包≈3min；build 编译错误能提前 ~8min 浮现（build ~2min 就完，
-  # 不必等 ffmpeg）。
+  # ffmpeg≈10min) + 打包≈3min。编译只在 build job 发生一次；本 job 用专门的
+  # ci-package 脚本（no-compile）组装，不重复编译、不遍历易错的 target/。
   package:
     name: package-${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -250,18 +220,39 @@ jobs:
         include:
           - name: win64
             os: windows-latest
-            pkg_cmd: powershell -NoProfile -ExecutionPolicy Bypass -File packaging/make-win-pkg.ps1
+            os_id: win
+            arch: win64
+            engine_asset: aria2-next-2.5.5-windows-x86_64.exe
+            engine_file: engines/aria2-next.exe
+            ytdlp_asset: yt-dlp.exe
+            ytdlp_file: engines/yt-dlp.exe
             pkg_glob: tinynext-v*
           - name: linux-x64
             os: ubuntu-latest
-            pkg_cmd: bash packaging/make-linux-pkg.sh
+            os_id: linux
+            arch: x86_64
+            engine_asset: aria2-next-2.5.5-linux-x86_64
+            engine_file: engines/aria2-next
+            ytdlp_asset: yt-dlp_linux
+            ytdlp_file: engines/yt-dlp
             pkg_glob: tinynext-v*
           - name: macos-arm64
             os: macos-latest
-            pkg_cmd: bash make-dist.sh macos arm64
+            os_id: macos
+            arch: arm64
+            engine_asset: aria2-next-2.5.5-macos-arm64
+            engine_file: engines/aria2-next
+            ytdlp_asset: yt-dlp_macos
+            ytdlp_file: engines/yt-dlp
             pkg_glob: tinynext-v*.tar.gz
     steps:
       - uses: actions/checkout@v7
+
+      - name: Download compiled exe (from build job)
+        uses: actions/download-artifact@v8
+        with:
+          name: build-${{ matrix.name }}
+          path: dist-src
 
       - name: Download trimmed ffmpeg
         uses: actions/download-artifact@v8
@@ -269,36 +260,34 @@ jobs:
           name: trimmed-ffmpeg-${{ matrix.name }}
           path: engines
 
+      - name: Fetch aria2-next engine (checksum-verified)
+        shell: bash
+        run: |
+          mkdir -p engines
+          curl -fL -o "engines/${{ matrix.engine_asset }}" \
+            "https://github.com/AnInsomniacy/aria2-next/releases/download/v2.5.5/${{ matrix.engine_asset }}"
+          tr -d '\r' < engines/checksums.sha256 > engines/checksums.tmp
+          mv engines/checksums.tmp engines/checksums.sha256
+          (cd engines && sha256sum -c checksums.sha256 --ignore-missing) || {
+            echo "aria2-next checksum mismatch — aborting" >&2; exit 1; }
+          mv "engines/${{ matrix.engine_asset }}" "${{ matrix.engine_file }}"
+          chmod +x "engines/${{ matrix.engine_file }}"
+
+      - name: Fetch yt-dlp engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 -o "${{ matrix.ytdlp_asset }}" \
+            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${{ matrix.ytdlp_asset }}"
+          chmod +x "${{ matrix.ytdlp_asset }}"
+          mv "${{ matrix.ytdlp_asset }}" "${{ matrix.ytdlp_file }}"
+
       - name: Make ffmpeg executable (unix)
         if: runner.os != 'Windows'
         shell: bash
         run: chmod +x engines/ffmpeg
 
-      - name: Download compiled app + engines (from build job)
-        uses: actions/download-artifact@v8
-        with:
-          name: build-${{ matrix.name }}
-          path: .
-
-      # Package step 需要 mcpp（pkg 脚本内部会重跑 mcpp build --release，见
-      # make-dist.ps1 / make-dist.sh）+ NSIS（win）/ rpm（linux）。
-      - name: Install mcpp (Linux / macOS)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          curl -fsSL https://github.com/mcpp-community/mcpp/releases/latest/download/install.sh | bash
-          echo "$HOME/.mcpp/bin" >> "$GITHUB_PATH"
-
-      - name: Install mcpp (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          irm https://d2learn.org/xlings-install.ps1.txt | iex
-          & "$env:USERPROFILE\.xlings\bin\xlings.exe" update
-          & "$env:USERPROFILE\.xlings\bin\xlings.exe" install mcpp@2026.8.16.1 -y
-          "$env:USERPROFILE\.xlings\subos\default\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-
-      - name: Install NSIS (Windows packaging)
+      - name: Install NSIS (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -315,23 +304,39 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y rpm
 
-      # make-dist.sh / make-linux-pkg.sh 假定 target/<triple>/<hash>/bin/tinynext
-      # 已存在（从 build artifact 下载的 target/ 层级可能在 make-dist.sh 的
-      # `ls -dt target/*/*/bin` 匹配不到），所以打包前显式重编一次保证产物就位。
-      # make-win-pkg.ps1 内部本来就会 mcpp build；这一步对三平台都无害（走缓存秒过）。
-      - name: Build release (ensure target/ for packaging)
-        run: mcpp build --release
-
-      - name: Package
+      # —— 打包（no-compile）：用 ci-package 脚本从已就位 exe + engines 组装，不重复编译 ----
+      - name: Package tar.gz + stage dist (unix)
+        if: runner.os != 'Windows'
         shell: bash
-        run: ${{ matrix.pkg_cmd }}
+        run: |
+          bash packaging/ci-package.sh "${{ matrix.os_id }}" "${{ matrix.arch }}" dist-src/tinynext
+
+      - name: Build .deb / .rpm (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          version="$(grep -m1 '^version' mcpp.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+          bash packaging/build-deb.sh "$version"
+          bash packaging/build-rpm.sh "$version"
+
+      - name: Package zip + NSIS setup (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # ci-package.ps1：从已就位 exe + engines 组装 dist\ + tinynext-v*-win64.zip
+          # （不编译、不读 target/.build_cache）。
+          & "packaging/ci-package.ps1" "dist-src/tinynext.exe"
+          $versionLine = Get-Content mcpp.toml | Where-Object { $_ -match '^\s*version\s*=\s*"' } | Select-Object -First 1
+          $version = $versionLine -replace '^\s*version\s*=\s*"([^"]+)".*', '$1'
+          # NSIS 安装包：tinynext.nsi 用 ..\dist\*（相对 packaging/），从仓库根跑 makensis。
+          makensis "/DAPP_VERSION=$version" "$env:GITHUB_WORKSPACE\packaging\tinynext.nsi"
+          Get-ChildItem "$env:GITHUB_WORKSPACE\tinynext-v$version-win64*" | Select-Object Name,Length
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v7
         with:
           # 用 pkg- 前缀：release job 只下载 pkg-* 的安装包，避免混入 build-*/
-          # trimmed-ffmpeg-* 的中间产物（target/、engines/ 里的 aria2/yt-dlp/ffmpeg
-          # 等裸二进制）。
+          # trimmed-ffmpeg-* 的中间产物（exe、engines/ 裸二进制）。
           name: pkg-${{ matrix.name }}
           path: ${{ matrix.pkg_glob }}
           if-no-files-found: error
