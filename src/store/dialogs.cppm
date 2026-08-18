@@ -105,3 +105,13 @@ export void requestDelete(const dl::TaskView& task) {
     g_deleteIncludeFiles = true;  // 每次弹窗恢复默认（删除源文件 → 回收站）
     g_pendingDelete = task;
 }
+
+// ---- 任务信息弹窗 ----
+// g_pendingInfo 非空时，下载页渲染任务信息弹窗（完整 URL / 报错全文 / 保存路径等）。
+// 卡片上的「i」按钮（fa-info-circle 0xF05A）触发。与删除弹窗同用 dl::TaskView 快照。
+export std::optional<dl::TaskView> g_pendingInfo;
+
+export void requestInfo(const dl::TaskView& task) {
+    g_pendingInfo = task;
+}
+

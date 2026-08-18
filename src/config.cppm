@@ -565,6 +565,10 @@ export struct VideoConfig {
     std::string bilibiliCookie;   // bilibili SESSDATA 值（解锁 1080p+/会员画质）；空=匿名
     std::string defaultQuality;   // 默认画质 format_id/质量代码；空 = 解析后自动选最佳
     bool keepM4sParts = false;    // 合并后保留音视频 .m4s 分片（默认删除）
+    // yt-dlp 用的 JavaScript runtime（解 YouTube PO Token / JS challenge，2026 起
+    // 强制）。可填 runtime 名（node/deno/quickjs/bun）或完整可执行路径；空 = 运行时
+    // 自动检测 PATH 里的 node/deno/quickjs/bun。
+    std::string jsRuntime = "";
 };
 
 export VideoConfig videoConfig() {
@@ -581,6 +585,9 @@ export VideoConfig videoConfig() {
         if (v.contains("keep_m4s_parts") && v["keep_m4s_parts"].is_boolean()) {
             c.keepM4sParts = v["keep_m4s_parts"].get<bool>();
         }
+        if (v.contains("js_runtime") && v["js_runtime"].is_string()) {
+            c.jsRuntime = v["js_runtime"].get<std::string>();
+        }
     }
     return c;
 }
@@ -591,6 +598,7 @@ export void setVideoConfig(const VideoConfig& c) {
     v["bilibili_cookie"] = c.bilibiliCookie;
     v["default_quality"] = c.defaultQuality;
     v["keep_m4s_parts"] = c.keepM4sParts;
+    v["js_runtime"] = c.jsRuntime;
     j["video"] = v;
     saveConfig(j);
 }

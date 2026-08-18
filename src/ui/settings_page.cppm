@@ -92,6 +92,7 @@ std::string g_ed2kUploadSlotsText =
 std::string g_videoCookieText = cfg::videoConfig().bilibiliCookie;
 std::string g_videoQualityText = cfg::videoConfig().defaultQuality;
 bool g_videoKeepParts = cfg::videoConfig().keepM4sParts;
+std::string g_videoJsRuntimeText = cfg::videoConfig().jsRuntime;
 
 namespace {
 
@@ -607,6 +608,13 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                       36.0f, 20.0f, g_videoKeepParts, theme,
                                       [](bool v) { g_videoKeepParts = v; });
                 });
+                row("video.jsruntime", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "video.jsruntime", tr("JS 运行时", "JS runtime"), 0, fullW,
+                          g_videoJsRuntimeText,
+                          [](const std::string& v) { g_videoJsRuntimeText = v; },
+                          tr("node/deno/quickjs/bun；空=自动检测（解 YouTube 用）",
+                             "node/deno/quickjs/bun; empty = auto-detect (for YouTube)"));
+                });
             }  // 视频 tab 结束
 
             // ============== 网络 tab（代理 / UA / Referer / 请求头 / Cookie）==============
@@ -909,6 +917,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_videoCookieText = vd.bilibiliCookie;
             g_videoQualityText = vd.defaultQuality;
             g_videoKeepParts = vd.keepM4sParts;
+            g_videoJsRuntimeText = vd.jsRuntime;
             showStatus(tr("已恢复默认（点「保存」生效）", "Defaults restored (click Save to apply)"));
         })
         .build();
@@ -1085,9 +1094,11 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             vc.bilibiliCookie = trimText(g_videoCookieText);
             vc.defaultQuality = trimText(g_videoQualityText);
             vc.keepM4sParts = g_videoKeepParts;
+            vc.jsRuntime = trimText(g_videoJsRuntimeText);
             cfg::setVideoConfig(vc);
             g_videoCookieText = vc.bilibiliCookie;
             g_videoQualityText = vc.defaultQuality;
+            g_videoJsRuntimeText = vc.jsRuntime;
 
             // 汇总提示：aria2 daemon 已启动时，参数保存后需重启才生效。
             if (trayChanged) {
@@ -1154,6 +1165,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_videoCookieText = vc.bilibiliCookie;
             g_videoQualityText = vc.defaultQuality;
             g_videoKeepParts = vc.keepM4sParts;
+            g_videoJsRuntimeText = vc.jsRuntime;
             showStatus(tr("已放弃更改", "Changes discarded"));
         })
         .build();

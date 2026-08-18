@@ -230,6 +230,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
 
             const int actionCount = (showOpen ? 1 : 0) + (showOpenFolder ? 1 : 0) +
                                     (showDelete ? 1 : 0) + 1 /* 复制链接恒显示 */ +
+                                    1 /* 信息恒显示 */ +
                                     (showCancel ? 1 : 0) + (showRetry ? 1 : 0) +
                                     (showPause || showResume ? 1 : 0) +
                                     (showMirror ? 1 : 0);
@@ -276,6 +277,8 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                       core::window::setClipboardText(url);
                       showStatus(tr("已复制链接", "Link copied"));
                   });
+            place("info", 0xF05A, false,  // fa-info-circle（任务信息：完整 URL/报错/路径）
+                  [task = task] { requestInfo(task); });
             if (showOpenFolder) {
                 place("openfolder", 0xF07C, false,  // fa-folder-open
                       [path = task.destPath] { openContainingFolder(path); });

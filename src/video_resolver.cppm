@@ -457,6 +457,62 @@ export std::string findEngineBinary(const char* baseName) {
     return {};
 }
 
+// —— yt-dlp 的 JavaScript runtime（解 YouTube PO Token / JS challenge）——
+// 2026 起 YouTube 强制要求 JS runtime，否则 player response playability 直接
+// ERROR → "Video unavailable" / 原生下载失败。b 站等不需要，不受影响。
+// 拼 `--js-runtimes <name>`（yt-dlp 自己会在 PATH 里找对应二进制）。优先配置
+// 手动指定的 runtime 名；否则自动探测 PATH 里的 node/deno/quickjs/bun。
+std::string detectJsRuntimeOnPath() {
+#ifdef _WIN32
+    const char* suffix = ".exe";
+    const char sep = ';';
+#else
+    const char* suffix = "";
+    const char sep = ':';
+#endif
+    // (yt-dlp runtime 名, 常见可执行文件基底)，按偏好序。
+    const std::array<std::pair<const char*, const char*>, 5> candidates = {{
+        {"node", "node"},
+        {"deno", "deno"},
+        {"bun", "bun"},
+        {"quickjs", "qjs"},
+        {"quickjs", "quickjs"},
+    }};
+    const char* pathEnv = std::getenv("PATH");
+    if (!pathEnv) return {};
+    std::vector<std::string> dirs;
+    {
+        std::string_view sv(pathEnv);
+        std::size_t start = 0;
+        for (;;) {
+            const std::size_t end = sv.find(sep, start);
+            dirs.emplace_back(sv.substr(start,
+                end == std::string_view::npos ? std::string_view::npos : end - start));
+            if (end == std::string_view::npos) break;
+            start = end + 1;
+        }
+    }
+    for (const auto& [runtime, base] : candidates) {
+        for (const auto& dir : dirs) {
+            if (dir.empty()) continue;
+            std::error_code ec;
+            const std::filesystem::path p =
+                std::filesystem::path(dir) / (std::string(base) + suffix);
+            if (std::filesystem::exists(p, ec)) return runtime;
+        }
+    }
+    return {};
+}
+
+// 往 yt-dlp 命令 args 注入 `--js-runtimes <name>`（有可用 runtime 才注入）。
+void appendJsRuntimeArgs(std::vector<std::string>& args) {
+    const std::string cfgRt = cfg::videoConfig().jsRuntime;
+    const std::string rt = !cfgRt.empty() ? cfgRt : detectJsRuntimeOnPath();
+    if (rt.empty()) return;
+    args.push_back("--js-runtimes");
+    args.push_back(rt);
+}
+
 // spawn 进程并把 stdout+stderr 重定向到日志文件，阻塞等待退出（带超时强杀）。cancel
 // 非空时轮询其中置位即主动终止进程（供取消操作用）。返回退出码；超时/启动失败 -1。
 export int runProcessLogged(const std::string& exe,
@@ -569,6 +625,7 @@ export int downloadNativeMerged(const std::string& pageUrl,
             : "bv*+ba/b",
         "--merge-output-format", "mp4",
     };
+    appendJsRuntimeArgs(args);
     if (!proxy.empty()) {
         args.push_back("--proxy");
         args.push_back(proxy);
@@ -601,6 +658,7 @@ export ResolveResult resolveVideoUrl(const std::string& url, const std::string& 
         "--no-warnings", "--no-check-certificates",
         "--dump-single-json", "--no-update", "--no-playlist",
     };
+    appendJsRuntimeArgs(args);
     if (!proxy.empty()) {
         args.push_back("--proxy");
         args.push_back(proxy);

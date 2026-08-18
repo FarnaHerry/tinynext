@@ -21,6 +21,9 @@ import tinynext.ui.platform;
 
 // 镜像源管理弹窗（定义在文件末尾；drawDownloadsPage 调用它）。
 void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme);
+// 任务信息弹窗（定义在文件末尾；drawDownloadsPage 调用它）。
+void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme,
+                        const dl::TaskView& task);
 
 // ===================== 下载页 =====================
 // 布局：左侧是任务列表子侧边栏，右侧是输入栏 + 卡片任务列表 + 翻页控件组。
@@ -761,10 +764,186 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             .build();
     }
 
+    // ---- 任务信息弹窗（完整 URL / 报错 / 保存路径）----
+    if (g_pendingInfo.has_value()) {
+        drawTaskInfoDialog(ui, screen, theme, *g_pendingInfo);
+    }
+
     // ---- 镜像源管理弹窗 ----
     if (g_mirrorOpen) {
         drawMirrorDialog(ui, screen, theme);
     }
+}
+
+// 任务信息弹窗：点卡片「i」按钮打开。完整展示源 URL / 真实报错全文（卡片上被
+// 省略号截断的那部分）/ 保存路径 / 进度等，方便排查下载失败（如视频直链 403）。
+void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme,
+                        const dl::TaskView& task) {
+    const float dlgW = 400.0f;
+    const float pad = 16.0f;
+    const float contentW = dlgW - 2.0f * pad;
+    const float labelW = 64.0f;      // 字段名
+    const float rowH = 18.0f;
+
+    // 估算换行后的行数（eui 12px 下每个中英文混排字符 ≈ 8px，按最坏 8px 估），
+    // 决定弹窗高度。long 文本（URL/报错）允许换行而非截断。
+    auto wrapLines = [&](const std::string& s) {
+        const size_t n = s.size();
+        const size_t perLine = n > 0 ? (size_t)(contentW / 8.0f) : 1;
+        const size_t lines = (n + perLine - 1) / perLine;
+        return std::clamp(lines, (size_t)1, (size_t)8);
+    };
+
+    const std::string urlText = task.url;
+    const std::string errText = task.error;
+    const bool hasErr = !errText.empty();
+
+    // 行数 = 标签行 + 名称 + URL + 状态/大小 + 路径(+错误块)。
+    // 每段高度：1 行 → rowH，多行 → 该段行数 × rowH（给足但封顶）。
+    const float urlH = wrapLines(urlText) * rowH;
+    const float errH = hasErr ? wrapLines(errText) * rowH : 0.0f;
+    // 垂直堆叠：标题 + 名称 + URL + 状态行 + 路径 + 错误(可无) + 按钮。
+    const float titleY = 12.0f;
+    const float nameY = titleY + 22.0f;
+    const float urlY = nameY + rowH;
+    const float statY = urlY + urlH + 4.0f;
+    const float sizeY = statY + rowH;
+    const float pathY = sizeY + rowH;
+    const float errY = pathY + rowH;
+    const float btnY = errY + errH + 8.0f;
+    const float dlgH = btnY + 34.0f;
+
+    const float dlgX = (screen.width - dlgW) * 0.5f;
+    const float dlgY = (screen.height - dlgH) * 0.5f;
+
+    ui.rect("info.backdrop")
+        .position(0, 0)
+        .size(screen.width, screen.height)
+        .zIndex(200)
+        .color({0.0f, 0.0f, 0.0f, 0.32f})
+        .onClick([] { g_pendingInfo.reset(); })
+        .build();
+
+    ui.stack("info.dialog")
+        .position(dlgX, dlgY)
+        .size(dlgW, dlgH)
+        .zIndex(201)
+        .content([&] {
+            ui.rect("info.dialog.bg")
+                .position(0, 0)
+                .size(dlgW, dlgH)
+                .blur(10.0f)
+                .color(glassFill(theme, 0.52f))
+                .radius(10.0f)
+                .border(1.0f, components::theme::withOpacity(theme.components.border, 0.6f))
+                .onClick([] {})  // 吞掉内部点击，避免穿透关闭
+                .build();
+
+            components::text(ui, "info.title")
+                .position(pad, titleY)
+                .size(contentW, 20.0f)
+                .text(tr("任务信息", "Task info"))
+                .fontSize(14.0f)
+                .lineHeight(20.0f)
+                .color(theme.titleText)
+                .build();
+
+            // 名称（单行，可省略）：卡片上的标题/文件名。
+            components::text(ui, "info.name")
+                .position(pad, nameY)
+                .size(contentW, rowH)
+                .text(ellipsizeText(taskDisplayName(task), contentW, 12.0f))
+                .fontSize(12.0f)
+                .lineHeight(rowH)
+                .maxWidth(contentW)
+                .color(theme.nameText)
+                .build();
+
+            // 源地址：整 URL 换行显示（卡片只显示简短信息行）。
+            components::text(ui, "info.url.label")
+                .position(pad, urlY)
+                .size(labelW, rowH)
+                .text(tr("来源", "Source"))
+                .fontSize(11.0f)
+                .lineHeight(rowH)
+                .color(theme.metaText)
+                .build();
+            components::text(ui, "info.url")
+                .position(pad + labelW, urlY)
+                .size(contentW - labelW, urlH)
+                .text(urlText)
+                .fontSize(11.0f)
+                .lineHeight(rowH)
+                .maxWidth(contentW - labelW)
+                .color(theme.metaText)
+                .build();
+
+            // 状态 + 大小/进度。
+            components::text(ui, "info.stat")
+                .position(pad, statY)
+                .size(contentW, rowH)
+                .text(cardInfoText(task))
+                .fontSize(11.0f)
+                .lineHeight(rowH)
+                .maxWidth(contentW)
+                .color(stateColor(task.state))
+                .build();
+
+            // 保存路径（可换行）。大小/进度已在上方状态行（cardInfoText）展示。
+            const std::string pathText = task.destPath.empty()
+                ? std::string(tr("（未知）", "(unknown)")) : task.destPath.string();
+            components::text(ui, "info.path.label")
+                .position(pad, sizeY)
+                .size(labelW, rowH)
+                .text(tr("路径", "Path"))
+                .fontSize(11.0f)
+                .lineHeight(rowH)
+                .color(theme.metaText)
+                .build();
+            components::text(ui, "info.path")
+                .position(pad + labelW, sizeY)
+                .size(contentW - labelW, rowH)
+                .text(pathText)
+                .fontSize(11.0f)
+                .lineHeight(rowH)
+                .maxWidth(contentW - labelW)
+                .color(theme.metaText)
+                .build();
+
+            // 报错全文（最关键的：卡片被省略号截断的部分）。
+            if (hasErr) {
+                components::text(ui, "info.err.label")
+                    .position(pad, pathY)
+                    .size(labelW, rowH)
+                    .text(tr("错误", "Error"))
+                    .fontSize(11.0f)
+                    .lineHeight(rowH)
+                    .color(theme.failed)
+                    .build();
+                components::text(ui, "info.err")
+                    .position(pad + labelW, pathY)
+                    .size(contentW - labelW, errH)
+                    .text(errText)
+                    .fontSize(11.0f)
+                    .lineHeight(rowH)
+                    .maxWidth(contentW - labelW)
+                    .color(theme.failed)
+                    .build();
+            }
+
+            // 关闭按钮。
+            components::button(ui, "info.close")
+                .position(dlgW - pad - 76.0f, btnY)
+                .size(76.0f, 26.0f)
+                .text(tr("关闭", "Close"))
+                .fontSize(11.0f)
+                .theme(theme.components, true)
+                .textColor(onPrimaryColor(theme))
+                .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
+                .onClick([] { g_pendingInfo.reset(); })
+                .build();
+        })
+        .build();
 }
 
 // 镜像源管理弹窗：查看实时源列表（aria2 uris 去重）+ 移除坏源 + 添加新源。
