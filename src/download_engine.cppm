@@ -59,6 +59,8 @@ export struct TaskView {
     int mirrorCount = 0;          // 配置的镜像源数（除主 URL 外的源数；0 = 单源）
     std::vector<MirrorSource> mirrors;  // 实时源列表（去重，含主 URL 与运行时 changeUri 增删）
     bool fromSession = false;           // 从上次会话恢复的历史任务：不触发「完成/失败」通知
+    std::string destPathUtf8;           // destPath 的预编码 UTF-8 串（在快照时任务数据存活时转好，
+                                        // 避免后续读 destPath 本体时遇悬空指针崩溃）
 };
 
 // Per-task start options. connections == 0 means "use the engine default from

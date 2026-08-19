@@ -603,44 +603,6 @@ export int runProcessLogged(const std::string& exe,
 #endif
 }
 
-// 原生合并下载（googlevideo / YouTube 流用）：这类 CDN 拒绝 aria2 的直接 socket
-// 请求（开放式 Range 首请求即 403，环境有代理拦截时更甚），但 yt-dlp 自身的下载
-// 栈能完整取到——所以对这类流不再走 aria2，改由 yt-dlp 原生下载视频+音频并合并成
-// mp4（使用解析器的原生能力）。阻塞等待退出；返回退出码（0 = 成功）。maxHeight<=0
-// 表示不限；cancel 置位即终止进程。
-export int downloadNativeMerged(const std::string& pageUrl,
-                                int maxHeight,
-                                const std::filesystem::path& outPath,
-                                const std::filesystem::path& logFile,
-                                std::atomic<bool>* cancel = nullptr,
-                                const std::string& proxy = "") {
-    const std::string exe = findEngineBinary("yt-dlp");
-    if (exe.empty()) return -1;
-    std::vector<std::string> args = {
-        "--no-playlist", "--no-warnings", "--no-check-certificates", "--no-update",
-        "--no-part", "--no-mtime",
-        // b 站优先选用户画质以内最佳视频 + 最佳音频合并；无分离流回退最佳合流。
-        "-f", maxHeight > 0
-            ? "bv*[height<=" + std::to_string(maxHeight) + "]+ba/b"
-            : "bv*+ba/b",
-        "--merge-output-format", "mp4",
-    };
-    appendJsRuntimeArgs(args);
-    if (!proxy.empty()) {
-        args.push_back("--proxy");
-        args.push_back(proxy);
-    }
-    const std::string ffmpeg = findEngineBinary("ffmpeg");
-    if (!ffmpeg.empty()) {
-        args.push_back("--ffmpeg-location");
-        args.push_back(utf8FromPath(std::filesystem::path(ffmpeg).parent_path()));
-    }
-    args.push_back("-o");
-    args.push_back(utf8FromPath(outPath));
-    args.push_back(pageUrl);
-    return runProcessLogged(exe, args, logFile, 1800, cancel);
-}
-
 // 解析视频网页地址 → 标题 + 各画质流。sessdata 为空走匿名。proxy 非空时加
 // --proxy 参数。cancel 置位时终止进程并返回 canceled=true。同步阻塞。
 export ResolveResult resolveVideoUrl(const std::string& url, const std::string& sessdata,

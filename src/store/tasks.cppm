@@ -188,6 +188,27 @@ public:
     StartResult startVideoDownload(const video::VideoInfo& info,
                                    const video::VideoFormat& format,
                                    const dl::StartOptions& baseOpts) {
+        // 诊断：yt-dlp 解析出的 format 关键字段（TODO: 定位后删除）
+        {
+            std::ofstream dlog("C:\\Users\\farna\\crashdumps\\vfmt.txt", std::ios::app);
+            dlog << "=== startVideoDownload entry ===\n"
+                 << "  title=" << info.title << "\n"
+                 << "  formatId=" << format.formatId << "\n"
+                 << "  label=" << format.label << "\n"
+                 << "  ext=" << format.ext << "\n"
+                 << "  height=" << format.height << "\n"
+                 << "  videoUrl (first 300)=" << format.videoUrl.substr(0, 300) << "\n"
+                 << "  audioUrl.empty=" << format.audioUrl.empty() << "\n"
+                 << (format.audioUrl.empty() ? "" : "  audioUrl (first 300)=" + format.audioUrl.substr(0, 300) + "\n")
+                 << "  rangeBootstrap=" << format.rangeBootstrap << "\n"
+                 << "  userAgent=" << format.headers.userAgent << "\n"
+                 << "  referer=" << format.headers.referer << "\n"
+                 << "  extra count=" << format.headers.extra.size() << "\n";
+            for (size_t i = 0; i < format.headers.extra.size(); ++i)
+                dlog << "    extra[" << i << "]=" << format.headers.extra[i].substr(0, 200) << "\n";
+            dlog << std::endl;
+        }
+
         std::filesystem::path dir = baseOpts.dirOverride.empty()
             ? cfg::downloadDir()
             : baseOpts.dirOverride;
@@ -198,19 +219,8 @@ public:
         const std::string base =
             video::MergeTracker::sanitizeFileName(info.title.empty() ? "video" : info.title);
 
-        // googlevideo / YouTube：aria2 直接拿这类 CDN 的流会被 403（开放 Range 首请求
-        // 即拒，有代理拦截时更甚），改由 yt-dlp 原生下载并合并成单个 mp4。
-        if (format.rangeBootstrap) {
-            const std::uint64_t id = videoMerge_.startNativeJob(
-                info, format, dir, cfg::videoConfig().keepM4sParts);
-            if (id == 0) {
-                return {false, tr("视频下载启动失败：解析器不可用",
-                                  "Failed to start video download: resolver unavailable")};
-            }
-            stampSeq(id);
-            return {true, trf("已开始下载视频 #{} — {}", "Started video download #{} — {}", id, base), id};
-        }
-
+        // 所有视频下载统一走 aria2（yt-dlp 只做解析、不下载）；有 DASH 分离流走
+        // MergeTracker 编排，合流单文件直接 aria2。详见 docs/roadmap.md。
         if (!format.audioUrl.empty()) {
             // DASH：MergeTracker 内部完成命名 / 起子任务 / 合并编排。
             const std::uint64_t id = videoMerge_.startJob(
@@ -234,10 +244,11 @@ public:
         opts.headers = format.headers.extra;
         opts.userAgent = format.headers.userAgent;
         opts.referer = format.headers.referer;
-        // 合流流若在 googlevideo CDN：同样需要有限分段 Range + 单连接引导（见 MergeTracker）。
+        // YouTube googlevideo CDN：必须单连接（多连接可能 403），且 **不加 Range 头**。
+        // 加 Range 头 → aria2 分段请求，YouTube URL 有时效 → 后续分段 403 只下到 ~2MB。
+        // 合流流整包单次 GET 通常能顺利下载完。
         if (format.rangeBootstrap) {
             opts.connections = 1;
-            opts.headers.push_back("Range: bytes=0-1048575");
         }
         const std::filesystem::path dest = dir / pathFromUtf8(opts.outputName);
         const std::uint64_t id = engine_->start(format.videoUrl, dest, opts);

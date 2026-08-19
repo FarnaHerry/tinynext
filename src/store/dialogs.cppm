@@ -108,10 +108,54 @@ export void requestDelete(const dl::TaskView& task) {
 
 // ---- 任务信息弹窗 ----
 // g_pendingInfo 非空时，下载页渲染任务信息弹窗（完整 URL / 报错全文 / 保存路径等）。
-// 卡片上的「i」按钮（fa-info-circle 0xF05A）触发。与删除弹窗同用 dl::TaskView 快照。
-export std::optional<dl::TaskView> g_pendingInfo;
+// 卡片上的「i」按钮（fa-info-circle 0xF05A）触发。
+//
+// 用纯值快照而非直接引用 dl::TaskView：渲染弹窗时（跨 compose 帧）直接读
+// TaskView 的 std::filesystem::path/std::string 字段，可能踩到已被释放的底层缓冲
+// （实测 native 视频任务的 destPath 在快照里带 UAF，.string() 触栈溢出崩溃）。这里
+// 在点击那一刻把要展示的字段提取成普通 std::string + 标量，渲染只读纯值。
+export struct TaskInfoSnapshot {
+    std::string name;      // 标题/文件名
+    std::string url;       // 源地址
+    std::string error;     // 报错全文（可能为空）
+    std::string path;      // 保存路径（string，不含 UAF 风险）
+    dl::State state = dl::State::Queued;
+    std::int64_t totalBytes = -1;
+    std::int64_t downloadedBytes = 0;
+    int connections = 0;
+};
+
+export std::optional<TaskInfoSnapshot> g_pendingInfo;
 
 export void requestInfo(const dl::TaskView& task) {
-    g_pendingInfo = task;
+    // 排障：硬编码路径 + std::endl 强制刷新，避免文件 I/O 缓冲丢失。
+    // TODO(remove): 崩溃定位解决后删掉。
+    auto dlog = [](const std::string& s) {
+        std::ofstream f("C:\\Users\\farna\\crashdumps\\dlog.txt", std::ios::app);
+        if (f) f << s << std::endl;
+    };
+    dlog("R_BEGIN state=" + std::to_string((int)task.state));
+
+    dlog("R_name size=" + std::to_string(task.displayName.size()));
+    dlog("R_url size=" + std::to_string(task.url.size()));
+    dlog("R_error size=" + std::to_string(task.error.size()));
+    dlog("R_bytes total=" + std::to_string(task.totalBytes));
+    dlog("R_destEmpty=" + std::to_string(task.destPath.empty() ? 1 : 0));
+    if (!task.destPath.empty()) {
+        dlog("R_destSize=" + std::to_string(task.destPath.native().size()));
+    }
+
+    TaskInfoSnapshot snap;
+    snap.name = task.displayName.empty() ? std::string() : task.displayName;
+    snap.url = task.url;
+    snap.error = task.error;
+    snap.state = task.state;
+    snap.totalBytes = task.totalBytes;
+    snap.downloadedBytes = task.downloadedBytes;
+    snap.connections = task.connections;
+    // destPath 在引擎快照中可能悬空（UAF），用 snapshot 时预编码的
+    // destPathUtf8（在任务数据存活时已转好，安全）。备用：displayName。
+    snap.path = task.destPathUtf8.empty() ? snap.name : task.destPathUtf8;
+    g_pendingInfo = std::move(snap);
 }
 

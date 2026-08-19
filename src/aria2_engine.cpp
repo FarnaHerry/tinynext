@@ -1569,12 +1569,24 @@ std::vector<TaskView> Aria2Engine::snapshot() const {
     out.reserve(tasks_.size());
     for (auto it = tasks_.rbegin(); it != tasks_.rend(); ++it) {
         const Task& task = **it;
-        out.push_back(TaskView{task.id, task.url, task.destPath, task.state,
-                               task.totalBytes, task.downloadedBytes,
-                               task.error, task.speedBps, task.connections,
-                               task.displayName,
-                               static_cast<int>(task.opts.mirrors.size()),
-                               task.mirrors, task.fromSession});
+        TaskView tv;
+        tv.id = task.id;
+        tv.url = task.url;
+        tv.destPath = task.destPath;
+        tv.state = task.state;
+        tv.totalBytes = task.totalBytes;
+        tv.downloadedBytes = task.downloadedBytes;
+        tv.error = task.error;
+        tv.speedBps = task.speedBps;
+        tv.connections = task.connections;
+        tv.displayName = task.displayName;
+        tv.mirrorCount = static_cast<int>(task.opts.mirrors.size());
+        tv.mirrors = task.mirrors;
+        tv.fromSession = task.fromSession;
+        // 在任务数据仍存活时预编码 destPath 到 UTF-8 串，后续读（如任务信息弹窗、终端输出）
+        // 不走可能已悬空的 destPath（原生下载分支的遗留问题，见 dialogs.cppm）。
+        tv.destPathUtf8 = task.destPath.empty() ? std::string() : utf8FromPath(task.destPath);
+        out.push_back(std::move(tv));
     }
     return out;
 }

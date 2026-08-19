@@ -23,7 +23,7 @@ import tinynext.ui.platform;
 void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme);
 // 任务信息弹窗（定义在文件末尾；drawDownloadsPage 调用它）。
 void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme,
-                        const dl::TaskView& task);
+                        const TaskInfoSnapshot& task);
 
 // ===================== 下载页 =====================
 // 布局：左侧是任务列表子侧边栏，右侧是输入栏 + 卡片任务列表 + 翻页控件组。
@@ -778,7 +778,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
 // 任务信息弹窗：点卡片「i」按钮打开。完整展示源 URL / 真实报错全文（卡片上被
 // 省略号截断的那部分）/ 保存路径 / 进度等，方便排查下载失败（如视频直链 403）。
 void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme,
-                        const dl::TaskView& task) {
+                        const TaskInfoSnapshot& task) {
     const float dlgW = 400.0f;
     const float pad = 16.0f;
     const float contentW = dlgW - 2.0f * pad;
@@ -835,6 +835,7 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
     // 换行后行数给足（封顶 6 行），eui 不裁切、只可能略高于估算。
     const float urlH = wrapLines(urlText, urlBoxW) * rowH;
     const float errH = hasErr ? wrapLines(errText, errBoxW) * rowH : 0.0f;
+    const float pathH = wrapLines(task.path, contentW - labelW) * rowH;
     // 垂直堆叠：标题 + 名称 + URL + 状态行 + 路径 + 错误(可无) + 按钮。
     const float titleY = 12.0f;
     const float nameY = titleY + 22.0f;
@@ -842,7 +843,7 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
     const float statY = urlY + urlH + 4.0f;
     const float sizeY = statY + rowH;
     const float pathY = sizeY + rowH;
-    const float errY = pathY;
+    const float errY = pathY + pathH + (hasErr ? 4.0f : 0.0f);
     const float btnY = errY + errH + 10.0f;
     const float dlgH = btnY + 36.0f;
 
@@ -885,7 +886,9 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
             components::text(ui, "info.name")
                 .position(pad, nameY)
                 .size(contentW, rowH)
-                .text(ellipsizeText(taskDisplayName(task), contentW, 12.0f))
+                .text(ellipsizeText(task.name.empty() ? tr("（未命名）", "(unnamed)")
+                                                       : task.name,
+                                    contentW, 12.0f))
                 .fontSize(12.0f)
                 .lineHeight(rowH)
                 .maxWidth(contentW)
@@ -912,21 +915,26 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
                 .color(theme.metaText)
                 .build();
 
-            // 状态 + 大小/进度。
+            // 状态 + 大小/进度（全从快照标量取，不再碰可能带 UAF 的 TaskView 字段）。
+            std::string statText = stateLabel(task.state);
+            if (task.totalBytes > 0) {
+                statText += " · " + formatBytes(task.downloadedBytes) + " / " +
+                            formatBytes(task.totalBytes);
+            }
             components::text(ui, "info.stat")
                 .position(pad, statY)
                 .size(contentW, rowH)
-                .text(cardInfoText(task))
+                .text(statText)
                 .fontSize(11.0f)
                 .lineHeight(rowH)
                 .maxWidth(contentW)
                 .color(stateColor(task.state))
                 .build();
 
-            // 保存路径（可换行）。大小/进度已在上方状态行（cardInfoText）展示。
-            const std::string pathText = task.destPath.empty()
+            // 保存路径（可换行）。大小/进度已在上方状态行展示。
+            const std::string pathText = task.path.empty()
                 ? std::string(tr("（未知）", "(unknown)"))
-                : sanitizeForDisplay(task.destPath.string(), 200);
+                : sanitizeForDisplay(task.path, 200);
             components::text(ui, "info.path.label")
                 .position(pad, sizeY)
                 .size(labelW, rowH)
@@ -937,7 +945,7 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
                 .build();
             components::text(ui, "info.path")
                 .position(pad + labelW, sizeY)
-                .size(contentW - labelW, rowH)
+                .size(contentW - labelW, pathH)
                 .text(pathText)
                 .fontSize(11.0f)
                 .lineHeight(rowH)

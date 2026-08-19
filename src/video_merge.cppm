@@ -29,15 +29,8 @@ namespace video {
 
 export class MergeTracker {
 public:
-    // 原生（yt-dlp 直接下载）任务的运行态：后台线程置 done，UI/轮询读。
-    struct NativeRun {
-        std::atomic<bool> done{false};
-        std::atomic<bool> requestCancel{false};
-        bool ok = false;
-        std::string error;
-    };
-
     // 一个 DASH 视频下载任务（两个 aria2 子任务 + 一次 ffmpeg 合并）。
+    // 所有视频下载统一走 aria2（yt-dlp 只解析、不下载）；架构见 docs/roadmap.md。
     struct Job {
         std::uint64_t visibleId = 0;         // 合成任务 id（UI 所见）
         std::string title;
@@ -52,12 +45,6 @@ public:
         bool keepParts = false;
         std::string audioExt;    // 配对音频流容器（mp4/m4a/webm…）：决定合并是否转码
         std::string audioCodec;  // 配对音频流编码（aac/opus/vorbis…）
-        // 原生任务（googlevideo/YouTube）：不经 aria2，yt-dlp 直接下两个流并合并成
-        // outputPath。native=true 时忽略 subtask 字段、只跑一个线程。
-        bool native = false;
-        std::shared_ptr<NativeRun> nativeRun;
-        std::int64_t totalBytes = -1;        // 原生任务估算总大小（-1 = 未知）
-        int maxHeight = 0;                   // 原生任务画质上限（yt-dlp 重新选流用）
     };
 
     // 文件名净化：替换 Windows/Unix 非法字符与控制字符为 _。public：TaskStore 的
@@ -113,11 +100,11 @@ public:
         vopts.userAgent = format.headers.userAgent;
         vopts.referer = format.headers.referer;
         // YouTube 等 googlevideo CDN 对开放式 Range 首请求回 403（实测）：注入有限的
-        // 分段 Range 引导 aria2 拿到 206 Content-Range 后自动续拉剩余，且必须单连接
-        //（多连接会把同一段重复拉多份）。
+        // YouTube googlevideo CDN：必须单连接、但 **不加分段 Range**。加了 → aria2
+        // 后续分段 Range 请求 403（YouTube URL 有时效），只下 ~2MB 就停。全量单
+        // 连接一次 GET 通常能顺利完成。
         if (format.rangeBootstrap) {
             vopts.connections = 1;
-            vopts.headers.push_back("Range: bytes=0-1048575");
         }
         job.videoTaskId = engine.start(format.videoUrl, job.videoPath, vopts);
         if (job.videoTaskId == 0) return 0;
@@ -136,60 +123,6 @@ public:
         subtaskToJob_[job.audioTaskId] = job.visibleId;
         jobs_.emplace(job.visibleId, std::move(job));
         return job.visibleId;
-    }
-
-    // 启动一个原生下载任务（googlevideo / YouTube 流）：yt-dlp 原生下两个流并合并
-    // 成单个 mp4（绕过 aria2——这类 CDN 拒绝 aria2 的直接请求）。UI 仍只见一个合成
-    // 任务。返回合成任务 id；失败返回 0。
-    std::uint64_t startNativeJob(const VideoInfo& info,
-                                 const VideoFormat& format,
-                                 const std::filesystem::path& dir,
-                                 bool keepParts) {
-        if (info.webpageUrl.empty()) return 0;
-        const std::string base = sanitizeFileName(info.title.empty() ? "video" : info.title);
-        const std::string outName = uniqueName(dir, base, ".mp4");
-        const std::filesystem::path out = dir / pathFromUtf8(outName);
-        const std::string page = info.webpageUrl.empty() ? format.videoUrl : info.webpageUrl;
-        auto run = std::make_shared<NativeRun>();
-        const std::uint64_t vid = nextVisibleId();
-        const int maxH = format.height;
-        // 线程全用拷贝（字符串/path/shared_ptr）；不引用调用方局部变量。
-        const std::string proxy = cfg::aria2Config().proxy;
-    std::thread([this, vid, run, page, maxH, out, keepParts, proxy] {
-            const std::filesystem::path log = out.parent_path() / "tinynext-ytdlp.log";
-            const int code = downloadNativeMerged(page, maxH, out, log, &run->requestCancel, proxy);
-            std::error_code ec;
-            const bool ok = code == 0 && std::filesystem::exists(out, ec) &&
-                            std::filesystem::file_size(out, ec) > 0;
-            std::lock_guard<std::mutex> lock(mutex_);
-            run->done.store(true);
-            run->ok = ok;
-            if (!ok) {
-                if (run->requestCancel.load()) {
-                    run->error = tr("已取消", "Cancelled");
-                } else {
-                    const std::string reason = nativeErrorFromLog(log);
-                    run->error = reason.empty()
-                        ? tr("下载失败（详见 tinynext-ytdlp.log）", "Download failed (see tinynext-ytdlp.log)")
-                        : trf("下载失败：{}", "Download failed: {}", reason);
-                }
-            }
-            core::platform::requestUiUpdate();
-        }).detach();
-
-        std::lock_guard<std::mutex> lock(mutex_);
-        Job job;
-        job.visibleId = vid;
-        job.title = info.title;
-        job.webpageUrl = page;
-        job.outputPath = out;
-        job.native = true;
-        job.nativeRun = run;
-        job.keepParts = keepParts;
-        job.totalBytes = format.filesizeApprox > 0 ? format.filesizeApprox : -1;
-        job.maxHeight = maxH;
-        jobs_.emplace(vid, std::move(job));
-        return vid;
     }
 
     // 把引擎快照里的子任务滤掉、注入合成任务。UI 线程每帧调用，须立即返回。
@@ -212,54 +145,12 @@ public:
         return jobs_.find(id) != jobs_.end();
     }
 
-    // 原生任务的胶水命令：请求取消进程 + 删半成品 + 立即置 Failed（UI 显示取消）。
-    void nativeCancelLocked(Job& job) {
-        if (job.nativeRun && !job.nativeRun->done.load()) job.nativeRun->requestCancel.store(true);
-        job.phase = Job::Phase::Failed;
-        job.error = tr("已取消", "Cancelled");
-        std::error_code ec;
-        std::filesystem::remove(job.outputPath, ec);
-    }
-    // 重新启动原生下载线程（retry 用）：新建 NativeRun 并复用已存的任务参数。
-    void nativeRestartLocked(Job& job) {
-        auto run = std::make_shared<NativeRun>();
-        const std::uint64_t vid = job.visibleId;
-        const std::string page = job.webpageUrl;
-        const std::filesystem::path out = job.outputPath;
-        const int maxH = job.maxHeight;
-        job.nativeRun = run;
-        job.phase = Job::Phase::Downloading;
-        job.error.clear();
-        const std::string proxy = cfg::aria2Config().proxy;
-        std::thread([this, vid, run, page, maxH, out, proxy] {
-            const std::filesystem::path log = out.parent_path() / "tinynext-ytdlp.log";
-            const int code = downloadNativeMerged(page, maxH, out, log, &run->requestCancel, proxy);
-            std::error_code ec;
-            const bool ok = code == 0 && std::filesystem::exists(out, ec) &&
-                            std::filesystem::file_size(out, ec) > 0;
-            std::lock_guard<std::mutex> lock(mutex_);
-            run->done.store(true);
-            run->ok = ok;
-            if (!ok) {
-                if (run->requestCancel.load()) {
-                    run->error = tr("已取消", "Cancelled");
-                } else {
-                    const std::string reason = nativeErrorFromLog(log);
-                    run->error = reason.empty()
-                        ? tr("下载失败（详见 tinynext-ytdlp.log）", "Download failed (see tinynext-ytdlp.log)")
-                        : trf("下载失败：{}", "Download failed: {}", reason);
-                }
-            }
-            core::platform::requestUiUpdate();
-        }).detach();
-    }
-
+    
     bool cancel(dl::DownloadEngine& engine, std::uint64_t id) {
         std::unique_lock<std::mutex> lock(mutex_);
         auto it = jobs_.find(id);
         if (it == jobs_.end()) return false;
-        if (it->second.native) { nativeCancelLocked(it->second); return true; }
-        // 非原生：读出子任务 id，释放锁再调引擎（引擎内部会取自己的 tasksMutex_）。
+        // 读出子任务 id，释放锁再调引擎（引擎内部会取自己的 tasksMutex_）。
         const std::uint64_t v = it->second.videoTaskId;
         const std::uint64_t a = it->second.audioTaskId;
         lock.unlock();
@@ -278,16 +169,12 @@ public:
             std::lock_guard<std::mutex> lock(mutex_);
             auto it = jobs_.find(id);
             if (it == jobs_.end()) return false;
-            if (it->second.native) {
-                nativeRestartLocked(it->second);
-                return true;
-            }
             it->second.phase = Job::Phase::Downloading;
             it->second.error.clear();
         }
         return forSubtasks(id, [&](std::uint64_t sub) { engine.retry(sub); });
     }
-    // 删除记录：移除子任务（或销毁原生下载进程）+ 删半成品与成品。
+    // 删除记录：移除子任务 + 删半成品与成品。
     bool remove(dl::DownloadEngine& engine, std::uint64_t id) {
         Job job;
         {
@@ -295,28 +182,20 @@ public:
             auto it = jobs_.find(id);
             if (it == jobs_.end()) return false;
             job = it->second;
-            if (job.native) {
-                if (job.nativeRun) job.nativeRun->requestCancel.store(true);
-            } else {
-                subtaskToJob_.erase(job.videoTaskId);
-                subtaskToJob_.erase(job.audioTaskId);
-            }
+            subtaskToJob_.erase(job.videoTaskId);
+            subtaskToJob_.erase(job.audioTaskId);
             jobs_.erase(it);
         }
         std::error_code ec;
-        if (job.native) {
-            std::filesystem::remove(job.outputPath, ec);
-        } else {
-            engine.remove(job.videoTaskId);
-            engine.remove(job.audioTaskId);
-            std::filesystem::remove(job.videoPath, ec);
-            std::filesystem::remove(job.audioPath, ec);
-            std::filesystem::remove(job.outputPath, ec);
-            // aria2 控制文件也一并清掉（+= 拼扩展名，避免 .string() 走 ANSI 代码页）。
-            std::error_code ec2;
-            std::filesystem::remove(job.videoPath.wstring() + L".aria2", ec2);
-            std::filesystem::remove(job.audioPath.wstring() + L".aria2", ec2);
-        }
+        engine.remove(job.videoTaskId);
+        engine.remove(job.audioTaskId);
+        std::filesystem::remove(job.videoPath, ec);
+        std::filesystem::remove(job.audioPath, ec);
+        std::filesystem::remove(job.outputPath, ec);
+        // aria2 控制文件也一并清掉（+= 拼扩展名，避免 .string() 走 ANSI 代码页）。
+        std::error_code ec2;
+        std::filesystem::remove(job.videoPath.wstring() + L".aria2", ec2);
+        std::filesystem::remove(job.audioPath.wstring() + L".aria2", ec2);
         return true;
     }
 
@@ -330,15 +209,6 @@ public:
         {
             std::lock_guard<std::mutex> lock(mutex_);
             for (auto& [vid, job] : jobs_) {
-                if (job.native) {
-                    if (job.phase == Job::Phase::Downloading && job.nativeRun &&
-                        job.nativeRun->done.load()) {
-                        job.phase = job.nativeRun->ok ? Job::Phase::Done : Job::Phase::Failed;
-                        if (!job.nativeRun->ok) job.error = job.nativeRun->error;
-                        changed = true;
-                    }
-                    continue;
-                }
                 if (job.phase != Job::Phase::Downloading) continue;
                 const dl::TaskView* v = find(tasks, job.videoTaskId);
                 const dl::TaskView* a = find(tasks, job.audioTaskId);
@@ -359,51 +229,6 @@ public:
     }
 
 private:
-    // 从 yt-dlp 日志尾部提取真正的失败原因（最后一条含 "ERROR" 的行），原生下载失败
-    // 时任务卡直接显示根因（如 "HTTP Error 403: Forbidden"），不用用户去翻日志。
-    static std::string nativeErrorFromLog(const std::filesystem::path& log) {
-        std::error_code ec;
-        const std::uintmax_t sz = std::filesystem::file_size(log, ec);
-        if (ec || sz == 0) return {};
-        std::ifstream f(log, std::ios::binary);
-        if (!f) return {};
-        constexpr std::uintmax_t kTail = 2048;
-        const std::streamoff off = static_cast<std::streamoff>(std::min(sz, kTail));
-        f.seekg(-off, std::ios::end);
-        std::string buf(static_cast<std::size_t>(off), '\0');
-        f.read(buf.data(), static_cast<std::streamsize>(off));
-        auto trim = [](std::string s) {
-            while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r'))
-                s.erase(s.begin());
-            while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r'))
-                s.pop_back();
-            return s;
-        };
-        std::string err;
-        std::size_t pos = 0;
-        while (pos < buf.size()) {
-            std::size_t nl = buf.find('\n', pos);
-            if (nl == std::string::npos) nl = buf.size();
-            std::string line = buf.substr(pos, nl - pos);
-            pos = nl + 1;
-            if (line.find("ERROR") == std::string::npos) continue;
-            std::size_t colon = line.find(':');   // 去掉 "ERROR: " 前缀
-            if (colon != std::string::npos) line = line.substr(colon + 1);
-            line = trim(line);
-            // 去掉 " [youtube] <id>: " 之类的前缀（若残留）。
-            if (line.rfind("[", 0) == 0) {
-                std::size_t close = line.find(']');
-                if (close != std::string::npos) {
-                    std::size_t after = line.find(':', close);
-                    if (after != std::string::npos) line = line.substr(after + 1);
-                }
-            }
-            line = trim(line);
-            if (!line.empty()) err = line;
-        }
-        if (err.size() > 160) err = err.substr(0, 160) + "…";
-        return err;
-    }
 
     static std::uint64_t nextVisibleId() {
         // 合成 id 用高段，避免撞引擎的 nextId_（从 1 递增）。
@@ -440,20 +265,6 @@ private:
         view.destPath = job.outputPath;
         view.displayName = job.title;
         view.error = job.error;
-        if (job.native) {
-            // 原生任务：进度按输出文件当前大小估（yt-dlp 合并结束后生成成品）。
-            view.totalBytes = job.totalBytes;
-            std::error_code ec;
-            const std::int64_t sz =
-                static_cast<std::int64_t>(std::filesystem::file_size(job.outputPath, ec));
-            view.downloadedBytes = sz > 0 ? sz : 0;
-            view.speedBps = 0.0;
-            view.connections = 0;
-            if (job.phase == Job::Phase::Done) view.state = dl::State::Done;
-            else if (job.phase == Job::Phase::Failed) view.state = dl::State::Failed;
-            else view.state = dl::State::Downloading;
-            return view;
-        }
         const dl::TaskView* v = find(tasks, job.videoTaskId);
         const dl::TaskView* a = find(tasks, job.audioTaskId);
         view.totalBytes = (v ? v->totalBytes : 0) + (a ? a->totalBytes : 0);
@@ -542,6 +353,11 @@ private:
         }).detach();
     }
 
+private:
+    mutable std::mutex mutex_;
+    std::unordered_map<std::uint64_t, Job> jobs_;
+    std::unordered_map<std::uint64_t, std::uint64_t> subtaskToJob_;
+
     // 生成不存在的文件名（UTF-8 字符串；撞名加 " (n)"）。只返回名字不返回 path：
     // path 拼接经 pathFromUtf8，名字本身保持 UTF-8 供 outputName / ffmpeg 参数用。
     static std::string uniqueName(const std::filesystem::path& dir,
@@ -557,9 +373,6 @@ private:
         return base + ext;
     }
 
-    mutable std::mutex mutex_;
-    std::unordered_map<std::uint64_t, Job> jobs_;
-    std::unordered_map<std::uint64_t, std::uint64_t> subtaskToJob_;
-};
+    };
 
 } // namespace video

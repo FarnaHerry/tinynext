@@ -198,9 +198,7 @@ export int runVideoDownload() {
     const video::VideoFormat& format = info.formats[pick];
     std::cerr << "tinynext: " << tr("已解析：", "Resolved: ") << info.title << "\n"
               << "tinynext: " << trf("画质：{}", "Quality: {}", format.label)
-              << (format.rangeBootstrap
-                      ? tr("（原生下载+合并）", " (native download+merge)")
-                      : format.audioUrl.empty()
+              << (format.audioUrl.empty()
                         ? tr("（合流）", " (combined)")
                         : tr("（DASH，下载后自动合并）", " (DASH, auto-merge)"))
               << "\n";
@@ -331,7 +329,9 @@ export int run() {
     // 路径经 utf8FromPath 打印（Windows 窄串会走 ANSI 代码页，中文路径乱码）。
     const auto tasks = engine.snapshot();
     for (const auto& t : tasks) {
-        const std::string p = utf8FromPath(t.destPath);
+        // 取路径字符串：优先用预编码的 destPathUtf8（避免读可能悬空的 destPath）。
+        // 回退 utf8FromPath（两者都空则空串）。
+        const std::string p = !t.destPathUtf8.empty() ? t.destPathUtf8 : utf8FromPath(t.destPath);
         if (t.state == dl::State::Done) {
             std::cerr << "tinynext: " << tr("[完成]", "[Done]") << " " << p << "\n";
         } else if (t.state == dl::State::Failed) {

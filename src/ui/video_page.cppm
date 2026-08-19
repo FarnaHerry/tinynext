@@ -39,6 +39,14 @@ std::atomic<bool> g_parsing{false};
 std::atomic<std::uint64_t> g_parseGen{0};     // 代数：丢弃过期的旧解析结果
 std::atomic<bool> g_cancelParse{false};       // 取消当前解析（仅在一次解析存活期内有效）
 
+// ---- 视频下载选项弹窗状态 ----
+bool g_videoDownloadPending = false;
+std::optional<video::VideoInfo> g_videoDownloadInfo;
+int g_videoDownloadFormat = 0;
+std::string g_videoConnText;   // 连接数输入（空 = 用配置默认）
+std::string g_videoRenameText; // 重命名（空 = 默认文件名）
+std::string g_videoDirText;    // 目录覆盖（空 = 配置下载目录）
+
 // 配置默认画质 → 格式索引：label 包含配置串即命中，否则 0（最高画质，formats
 // 已按 高度降序）。
 int defaultFormatIndex(const video::VideoInfo &info) {
@@ -331,7 +339,8 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
         })
         .build();
 
-    // 下载按钮：选中的画质交给 TaskStore（合流单任务 / DASH 走 MergeTracker）。
+    // 下载按钮：弹选项弹窗（连接数 / 重命名 / 目录），让用户在下载前做针对性
+    // 设置（如 YouTube googlevideo URL 有时效，需要单连接避免分段 Range 过期 403）。
     const float dlBtnW = 76.0f;
     components::button(ui, "video.download")
         .position(contentX + contentW - dlBtnW, qualityY)
@@ -342,16 +351,10 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
         .textColor(onPrimaryColor(theme))
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .onClick([] {
-          const auto &info = *g_videoInfo;
-          dl::StartOptions opts; // 连接数 0 = 用配置默认；目录用全局下载目录
-          const StartResult res = g_tasks.startVideoDownload(
-              info, info.formats[g_selectedFormat], opts);
-          showStatus(res.message);
-          if (res.ok) {
-            // 跳到下载列表看进度。
-            g_page_view = Page::Downloads;
-            g_filter = Filter::All;
-          }
+          // 暂存当前选择，打开选项弹窗；选项确认后才开始下载。
+          g_videoDownloadPending = true;
+          g_videoDownloadInfo = *g_videoInfo;
+          g_videoDownloadFormat = g_selectedFormat;
         })
         .build();
 
@@ -360,6 +363,149 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
     const video::VideoFormat &sel = info.formats[g_selectedFormat];
     const bool isBilibili =
         info.webpageUrl.find("bilibili.com") != std::string::npos;
+
+    // ---- 视频下载选项弹窗（点击「下载」按钮后弹出）----
+    // 用户在选项弹窗里可设连接数 / 重命名 / 目录，然后点击确认才开始下载。
+    // 这给 YouTube googlevideo CDN（URL 有时效）提供了手动设单连接的机会。
+    if (g_videoDownloadPending) {
+      const float optW = 400.0f;
+      const float optH = 240.0f;
+      const float ox = (screen.width - optW) * 0.5f;
+      const float oy = (screen.height - optH) * 0.5f;
+      ui.rect("video.opt.backdrop")
+          .position(0, 0)
+          .size(screen.width, screen.height)
+          .zIndex(200)
+          .color({0.0f, 0.0f, 0.0f, 0.32f})
+          .onClick([] { g_videoDownloadPending = false; })
+          .build();
+      ui.stack("video.opt.dialog")
+          .position(ox, oy)
+          .size(optW, optH)
+          .zIndex(201)
+          .content([&] {
+            ui.rect("video.opt.bg")
+                .position(0, 0)
+                .size(optW, optH)
+                .blur(10.0f)
+                .color(glassFill(theme, 0.52f))
+                .radius(10.0f)
+                .border(1.0f, components::theme::withOpacity(theme.components.border, 0.6f))
+                .onClick([] {})
+                .build();
+
+            const float p = kPanelPad;
+            const float cw = optW - 2.0f * p;
+            float y = 18.0f;
+            components::text(ui, "video.opt.title")
+                .position(p, y)
+                .size(cw, 20.0f)
+                .text(tr("视频下载选项", "Video download options"))
+                .fontSize(14.0f)
+                .lineHeight(20.0f)
+                .color(theme.titleText)
+                .build();
+
+            y += 34.0f;
+            components::text(ui, "video.opt.conn.label")
+                .position(p, y)
+                .size(80.0f, kInputHeight)
+                .text(tr("连接数", "Connections"))
+                .fontSize(12.0f)
+                .lineHeight(kInputHeight)
+                .color(theme.metaText)
+                .build();
+            components::input(ui, "video.opt.conn")
+                .position(p + 84.0f, y)
+                .size(60.0f, kInputHeight)
+                .value(g_videoConnText)
+                .fontSize(12.0f)
+                .theme(tokens)
+                .fontFamily("")
+                .onChange([](const std::string& v) { g_videoConnText = v; })
+                .build();
+
+            y += kInputHeight + 10.0f;
+            components::text(ui, "video.opt.rename.label")
+                .position(p, y)
+                .size(80.0f, kInputHeight)
+                .text(tr("重命名", "Rename"))
+                .fontSize(12.0f)
+                .lineHeight(kInputHeight)
+                .color(theme.metaText)
+                .build();
+            components::input(ui, "video.opt.rename")
+                .position(p + 84.0f, y)
+                .size(cw - 84.0f, kInputHeight)
+                .value(g_videoRenameText)
+                .fontSize(12.0f)
+                .theme(tokens)
+                .fontFamily("")
+                .onChange([](const std::string& v) { g_videoRenameText = v; })
+                .build();
+
+            y += kInputHeight + 10.0f;
+            components::text(ui, "video.opt.dir.label")
+                .position(p, y)
+                .size(80.0f, kInputHeight)
+                .text(tr("目录", "Dir"))
+                .fontSize(12.0f)
+                .lineHeight(kInputHeight)
+                .color(theme.metaText)
+                .build();
+            components::input(ui, "video.opt.dir")
+                .position(p + 84.0f, y)
+                .size(cw - 84.0f, kInputHeight)
+                .value(g_videoDirText)
+                .placeholder(tr("空 = 默认下载目录", "Empty = default download directory"))
+                .fontSize(12.0f)
+                .theme(tokens)
+                .fontFamily("")
+                .onChange([](const std::string& v) { g_videoDirText = v; })
+                .build();
+
+            y += kInputHeight + 16.0f;
+            components::button(ui, "video.opt.cancel")
+                .position(p, y)
+                .size(80.0f, 28.0f)
+                .text(tr("取消", "Cancel"))
+                .fontSize(12.0f)
+                .theme(tokens, true)
+                .textColor(onPrimaryColor(theme))
+                .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
+                .onClick([] { g_videoDownloadPending = false; })
+                .build();
+            components::button(ui, "video.opt.confirm")
+                .position(p + cw - 80.0f, y)
+                .size(80.0f, 28.0f)
+                .text(tr("确认下载", "Download"))
+                .fontSize(12.0f)
+                .theme(tokens, true)
+                .textColor(onPrimaryColor(theme))
+                .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
+                .onClick([] {
+                  dl::StartOptions opts;
+                  if (!g_videoConnText.empty()) {
+                    try { opts.connections = std::clamp(std::stoi(trimText(g_videoConnText)), 0, 64); }
+                    catch (...) { opts.connections = 0; }
+                  }
+                  opts.outputName = trimText(g_videoRenameText);
+                  opts.dirOverride = trimText(g_videoDirText);
+                  const StartResult res = g_tasks.startVideoDownload(
+                      *g_videoDownloadInfo,
+                      g_videoDownloadInfo->formats[g_videoDownloadFormat],
+                      opts);
+                  showStatus(res.message);
+                  g_videoDownloadPending = false;
+                  if (res.ok) {
+                    g_page_view = Page::Downloads;
+                    g_filter = Filter::All;
+                  }
+                })
+                .build();
+          })
+          .build();
+    }
     if (!sel.audioUrl.empty()) {
       footerHint(tr("该画质为音视频分离流，下载完成后自动合并为 mp4",
                     "This quality uses separate A/V streams; they are merged "
