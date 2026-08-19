@@ -532,9 +532,7 @@ void startFromLines(const std::vector<std::string>& lines) {
         // 视频页 URL 检测：YouTube / bilibili 等已知站点网页不应作普通直链下载 HTML，
         // 而是在状态条提示用户用 --resolve / --video-dl。
         if (isLikelyVideoPageUrl(line)) {
-            showStatus("[警告] 视频页链接请用 --resolve 查看画质或 --video-dl 下载\n"
-                       "        tinynext --resolve <URL>\n"
-                       "        tinynext --video-dl <URL> [画质关键词]");
+            showStatus(tr("cli.video_page_warning"));
             continue;
         }
         showStatus(g_tasks.startFromUrl(line, 0).message);

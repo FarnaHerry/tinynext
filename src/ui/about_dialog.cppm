@@ -51,7 +51,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
             components::text(ui, "about.title")
                 .position(16.0f, 14.0f)
                 .size(dlgW - 32.0f, 22.0f)
-                .text(tr("关于 TinyNext", "About TinyNext"))
+                .text(tr("about.title"))
                 .fontSize(15.0f)
                 .lineHeight(22.0f)
                 .color(theme.titleText)
@@ -65,12 +65,12 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
                 std::string("EUI-NEO ") + std::string(cfg::kEuiVersion);
             struct AboutRow { const char* label; std::string value; };
             const AboutRow kAboutRows[] = {
-                {tr("应用名称", "App name"), tr("TinyNext 下载器", "TinyNext Downloader")},
-                {tr("版本", "Version"), appVersion},
-                {tr("界面框架", "UI framework"), uiVersion},
-                {tr("下载引擎", "Engine"), "aria2-next 2.5.5"},
-                {tr("网络传输", "Transport"), tr("本地 socket（无外部依赖）", "Local socket (no external deps)")},
-                {tr("构建工具", "Build tool"), "mcpp（C++23）"},
+                {tr("about.app_name"), tr("about.app_name_value")},
+                {tr("about.version"), appVersion},
+                {tr("about.ui_framework"), uiVersion},
+                {tr("about.engine"), "aria2-next 2.5.5"},
+                {tr("about.transport"), tr("about.transport_value")},
+                {tr("about.build_tool"), "mcpp（C++23）"},
             };
             float rowY = 40.0f;
             for (const auto& row : kAboutRows) {
@@ -97,7 +97,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
             components::text(ui, "about.links.header")
                 .position(16.0f, rowY + 4.0f)
                 .size(dlgW - 32.0f, 16.0f)
-                .text(tr("项目主页", "Project home"))
+                .text(tr("about.project_home"))
                 .fontSize(11.0f)
                 .lineHeight(16.0f)
                 .color(theme.statusText)
@@ -105,9 +105,9 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
 
             struct LinkRow { const char* label; const char* url; };
             const LinkRow kLinks[] = {
-                {tr("TinyNext 下载器", "TinyNext Downloader"), "https://github.com/FarnaHerry/tinynext"},
-                {tr("mcpp 构建工具", "mcpp build tool"), "https://github.com/mcpp-community/mcpp"},
-                {tr("EUI-NEO 界面框架", "EUI-NEO UI framework"), "https://github.com/sudoevolve/EUI-NEO"},
+                {tr("about.app_name_value"), "https://github.com/FarnaHerry/tinynext"},
+                {tr("about.build_tool_value"), "https://github.com/mcpp-community/mcpp"},
+                {tr("about.ui_framework_value"), "https://github.com/sudoevolve/EUI-NEO"},
             };
             float linkY = rowY + 22.0f;
             for (const auto& link : kLinks) {
@@ -126,7 +126,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
             components::button(ui, "about.close")
                 .position((dlgW - 76.0f) * 0.5f, dlgH - 30.0f)
                 .size(76.0f, 24.0f)
-                .text(tr("关闭", "Close"))
+                .text(tr("about.close"))
                 .fontSize(12.0f)
                 .theme(theme.components, true)
                 .textColor(onPrimaryColor(theme))

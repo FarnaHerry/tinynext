@@ -131,7 +131,7 @@ public:
         const std::size_t last = url.find_last_not_of(" \t\r\n");
         url = first == std::string::npos ? "" : url.substr(first, last - first + 1);
         if (url.empty()) {
-            return {false, tr("请输入下载地址", "Please enter a download URL")};
+            return {false, tr("store.enter_download_url")};
         }
 
         const bool magnet = url.starts_with("magnet:");
@@ -139,8 +139,7 @@ public:
         // 本地 .torrent 文件路径也放行（走 addTorrent）。
         const bool torrentFile = url.ends_with(".torrent") && std::filesystem::exists(url);
         if (!isDownloadableSource(url) && !torrentFile) {
-            return {false, tr("仅支持 http(s) / ftp(s) / sftp 链接、magnet: 磁力链接或本地 .torrent 文件",
-                              "Only http(s) / ftp(s) / sftp links, magnet: URIs, or local .torrent files are supported")};
+            return {false, tr("store.unsupported_source")};
         }
         // 下载目录：opts.dirOverride 覆盖（相对路径按配置目录解析）。
         std::filesystem::path dir = opts.dirOverride.empty()
@@ -164,13 +163,11 @@ public:
         if (id == 0) {
             // 引擎给不出原因（如没实现 lastError）时回退到笼统提示。
             const std::string err = engine_->lastError();
-            return {false, err.empty() ? tr("下载启动失败：引擎不可用",
-                                            "Failed to start download: engine unavailable")
-                                       : trf("下载启动失败：{}",
-                                             "Failed to start download: {}", err)};
+            return {false, err.empty() ? tr("store.dl_start_engine_unavailable")
+                                       : trf("store.dl_start_failed", err)};
         }
         stampSeq(id);
-        return {true, trf("已开始下载 #{} — {}", "Started download #{} — {}", id, name), id};
+        return {true, trf("store.dl_started", id, name), id};
     }
 
     // 兼容重载：仅 URL + 连接数（CLI / inbox 用），其余选项取默认。
@@ -204,7 +201,7 @@ public:
                  << "  userAgent=" << format.headers.userAgent << "\n"
                  << "  referer=" << format.headers.referer << "\n"
                  << "  extra count=" << format.headers.extra.size() << "\n";
-            for (size_t i = 0; i < format.headers.extra.size(); ++i)
+            for (std::size_t i = 0; i < format.headers.extra.size(); ++i)
                 dlog << "    extra[" << i << "]=" << format.headers.extra[i].substr(0, 200) << "\n";
             dlog << std::endl;
         }
@@ -226,17 +223,15 @@ public:
             const std::uint64_t id = videoMerge_.startJob(
                 *engine_, info, format, dir, baseOpts, cfg::videoConfig().keepM4sParts);
             if (id == 0) {
-                return {false, tr("视频下载启动失败：引擎不可用",
-                                  "Failed to start video download: engine unavailable")};
+                return {false, tr("store.video_start_engine_unavailable")};
             }
             stampSeq(id);
-            return {true, trf("已开始下载视频 #{} — {}", "Started video download #{} — {}", id, base), id};
+            return {true, trf("store.video_started", id, base), id};
         }
 
         // 合流单文件：直接走引擎，携带解析出的请求头（Referer/UA 防 CDN 403）。
         if (format.videoUrl.empty()) {
-            return {false, tr("该画质没有可用的视频流地址",
-                              "No playable stream URL for this quality")};
+            return {false, tr("store.no_stream_for_quality")};
         }
         dl::StartOptions opts = baseOpts;
         const std::string ext = format.ext.empty() ? "mp4" : format.ext;
@@ -254,13 +249,11 @@ public:
         const std::uint64_t id = engine_->start(format.videoUrl, dest, opts);
         if (id == 0) {
             const std::string err = engine_->lastError();
-            return {false, err.empty() ? tr("视频下载启动失败：引擎不可用",
-                                            "Failed to start video download: engine unavailable")
-                                       : trf("视频下载启动失败：{}",
-                                             "Failed to start video download: {}", err)};
+            return {false, err.empty() ? tr("store.video_start_engine_unavailable")
+                                       : trf("store.video_start_failed", err)};
         }
         stampSeq(id);
-        return {true, trf("已开始下载视频 #{} — {}", "Started video download #{} — {}", id, opts.outputName), id};
+        return {true, trf("store.video_started", id, opts.outputName), id};
     }
 
 private:

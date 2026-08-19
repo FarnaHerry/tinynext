@@ -107,10 +107,8 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
     // 预热失败（如引擎完整性校验不通过）：在 UI 线程给出具体原因。
     if (g_warmupFailed.exchange(false)) {
         const std::string err = g_tasks.lastError();
-        showStatus(err.empty() ? tr("下载引擎启动失败：历史任务未恢复",
-                                    "Engine startup failed: history not restored")
-                               : trf("下载引擎启动失败：{}",
-                                     "Engine startup failed: {}", err));
+        showStatus(err.empty() ? tr("app.startup.no_history")
+                               : trf("app.startup.failed", err));
     }
 
     // 事件驱动的杂务消费（取代旧的根 onFrame；onFrame 会让 eui 每帧强制重绘）。
@@ -205,29 +203,29 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                     drawRailItem(ui, "nav.downloads", railY, kRailWidth, 0xF03A,
                                  g_page_view == Page::Downloads, theme,
                                  [] { g_page_view = Page::Downloads; },
-                                 tr("下载列表", "Downloads"));
+                                 tr("app.tab.downloads"));
                     railY += 30.0f;
                     drawRailItem(ui, "nav.video", railY, kRailWidth, 0xF03D,  // fa-video
                                  g_page_view == Page::Video, theme,
                                  [] { g_page_view = Page::Video; },
-                                 tr("视频解析", "Video"));
+                                 tr("app.tab.video"));
                     railY += 30.0f;
                     drawRailItem(ui, "nav.settings", railY, kRailWidth, 0xF013,
                                  g_page_view == Page::Settings, theme,
                                  [] { g_page_view = Page::Settings; },
-                                 tr("设置", "Settings"));
+                                 tr("app.tab.settings"));
                     railY += 30.0f;
                     drawRailItem(ui, "nav.engine", railY, kRailWidth, 0xF233,  // fa-server
                                  g_page_view == Page::Monitor, theme,
                                  [] { g_page_view = Page::Monitor; },
-                                 tr("引擎监控", "Monitor"));
+                                 tr("app.tab.monitor"));
 
                     // 关于：信息图标（circle-info）排在导航最后一项下方，顺列排列。
                     // 左下角不再放任何东西（深色模式切换已删除，主题在设置页选）。
                     railY += 30.0f;
                     drawRailInfoButton(ui, "rail.info", (kRailWidth - 22.0f) * 0.5f,
                                        railY + 2.0f, 22.0f, 22.0f, 0xF05A,  // circle-info
-                                       kRailWidth, tr("关于", "About"), theme,
+                                       kRailWidth, tr("app.nav.about"), theme,
                                        [] { g_aboutOpen = true; });
                 })
                 .build();

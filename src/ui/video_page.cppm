@@ -74,12 +74,11 @@ void startParse() {
     return;
   const std::string url = trimText(g_videoUrlText);
   if (url.empty()) {
-    showStatus(tr("请输入视频页链接", "Please enter a video page URL"));
+    showStatus(tr("video.enter_url"));
     return;
   }
   if (!url.starts_with("http://") && !url.starts_with("https://")) {
-    showStatus(tr("视频解析仅支持 http(s) 链接",
-                  "Video parsing only supports http(s) links"));
+    showStatus(tr("video.only_https"));
     return;
   }
   g_videoError.clear();
@@ -108,7 +107,7 @@ void cancelParse() {
   if (!g_parsing.load())
     return;
   g_cancelParse.store(true);
-  showStatus(tr("正在取消…", "Canceling…"));
+  showStatus(tr("video.canceling"));
 }
 
 } // namespace
@@ -130,18 +129,17 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
       if (pending->canceled) {
         // 用户主动取消：保留上一次的解析结果/错误，仅退出解析态。
         g_videoError.clear();
-        showStatus(tr("已取消解析", "Parse canceled"));
+        showStatus(tr("video.parse_canceled"));
       } else if (pending->ok && pending->info.has_value() &&
                  !pending->info->formats.empty()) {
         g_videoInfo = std::move(*pending->info);
         g_videoError.clear();
         g_selectedFormat = defaultFormatIndex(*g_videoInfo);
-        showStatus(trf("解析成功：{}", "Resolved: {}", g_videoInfo->title));
+        showStatus(trf("video.parse_ok", g_videoInfo->title));
       } else {
         g_videoInfo.reset();
         g_videoError =
-            pending->ok ? std::string(tr("未找到可下载的视频流",
-                                         "No downloadable video streams found"))
+            pending->ok ? std::string(tr("video.no_streams"))
                         : pending->error;
       }
     }
@@ -191,7 +189,7 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
   components::text(ui, "video.title")
       .position(contentX, islandTop + pad)
       .size(contentW, 18.0f)
-      .text(tr("视频解析", "Video parser"))
+      .text(tr("app.tab.video"))
       .fontSize(13.0f)
       .lineHeight(18.0f)
       .color(theme.titleText)
@@ -206,8 +204,7 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
   components::input(ui, "video.url")
       .position(contentX, urlY)
       .size(contentW - btnRowW - 10.0f, kInputHeight)
-      .placeholder(tr("粘贴 YouTube / bilibili 等视频页链接…",
-                      "Paste a YouTube / bilibili / other video page URL…"))
+      .placeholder(tr("video.url_placeholder"))
       .value(g_videoUrlText)
       .fontFamily("") // 用应用字体（Noto Sans SC）
       .theme(tokens)
@@ -220,7 +217,7 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
     components::button(ui, "video.parse")
         .position(contentX + contentW - btnRowW, urlY)
         .size(parseBtnW, kInputHeight)
-        .text(tr("解析中…", "Parsing…"))
+        .text(tr("video.parsing"))
         .fontSize(12.0f)
         .theme(tokens, true)
         .textColor(onPrimaryColor(theme))
@@ -230,7 +227,7 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
     components::button(ui, "video.cancel")
         .position(contentX + contentW - parseBtnW, urlY)
         .size(parseBtnW, kInputHeight)
-        .text(tr("取消", "Cancel"))
+        .text(tr("dl.cancel"))
         .fontSize(12.0f)
         .theme(tokens, true)
         .textColor(onPrimaryColor(theme))
@@ -241,7 +238,7 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
     components::button(ui, "video.parse")
         .position(contentX + contentW - parseBtnW, urlY)
         .size(parseBtnW, kInputHeight)
-        .text(tr("解析", "Parse"))
+        .text(tr("video.parse_btn"))
         .fontSize(12.0f)
         .theme(tokens, true)
         .textColor(onPrimaryColor(theme))
@@ -257,14 +254,12 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
     components::text(ui, "video.parsing")
         .position(contentX, statusY)
         .size(contentW, 16.0f)
-        .text(tr("正在解析…（解析器首次启动较慢，最长约 60 秒）",
-                 "Parsing… (the parser can take up to ~60s on first run)"))
+        .text(tr("video.parsing_slow"))
         .fontSize(11.0f)
         .lineHeight(16.0f)
         .color(theme.metaText)
         .build();
-    footerHint(tr("支持 YouTube / bilibili 等站点（yt-dlp 驱动）",
-                  "Supports YouTube / bilibili and more (yt-dlp)"));
+    footerHint(tr("video.supports_hint"));
   } else if (!g_videoError.empty()) {
     components::text(ui, "video.error")
         .position(contentX, statusY)
@@ -301,14 +296,14 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
     for (const auto &f : info.formats) {
       std::string label = f.label.empty()
                               ? (f.height > 0 ? std::to_string(f.height) + "P"
-                                              : tr("未知画质", "Unknown"))
+                                              : tr("video.unknown_quality"))
                               : f.label;
       label += " · " + (f.ext.empty() ? std::string("mp4") : f.ext);
       if (f.filesizeApprox > 0) {
         label += " · ~" + formatBytes(f.filesizeApprox);
       }
       if (!f.audioUrl.empty()) {
-        label += tr(" · 需合并", " · merge");
+        label += tr("video.needs_merge_tag");
       }
       labelStorage.push_back(fitSingleLine(std::move(label), 184.0f, 11.0f));
       labels.push_back(labelStorage.back().c_str());
@@ -322,7 +317,7 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
     components::text(ui, "video.quality.caption")
         .position(contentX, qualityY)
         .size(40.0f, kInputHeight)
-        .text(tr("画质", "Quality"))
+        .text(tr("video.quality"))
         .fontSize(12.0f)
         .lineHeight(kInputHeight)
         .color(theme.metaText)
@@ -345,7 +340,7 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
     components::button(ui, "video.download")
         .position(contentX + contentW - dlBtnW, qualityY)
         .size(dlBtnW, kInputHeight)
-        .text(tr("下载", "Download"))
+        .text(tr("settings.tab.download"))
         .fontSize(12.0f)
         .theme(tokens, true)
         .textColor(onPrimaryColor(theme))
@@ -400,7 +395,7 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
             components::text(ui, "video.opt.title")
                 .position(p, y)
                 .size(cw, 20.0f)
-                .text(tr("视频下载选项", "Video download options"))
+                .text(tr("video.download_options"))
                 .fontSize(14.0f)
                 .lineHeight(20.0f)
                 .color(theme.titleText)
@@ -410,7 +405,7 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
             components::text(ui, "video.opt.conn.label")
                 .position(p, y)
                 .size(80.0f, kInputHeight)
-                .text(tr("连接数", "Connections"))
+                .text(tr("video.connections"))
                 .fontSize(12.0f)
                 .lineHeight(kInputHeight)
                 .color(theme.metaText)
@@ -429,7 +424,7 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
             components::text(ui, "video.opt.rename.label")
                 .position(p, y)
                 .size(80.0f, kInputHeight)
-                .text(tr("重命名", "Rename"))
+                .text(tr("dl.rename"))
                 .fontSize(12.0f)
                 .lineHeight(kInputHeight)
                 .color(theme.metaText)
@@ -448,7 +443,7 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
             components::text(ui, "video.opt.dir.label")
                 .position(p, y)
                 .size(80.0f, kInputHeight)
-                .text(tr("目录", "Dir"))
+                .text(tr("video.dir"))
                 .fontSize(12.0f)
                 .lineHeight(kInputHeight)
                 .color(theme.metaText)
@@ -457,7 +452,7 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
                 .position(p + 84.0f, y)
                 .size(cw - 84.0f, kInputHeight)
                 .value(g_videoDirText)
-                .placeholder(tr("空 = 默认下载目录", "Empty = default download directory"))
+                .placeholder(tr("video.dir_default_hint"))
                 .fontSize(12.0f)
                 .theme(tokens)
                 .fontFamily("")
@@ -468,7 +463,7 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
             components::button(ui, "video.opt.cancel")
                 .position(p, y)
                 .size(80.0f, 28.0f)
-                .text(tr("取消", "Cancel"))
+                .text(tr("dl.cancel"))
                 .fontSize(12.0f)
                 .theme(tokens, true)
                 .textColor(onPrimaryColor(theme))
@@ -478,7 +473,7 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
             components::button(ui, "video.opt.confirm")
                 .position(p + cw - 80.0f, y)
                 .size(80.0f, 28.0f)
-                .text(tr("确认下载", "Download"))
+                .text(tr("video.download_btn"))
                 .fontSize(12.0f)
                 .theme(tokens, true)
                 .textColor(onPrimaryColor(theme))
@@ -507,34 +502,24 @@ export void drawVideoPage(eui::Ui &ui, const eui::Screen &screen,
           .build();
     }
     if (!sel.audioUrl.empty()) {
-      footerHint(tr("该画质为音视频分离流，下载完成后自动合并为 mp4",
-                    "This quality uses separate A/V streams; they are merged "
-                    "into mp4 after download"));
+      footerHint(tr("video.dash_merge_hint"));
     } else if (isBilibili && cfg::videoConfig().bilibiliCookie.empty()) {
       footerHint(
-          tr("1080P+ / 会员画质需在「设置 → 视频」填写 bilibili SESSDATA",
-             "1080p+ / member quality needs a bilibili SESSDATA in Settings → "
-             "Video"));
+          tr("video.bili_member_hint"));
     } else {
-      footerHint(tr("支持 YouTube / bilibili 等站点（yt-dlp 驱动）",
-                    "Supports YouTube / bilibili and more (yt-dlp)"));
+      footerHint(tr("video.supports_hint"));
     }
   } else if (!parsing && g_videoError.empty()) {
     // 空状态引导。
     components::text(ui, "video.guide")
         .position(contentX, statusY)
         .size(contentW, 16.0f)
-        .text(tr("粘贴视频页链接后点击「解析」。支持 YouTube / bilibili "
-                 "等（yt-dlp 驱动）",
-                 "Paste a video page URL and hit Parse. Supports YouTube / "
-                 "bilibili and more (yt-dlp)"))
+        .text(tr("video.paste_hint"))
         .fontSize(11.0f)
         .lineHeight(16.0f)
         .color(theme.metaText)
         .build();
     footerHint(
-        tr("DASH 音视频分离自动合并为 mp4；高画质可能需要站点登录 cookie",
-           "DASH A/V streams auto-merge to mp4; high quality may need site "
-           "login cookies"));
+        tr("video.dash_auto_merge_long"));
   }
 }

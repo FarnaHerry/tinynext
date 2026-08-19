@@ -217,7 +217,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             components::text(ui, "settings.sub.label")
                 .position(9.0f, 10.0f)
                 .size(kSubSidebarWidth - 18.0f, 18.0f)
-                .text(tr("配置", "Settings"))
+                .text(tr("settings.title"))
                 .fontSize(13.0f)
                 .lineHeight(18.0f)
                 .color(theme.titleText)
@@ -227,13 +227,13 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             // 对齐 MotrixNext 的设置分组（ed2k 由 aria2-next 原生支持）。
             // label 走 tr()，id 独立于语言，保证 eui 元素 id 稳定唯一。
             const TabItem kTabs[] = {
-                {tr("通用", "General"), "general", 0xF013, SettingsTab::General},
-                {tr("下载", "Download"), "download", 0xF0AC, SettingsTab::Download},
-                {tr("视频", "Video"), "video", 0xF03D, SettingsTab::Video},
-                {tr("BitTorrent", "BitTorrent"), "bittorrent", 0xF0E7, SettingsTab::BitTorrent},
-                {tr("ED2K", "ED2K"), "ed2k", 0xF0C0, SettingsTab::Ed2k},
-                {tr("网络", "Network"), "network", 0xF0D7, SettingsTab::Network},
-                {tr("高级", "Advanced"), "advanced", 0xF085, SettingsTab::Advanced},
+                {tr("settings.tab.general"), "general", 0xF013, SettingsTab::General},
+                {tr("settings.tab.download"), "download", 0xF0AC, SettingsTab::Download},
+                {tr("settings.tab.video"), "video", 0xF03D, SettingsTab::Video},
+                {tr("settings.tab.bittorrent"), "bittorrent", 0xF0E7, SettingsTab::BitTorrent},
+                {tr("settings.tab.ed2k"), "ed2k", 0xF0C0, SettingsTab::Ed2k},
+                {tr("settings.tab.network"), "network", 0xF0D7, SettingsTab::Network},
+                {tr("settings.tab.advanced"), "advanced", 0xF085, SettingsTab::Advanced},
             };
             const float itemW = kSubSidebarWidth - 12.0f;
             float itemY = 28.0f;
@@ -252,7 +252,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     components::text(ui, "settings.title")
         .position(infoX, titleY)
         .size(innerW, 24.0f)
-        .text(tr("设置", "Settings"))
+        .text(tr("app.tab.settings"))
         .fontSize(17.0f)
         .lineHeight(24.0f)
         .color(theme.titleText)
@@ -352,7 +352,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 components::text(r, "st.theme.label")
                     .position(0, 0)
                     .size(kLabelW, kFieldH)
-                    .text(tr("主题", "Theme"))
+                    .text(tr("settings.theme"))
                     .fontSize(12.0f)
                     .lineHeight(kFieldH)
                     .color(theme.metaText)
@@ -363,9 +363,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .zIndex(30)
                     .content([&] {
                         const char* themeLabels[] = {
-                            tr("跟随系统", "Follow system"),
-                            tr("深色", "Dark"),
-                            tr("浅色", "Light"),
+                            tr("settings.theme.system"),
+                            tr("settings.theme.dark"),
+                            tr("settings.theme.light"),
                         };
                         buildListPicker(r, "theme", 90.0f, 26.0f, theme,
                                         g_themeOpen, themeLabels, 3,
@@ -381,7 +381,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 components::text(r, "st.close.tray.label")
                     .position(0, 0)
                     .size(kLabelW, kFieldH)
-                    .text(tr("关闭时缩到托盘", "Close to tray"))
+                    .text(tr("settings.close_to_tray"))
                     .fontSize(11.0f)
                     .lineHeight(kFieldH)
                     .color(theme.metaText)
@@ -396,7 +396,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 components::text(r, "st.lang.label")
                     .position(0, 0)
                     .size(kLabelW, kFieldH)
-                    .text(tr("语言", "Language"))
+                    .text(tr("settings.language"))
                     .fontSize(12.0f)
                     .lineHeight(kFieldH)
                     .color(theme.metaText)
@@ -407,13 +407,15 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .zIndex(30)
                     .content([&] {
                         // 语言名按本族语言显示，不随 UI 语言翻译。
-                        const char* langLabels[] = {"中文", "English"};
+                        const char* langLabels[] = {"简体中文", "繁體中文", "English"};
                         buildListPicker(r, "lang", 90.0f, 26.0f, theme,
-                                        g_langOpen, langLabels, 2,
-                                        g_lang == cfg::Lang::En ? 1 : 0, false,
-                                        PickerField::Text,
+                                        g_langOpen, langLabels, 3,
+                                        g_lang == cfg::Lang::ZhTW ? 1
+                                            : g_lang == cfg::Lang::En ? 2 : 0,
+                                        false, PickerField::Text,
                                         [](int i) {
-                                            setLanguage(i == 1 ? cfg::Lang::En : cfg::Lang::Zh);
+                                            setLanguage(i == 2 ? cfg::Lang::En
+                                                : i == 1 ? cfg::Lang::ZhTW : cfg::Lang::ZhCN);
                                         });
                     })
                     .build();
@@ -428,7 +430,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     components::text(r, "st.path.label")
                         .position(0, 0)
                         .size(kLabelW, kFieldH)
-                        .text(tr("下载路径", "Download path"))
+                        .text(tr("settings.download_path"))
                         .fontSize(12.0f)
                         .lineHeight(kFieldH)
                         .color(theme.metaText)
@@ -438,7 +440,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     components::input(r, "st.path.input")
                         .position(kLabelW, -2.0f)
                         .size(pathInputW, 26.0f)
-                        .placeholder(tr("下载保存目录", "Download directory"))
+                        .placeholder(tr("settings.download_dir_placeholder"))
                         .value(g_downloadDirText)
                         .fontFamily("")
                         .theme(theme.components)
@@ -447,7 +449,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     components::button(r, "st.path.browse")
                         .position(kLabelW + pathInputW + 8.0f, -2.0f)
                         .size(60.0f, 26.0f)
-                        .text(tr("浏览…", "Browse…"))
+                        .text(tr("dl.browse"))
                         .fontSize(12.0f)
                         .theme(theme.components, false)
                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -461,12 +463,12 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .build();
                 });
                 row("a.split", kFieldH, [&](eui::Ui& r, float) {
-                    numericField(r, "a.split", tr("分片数", "Splits"), 0, kInputW, g_aria2SplitText,
+                    numericField(r, "a.split", tr("dl.splits"), 0, kInputW, g_aria2SplitText,
                                  [](const std::string& v) { g_aria2SplitText = v; },
                                  1, 64, 1);
                 });
                 row("a.conn", kFieldH, [&](eui::Ui& r, float) {
-                    numericField(r, "a.conn", tr("每服务器连接", "Conn per server"), 0, kInputW, g_aria2ConnText,
+                    numericField(r, "a.conn", tr("settings.conn_per_server"), 0, kInputW, g_aria2ConnText,
                                  [](const std::string& v) { g_aria2ConnText = v; },
                                  1, 64, 1);
                 });
@@ -476,7 +478,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     components::text(r, "st.a.minsplit.label")
                         .position(0, 0)
                         .size(kLabelW, kFieldH)
-                        .text(tr("最小分片", "Min split"))
+                        .text(tr("settings.min_split"))
                         .fontSize(11.0f)
                         .lineHeight(kFieldH)
                         .color(theme.metaText)
@@ -509,13 +511,13 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .build();
                 }, 100);  // 行 zIndex：让弹出下拉盖过后面各行
                 row("a.limit", kFieldH, [&](eui::Ui& r, float) {
-                    numericField(r, "a.limit", tr("每任务限速KB/s", "Per-task limit KB/s"), 0, kInputW, g_aria2LimitText,
+                    numericField(r, "a.limit", tr("settings.per_task_limit_kbs"), 0, kInputW, g_aria2LimitText,
                                  [](const std::string& v) { g_aria2LimitText = v; },
                                  0, 1000000, 100);
                 });
                 // 全局限速 / 文件分配：各占一行（daemon 级，重启生效）。
                 row("beh.overall", kFieldH, [&](eui::Ui& r, float) {
-                    numericField(r, "beh.overall", tr("全局限速KB/s", "Global limit KB/s"), 0, kInputW,
+                    numericField(r, "beh.overall", tr("settings.global_limit_kbs"), 0, kInputW,
                                  g_overallLimitText,
                                  [](const std::string& v) { g_overallLimitText = v; },
                                  0, 1000000, 100);
@@ -524,7 +526,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     components::text(r, "st.beh.allocation.label")
                         .position(0, 0)
                         .size(kLabelW, kFieldH)
-                        .text(tr("文件分配", "File allocation"))
+                        .text(tr("settings.file_allocation"))
                         .fontSize(11.0f)
                         .lineHeight(kFieldH)
                         .color(theme.metaText)
@@ -535,7 +537,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .zIndex(30)
                         .content([&] {
                             const char* allocLabels[] = {
-                                tr("默认", "Default"), "none", "trunc", "falloc"
+                                tr("settings.file_alloc_default"), "none", "trunc", "falloc"
                             };
                             buildListPicker(r, "beh.allocation", 84.0f, 26.0f, theme,
                                             g_fileAllocationOpen, allocLabels, 4,
@@ -548,25 +550,25 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .build();
                 }, 100);  // 行 zIndex：文件分配下拉展开时盖过后面各行
                 row("a.concurrent", kFieldH, [&](eui::Ui& r, float) {
-                    numericField(r, "a.concurrent", tr("最大同时下载数", "Max concurrent"), 0, kInputW,
+                    numericField(r, "a.concurrent", tr("settings.max_concurrent"), 0, kInputW,
                                  g_maxConcurrentText,
                                  [](const std::string& v) { g_maxConcurrentText = v; },
                                  1, 64, 1);
                 });
                 row("a.maxtries", kFieldH, [&](eui::Ui& r, float) {
-                    numericField(r, "a.maxtries", tr("最大重试次数", "Max retries"), 0, kInputW, g_maxTriesText,
+                    numericField(r, "a.maxtries", tr("settings.max_retries"), 0, kInputW, g_maxTriesText,
                                  [](const std::string& v) { g_maxTriesText = v; },
                                  0, 100, 1);
                 });
                 row("a.retrywait", kFieldH, [&](eui::Ui& r, float) {
-                    numericField(r, "a.retrywait", tr("重试等待秒", "Retry wait (s)"), 0, kInputW, g_retryWaitText,
+                    numericField(r, "a.retrywait", tr("settings.retry_wait"), 0, kInputW, g_retryWaitText,
                                  [](const std::string& v) { g_retryWaitText = v; },
                                  0, 600, 1);
                 });
                 row("a.diskcache", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "a.diskcache", tr("磁盘缓存", "Disk cache"), 0, fullW, g_diskCacheText,
+                    field(r, "a.diskcache", tr("settings.disk_cache"), 0, fullW, g_diskCacheText,
                           [](const std::string& v) { g_diskCacheText = v; },
-                          tr("如 16M，空=aria2 默认", "e.g. 16M, empty = aria2 default"));
+                          tr("settings.disk_cache_hint"));
                 });
             }  // 下载 tab 结束
 
@@ -575,31 +577,29 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 row("video.cookie", kFieldH, [&](eui::Ui& r, float) {
                     field(r, "video.cookie", "SESSDATA", 0, fullW, g_videoCookieText,
                           [](const std::string& v) { g_videoCookieText = v; },
-                          tr("bilibili Cookie 的 SESSDATA 值；空=匿名画质",
-                             "bilibili SESSDATA cookie; empty = anonymous quality"));
+                          tr("settings.bili_cookie_hint"));
                 });
                 row("video.cookie.hint", 18.0f, [&](eui::Ui& r, float w) {
                     components::text(r, "st.video.cookie.hint")
                         .position(kLabelW, 0)
                         .size(std::max(160.0f, w - 16.0f - kLabelW), 18.0f)
-                        .text(tr("获取：登录 bilibili → F12 → 应用 → Cookies → SESSDATA",
-                                 "How: log in to bilibili → F12 → Application → Cookies → SESSDATA"))
+                        .text(tr("settings.bili_cookie_how"))
                         .fontSize(10.0f)
                         .lineHeight(18.0f)
                         .color(theme.metaText)
                         .build();
                 });
                 row("video.quality", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "video.quality", tr("默认画质", "Default quality"), 0, fullW,
+                    field(r, "video.quality", tr("settings.default_quality"), 0, fullW,
                           g_videoQualityText,
                           [](const std::string& v) { g_videoQualityText = v; },
-                          tr("如 1080；空=自动选最高", "e.g. 1080; empty = best available"));
+                          tr("settings.quality_hint"));
                 });
                 row("video.keep", kFieldH, [&](eui::Ui& r, float) {
                     components::text(r, "st.video.keep.label")
                         .position(0, 0)
                         .size(kLabelW, kFieldH)
-                        .text(tr("保留音视频分片", "Keep .m4s parts"))
+                        .text(tr("settings.keep_m4s"))
                         .fontSize(11.0f)
                         .lineHeight(kFieldH)
                         .color(theme.metaText)
@@ -609,25 +609,24 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                       [](bool v) { g_videoKeepParts = v; });
                 });
                 row("video.jsruntime", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "video.jsruntime", tr("JS 运行时", "JS runtime"), 0, fullW,
+                    field(r, "video.jsruntime", tr("settings.js_runtime"), 0, fullW,
                           g_videoJsRuntimeText,
                           [](const std::string& v) { g_videoJsRuntimeText = v; },
-                          tr("node/deno/quickjs/bun；空=自动检测（解 YouTube 用）",
-                             "node/deno/quickjs/bun; empty = auto-detect (for YouTube)"));
+                          tr("settings.js_runtime_hint"));
                 });
             }  // 视频 tab 结束
 
             // ============== 网络 tab（代理 / UA / Referer / 请求头 / Cookie）==============
             if (g_settingsTab == SettingsTab::Network) {
                 row("a.proxy", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "a.proxy", tr("代理地址", "Proxy"), 0, fullW, g_proxyText,
+                    field(r, "a.proxy", tr("settings.proxy"), 0, fullW, g_proxyText,
                           [](const std::string& v) { g_proxyText = v; },
                           "http://user:pass@host:port");
                 });
                 row("a.noproxy", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "a.noproxy", tr("不使用代理", "No proxy"), 0, fullW, g_noProxyText,
+                    field(r, "a.noproxy", tr("settings.no_proxy"), 0, fullW, g_noProxyText,
                           [](const std::string& v) { g_noProxyText = v; },
-                          tr("host1,host2（逗号分隔）", "host1,host2 (comma separated)"));
+                          tr("settings.no_proxy_hint"));
                 });
                 row("a.ua", kFieldH, [&](eui::Ui& r, float) {
                     field(r, "a.ua", "User-Agent", 0, fullW, g_userAgentText,
@@ -642,7 +641,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     components::text(r, "st.http.headers.label")
                         .position(0, 0)
                         .size(kLabelW, 52.0f)
-                        .text(tr("请求头", "Headers"))
+                        .text(tr("settings.headers"))
                         .fontSize(11.0f)
                         .lineHeight(52.0f)
                         .color(theme.metaText)
@@ -651,7 +650,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .position(kLabelW, -2.0f)
                         .size(std::max(160.0f, w - 16.0f - kLabelW - 8.0f), 52.0f)
                         .multiline(true)
-                        .placeholder(tr("每行一个，如：Authorization: Bearer xxx", "One per line, e.g. Authorization: Bearer xxx"))
+                        .placeholder(tr("settings.headers_hint"))
                         .value(g_headerText)
                         .fontFamily("")
                         .theme(theme.components)
@@ -659,14 +658,14 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .build();
                 });
                 row("http.loadcookie", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "http.loadcookie", tr("Cookie文件", "Cookie file"), 0, fullW, g_loadCookiesText,
+                    field(r, "http.loadcookie", tr("settings.cookie_file"), 0, fullW, g_loadCookiesText,
                           [](const std::string& v) { g_loadCookiesText = v; },
-                          tr("netscape 格式路径；空=不加载", "netscape format path; empty = don't load"));
+                          tr("settings.cookie_file_hint"));
                 });
                 row("http.savecookie", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "http.savecookie", tr("保存Cookie", "Save cookies"), 0, fullW, g_saveCookiesText,
+                    field(r, "http.savecookie", tr("settings.save_cookies"), 0, fullW, g_saveCookiesText,
                           [](const std::string& v) { g_saveCookiesText = v; },
-                          tr("保存到该文件；空=不保存", "Save to this file; empty = don't save"));
+                          tr("settings.save_cookies_hint"));
                 });
             }  // 网络 tab 结束
 
@@ -683,31 +682,31 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .build();
                 });
                 row("bt.seedtime", kFieldH, [&](eui::Ui& r, float) {
-                    numericField(r, "bt.seedtime", tr("做种时间秒", "Seed time (s)"), 0, kInputW, g_seedTimeText,
+                    numericField(r, "bt.seedtime", tr("settings.seed_time"), 0, kInputW, g_seedTimeText,
                                  [](const std::string& v) { g_seedTimeText = v; },
                                  0, 100000, 60);
                 });
                 row("bt.maxpeers", kFieldH, [&](eui::Ui& r, float) {
-                    numericField(r, "bt.maxpeers", tr("最大Peers", "Max peers"), 0, kInputW,
+                    numericField(r, "bt.maxpeers", tr("settings.max_peers"), 0, kInputW,
                                  g_btMaxPeersText,
                                  [](const std::string& v) { g_btMaxPeersText = v; },
                                  0, 10000, 10);
                 });
                 row("bt.seedratio", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "bt.seedratio", tr("做种比率", "Seed ratio"), 0, fullW, g_seedRatioText,
+                    field(r, "bt.seedratio", tr("settings.seed_ratio"), 0, fullW, g_seedRatioText,
                           [](const std::string& v) { g_seedRatioText = v; },
-                          tr("如 1.0；空=不限", "e.g. 1.0; empty = unlimited"));
+                          tr("settings.seed_ratio_hint"));
                 });
                 row("bt.port", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "bt.port", tr("监听端口", "Listen port"), 0, fullW, g_listenPortText,
+                    field(r, "bt.port", tr("settings.listen_port"), 0, fullW, g_listenPortText,
                           [](const std::string& v) { g_listenPortText = v; },
-                          tr("如 6881-6999；空=默认", "e.g. 6881-6999; empty = default"));
+                          tr("settings.listen_port_hint"));
                 });
                 row("bt.lpd", kFieldH, [&](eui::Ui& r, float) {
                     components::text(r, "st.bt.lpd.label")
                         .position(0, 0)
                         .size(kLabelW, kFieldH)
-                        .text(tr("局域网发现", "Local peer discovery"))
+                        .text(tr("settings.lpd"))
                         .fontSize(11.0f)
                         .lineHeight(kFieldH)
                         .color(theme.metaText)
@@ -721,7 +720,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     components::text(r, "st.bt.tracker.label")
                         .position(0, 0)
                         .size(kLabelW, 52.0f)
-                        .text(tr("Tracker", "Trackers"))
+                        .text(tr("settings.tracker"))
                         .fontSize(11.0f)
                         .lineHeight(52.0f)
                         .color(theme.metaText)
@@ -730,8 +729,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .position(kLabelW, -2.0f)
                         .size(std::max(160.0f, w - 16.0f - kLabelW - 8.0f), 52.0f)
                         .multiline(true)
-                        .placeholder(tr("每行一个 tracker，全局作用于磁力/BT 任务",
-                                        "One tracker per line, applies to all magnet/BT tasks"))
+                        .placeholder(tr("settings.tracker_hint"))
                         .value(g_btTrackerText)
                         .fontFamily("")
                         .theme(theme.components)
@@ -746,29 +744,29 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     components::text(r, "st.ed2k.header")
                         .position(0, 0)
                         .size(w, 18.0f)
-                        .text(tr("ED2K（电驴）", "ED2K (eMule)"))
+                        .text(tr("settings.ed2k_section"))
                         .fontSize(11.0f)
                         .lineHeight(18.0f)
                         .color(theme.statusText)
                         .build();
                 });
                 row("ed2k.listen", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "ed2k.listen", tr("监听端口TCP", "Listen TCP"), 0, kInputW, g_ed2kListenPortText,
+                    field(r, "ed2k.listen", tr("settings.ed2k_listen_tcp"), 0, kInputW, g_ed2kListenPortText,
                           [](const std::string& v) { g_ed2kListenPortText = v; },
-                          tr("空=默认 4662", "empty = default 4662"));
+                          tr("settings.ed2k_tcp_default"));
                 });
                 row("ed2k.udp", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "ed2k.udp", tr("UDP端口", "UDP port"), 0, kInputW, g_ed2kUdpPortText,
+                    field(r, "ed2k.udp", tr("settings.ed2k_udp_port"), 0, kInputW, g_ed2kUdpPortText,
                           [](const std::string& v) { g_ed2kUdpPortText = v; },
-                          tr("空=默认 4672", "empty = default 4672"));
+                          tr("settings.ed2k_udp_default"));
                 });
                 row("ed2k.servers", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "ed2k.servers", tr("ED2K服务器", "ED2K servers"), 0, fullW, g_ed2kServersText,
+                    field(r, "ed2k.servers", tr("settings.ed2k_servers"), 0, fullW, g_ed2kServersText,
                           [](const std::string& v) { g_ed2kServersText = v; },
-                          tr("host:port,host:port（逗号分隔）；空=默认", "host:port,host:port (comma separated); empty = default"));
+                          tr("settings.ed2k_servers_hint"));
                 });
                 row("ed2k.slots", kFieldH, [&](eui::Ui& r, float) {
-                    numericField(r, "ed2k.slots", tr("上传槽位", "Upload slots"), 0, kInputW,
+                    numericField(r, "ed2k.slots", tr("settings.ed2k_upload_slots"), 0, kInputW,
                                  g_ed2kUploadSlotsText,
                                  [](const std::string& v) { g_ed2kUploadSlotsText = v; },
                                  0, 100, 1);
@@ -781,7 +779,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     components::text(r, "st.file.header")
                         .position(0, 0)
                         .size(w, 18.0f)
-                        .text(tr("文件处理", "File handling"))
+                        .text(tr("settings.file_handling"))
                         .fontSize(11.0f)
                         .lineHeight(18.0f)
                         .color(theme.statusText)
@@ -791,7 +789,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     components::text(r, "st.beh.rename.label")
                         .position(0, 0)
                         .size(kLabelW, kFieldH)
-                        .text(tr("自动改名", "Auto rename"))
+                        .text(tr("settings.auto_rename"))
                         .fontSize(11.0f)
                         .lineHeight(kFieldH)
                         .color(theme.metaText)
@@ -804,7 +802,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     components::text(r, "st.beh.overwrite.label")
                         .position(0, 0)
                         .size(kLabelW, kFieldH)
-                        .text(tr("允许覆盖", "Allow overwrite"))
+                        .text(tr("settings.allow_overwrite"))
                         .fontSize(11.0f)
                         .lineHeight(kFieldH)
                         .color(theme.metaText)
@@ -817,7 +815,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     components::text(r, "st.a.remctrl.label")
                         .position(0, 0)
                         .size(kLabelW, kFieldH)
-                        .text(tr("移除控制文件", "Remove control file"))
+                        .text(tr("settings.remove_control_file"))
                         .fontSize(11.0f)
                         .lineHeight(kFieldH)
                         .color(theme.metaText)
@@ -827,16 +825,16 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                       [](bool v) { g_removeControlFile = v; });
                 });
                 row("a.oncomplete", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "a.oncomplete", tr("完成后命令", "On-complete command"), 0, fullW, g_onCompleteText,
+                    field(r, "a.oncomplete", tr("settings.on_complete"), 0, fullW, g_onCompleteText,
                           [](const std::string& v) { g_onCompleteText = v; },
-                          tr("命令 参数（aria2 追加 GID/文件数/路径）", "command args (aria2 appends GID/file count/path)"));
+                          tr("settings.on_complete_args"));
                 });
 
                 row("chk.header", 18.0f, [&](eui::Ui& r, float w) {
                     components::text(r, "st.chk.header")
                         .position(0, 0)
                         .size(w, 18.0f)
-                        .text(tr("完整性校验", "Integrity check"))
+                        .text(tr("settings.integrity_check"))
                         .fontSize(11.0f)
                         .lineHeight(18.0f)
                         .color(theme.statusText)
@@ -846,7 +844,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     components::text(r, "st.chk.integrity.label")
                         .position(0, 0)
                         .size(kLabelW, kFieldH)
-                        .text(tr("检查完整性", "Check integrity"))
+                        .text(tr("settings.check_integrity"))
                         .fontSize(11.0f)
                         .lineHeight(kFieldH)
                         .color(theme.metaText)
@@ -856,9 +854,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                       [](bool v) { g_checkIntegrity = v; });
                 });
                 row("chk.checksum", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "chk.checksum", tr("校验和", "Checksum"), 0, fullW, g_checksumText,
+                    field(r, "chk.checksum", tr("settings.checksum"), 0, fullW, g_checksumText,
                           [](const std::string& v) { g_checksumText = v; },
-                          tr("如 sha-1=<hex>", "e.g. sha-1=<hex>"));
+                          tr("settings.checksum_hint"));
                 });
             }  // 高级 tab 结束
         })
@@ -868,7 +866,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     components::button(ui, "settings.path.reset")
         .position(infoX + kLabelW, actionY)
         .size(76.0f, 26.0f)
-        .text(tr("恢复默认", "Reset"))
+        .text(tr("settings.reset"))
         .fontSize(12.0f)
         .theme(theme.components, false)
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -918,14 +916,14 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_videoQualityText = vd.defaultQuality;
             g_videoKeepParts = vd.keepM4sParts;
             g_videoJsRuntimeText = vd.jsRuntime;
-            showStatus(tr("已恢复默认（点「保存」生效）", "Defaults restored (click Save to apply)"));
+            showStatus(tr("settings.reset_done"));
         })
         .build();
 
     components::button(ui, "settings.save")
         .position(infoX + kLabelW + 8.0f + 76.0f, actionY)
         .size(76.0f, 26.0f)
-        .text(tr("保存", "Save"))
+        .text(tr("settings.save"))
         .fontSize(12.0f)
         .theme(theme.components, true)
         .textColor(onPrimaryColor(theme))
@@ -933,7 +931,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         .onClick([] {
             const std::string t = trimText(g_downloadDirText);
             if (t.empty()) {
-                showStatus(tr("下载路径不能为空", "Download path cannot be empty"));
+                showStatus(tr("settings.download_path_empty"));
                 return;
             }
             g_downloadDirText = t;
@@ -944,18 +942,18 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                    const char* label, int& out) -> bool {
                 const std::string s = trimText(text);
                 if (s.empty()) {
-                    showStatus(trf("{} 不能为空", "{} cannot be empty", label));
+                    showStatus(trf("settings.field_empty", label));
                     return false;
                 }
                 int v = 0;
                 try {
                     v = std::stoi(s);
                 } catch (...) {
-                    showStatus(trf("{} 必须是整数", "{} must be an integer", label));
+                    showStatus(trf("settings.field_not_int", label));
                     return false;
                 }
                 if (v < lo || v > hi) {
-                    showStatus(trf("{} 需在 {}~{} 之间", "{} must be between {}~{}", label, lo, hi));
+                    showStatus(trf("settings.field_range", label, lo, hi));
                     return false;
                 }
                 out = v;
@@ -964,31 +962,31 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
 
             int splitV = 0, connV = 0, minSplitV = 0, limitV = 0,
                 maxTriesV = 0, retryWaitV = 0, concurrentV = 0;
-            if (!validateInt(g_aria2SplitText, 1, 64, tr("分片数", "Splits"), splitV)) return;
-            if (!validateInt(g_aria2ConnText, 1, 64, tr("每服务器连接", "Conn per server"), connV)) return;
+            if (!validateInt(g_aria2SplitText, 1, 64, tr("dl.splits"), splitV)) return;
+            if (!validateInt(g_aria2ConnText, 1, 64, tr("settings.conn_per_server"), connV)) return;
             if (!validateInt(g_aria2MinSplitText, 1, minSplitMax(g_aria2MinSplitUnit),
-                             tr("最小分片", "Min split"), minSplitV)) return;
-            if (!validateInt(g_aria2LimitText, 0, 1000000, tr("限速KB/s", "limit KB/s"), limitV)) return;
-            if (!validateInt(g_maxTriesText, 0, 100, tr("最大重试次数", "Max retries"), maxTriesV)) return;
-            if (!validateInt(g_retryWaitText, 0, 600, tr("重试等待秒", "Retry wait (s)"), retryWaitV)) return;
-            if (!validateInt(g_maxConcurrentText, 1, 64, tr("最大同时下载数", "Max concurrent"), concurrentV)) return;
+                             tr("settings.min_split"), minSplitV)) return;
+            if (!validateInt(g_aria2LimitText, 0, 1000000, tr("settings.limit_kbs"), limitV)) return;
+            if (!validateInt(g_maxTriesText, 0, 100, tr("settings.max_retries"), maxTriesV)) return;
+            if (!validateInt(g_retryWaitText, 0, 600, tr("settings.retry_wait"), retryWaitV)) return;
+            if (!validateInt(g_maxConcurrentText, 1, 64, tr("settings.max_concurrent"), concurrentV)) return;
             // 新增项校验：做种时间/最大Peers/全局限速 整数范围；做种比率 浮点。
             int seedTimeV = 0, btMaxPeersV = 0, overallLimitV = 0, ed2kSlotsV = 0;
-            if (!validateInt(g_seedTimeText, 0, 100000, tr("做种时间秒", "Seed time (s)"), seedTimeV)) return;
-            if (!validateInt(g_btMaxPeersText, 0, 10000, tr("最大Peers", "Max peers"), btMaxPeersV)) return;
-            if (!validateInt(g_overallLimitText, 0, 1000000, tr("全局限速KB/s", "Global limit KB/s"), overallLimitV)) return;
-            if (!validateInt(g_ed2kUploadSlotsText, 0, 100, tr("ED2K上传槽位", "ED2K upload slots"), ed2kSlotsV)) return;
+            if (!validateInt(g_seedTimeText, 0, 100000, tr("settings.seed_time"), seedTimeV)) return;
+            if (!validateInt(g_btMaxPeersText, 0, 10000, tr("settings.max_peers"), btMaxPeersV)) return;
+            if (!validateInt(g_overallLimitText, 0, 1000000, tr("settings.global_limit_kbs"), overallLimitV)) return;
+            if (!validateInt(g_ed2kUploadSlotsText, 0, 100, tr("settings.ed2k_upload_slots_field"), ed2kSlotsV)) return;
             double seedRatioV = 0.0;
             const std::string seedRatioStr = trimText(g_seedRatioText);
             if (!seedRatioStr.empty()) {
                 try {
                     seedRatioV = std::stod(seedRatioStr);
                 } catch (...) {
-                    showStatus(tr("做种比率必须是数字", "Seed ratio must be a number"));
+                    showStatus(tr("settings.seed_ratio_not_number"));
                     return;
                 }
                 if (seedRatioV < 0.0) {
-                    showStatus(tr("做种比率不能为负", "Seed ratio cannot be negative"));
+                    showStatus(tr("settings.seed_ratio_negative"));
                     return;
                 }
             }
@@ -997,7 +995,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             const std::string minSplitCombined =
                 joinSizeUnit(std::to_string(minSplitV), g_aria2MinSplitUnit);
             if (parseSizeBytes(minSplitCombined) < 1048576) {
-                showStatus(tr("最小分片不能小于 1M", "Min split cannot be less than 1M"));
+                showStatus(tr("settings.min_split_too_small"));
                 return;
             }
 
@@ -1103,12 +1101,12 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             // 汇总提示：aria2 daemon 已启动时，参数保存后需重启才生效。
             if (trayChanged) {
                 showStatus(a2Changed && g_tasks.engineActive()
-                    ? tr("设置已保存（重启后生效）", "Settings saved (restart to apply)")
-                    : tr("关闭行为将在重启后生效", "Close behavior will apply after restart"));
+                    ? tr("settings.saved_restart")
+                    : tr("settings.close_behavior_restart"));
             } else if (a2Changed && g_tasks.engineActive()) {
-                showStatus(tr("aria2 参数将在重启后生效", "aria2 options will apply after restart"));
+                showStatus(tr("settings.aria2_restart"));
             } else {
-                showStatus(tr("设置已保存", "Settings saved"));
+                showStatus(tr("settings.saved"));
             }
         })
         .build();
@@ -1116,7 +1114,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     components::button(ui, "settings.discard")
         .position(infoX + kLabelW + 8.0f + 76.0f + 8.0f + 76.0f, actionY)
         .size(76.0f, 26.0f)
-        .text(tr("放弃", "Discard"))
+        .text(tr("settings.discard"))
         .fontSize(12.0f)
         .theme(theme.components, false)
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -1166,7 +1164,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_videoQualityText = vc.defaultQuality;
             g_videoKeepParts = vc.keepM4sParts;
             g_videoJsRuntimeText = vc.jsRuntime;
-            showStatus(tr("已放弃更改", "Changes discarded"));
+            showStatus(tr("settings.changes_discarded"));
         })
         .build();
 }

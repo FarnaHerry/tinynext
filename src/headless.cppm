@@ -122,8 +122,7 @@ export int runResolve() {
     }
     if (url.empty()) {
         std::cerr << "tinynext: "
-                  << tr("--resolve 需要一个视频页链接（http(s)）",
-                        "--resolve needs a video page URL (http(s))")
+                  << tr("cli.resolve_need_url")
                   << "\n";
         return 1;
     }
@@ -131,17 +130,17 @@ export int runResolve() {
     const video::ResolveResult r = video::resolveVideoUrl(url, cfg::videoConfig().bilibiliCookie, proxy);
     if (!r.ok || !r.info.has_value()) {
         std::cerr << "tinynext: "
-                  << trf("解析失败：{}", "Resolve failed: {}", r.error) << "\n";
+                  << trf("cli.resolve_failed", r.error) << "\n";
         return 1;
     }
     const video::VideoInfo& info = *r.info;
-    std::cout << tr("标题：", "Title: ") << info.title << "\n";
-    std::cout << trf("共 {} 个画质：", "{} qualities:", info.formats.size()) << "\n";
+    std::cout << tr("cli.title") << info.title << "\n";
+    std::cout << trf("cli.qualities_count", info.formats.size()) << "\n";
     for (const auto& f : info.formats) {
         std::cout << "  " << f.label << " · " << (f.ext.empty() ? "mp4" : f.ext);
         if (f.filesizeApprox > 0) std::cout << " · ~" << formatBytes(f.filesizeApprox);
-        std::cout << (f.audioUrl.empty() ? tr("（合流，免合并）", " (combined, no merge)")
-                                         : tr("（DASH，需合并）", " (DASH, needs merge)"))
+        std::cout << (f.audioUrl.empty() ? tr("cli.combined_no_merge")
+                                         : tr("cli.dash_needs_merge"))
                   << "\n";
     }
     return 0;
@@ -172,8 +171,7 @@ export int runVideoDownload() {
     }
     if (url.empty()) {
         std::cerr << "tinynext: "
-                  << tr("--video-dl 需要一个视频页链接（http(s)）",
-                        "--video-dl needs a video page URL (http(s))")
+                  << tr("cli.video_dl_need_url")
                   << "\n";
         return 1;
     }
@@ -182,7 +180,7 @@ export int runVideoDownload() {
     const video::ResolveResult r = video::resolveVideoUrl(url, cfg::videoConfig().bilibiliCookie, proxy);
     if (!r.ok || !r.info.has_value()) {
         std::cerr << "tinynext: "
-                  << trf("解析失败：{}", "Resolve failed: {}", r.error) << "\n";
+                  << trf("cli.resolve_failed", r.error) << "\n";
         return 1;
     }
     const video::VideoInfo& info = *r.info;
@@ -196,18 +194,18 @@ export int runVideoDownload() {
         }
     }
     const video::VideoFormat& format = info.formats[pick];
-    std::cerr << "tinynext: " << tr("已解析：", "Resolved: ") << info.title << "\n"
-              << "tinynext: " << trf("画质：{}", "Quality: {}", format.label)
+    std::cerr << "tinynext: " << tr("cli.resolved") << info.title << "\n"
+              << "tinynext: " << trf("cli.quality_label", format.label)
               << (format.audioUrl.empty()
-                        ? tr("（合流）", " (combined)")
-                        : tr("（DASH，下载后自动合并）", " (DASH, auto-merge)"))
+                        ? tr("cli.combined")
+                        : tr("cli.dash_auto_merge"))
               << "\n";
 
     // 走 TaskStore 完整链路（含 MergeTracker 的 DASH 编排与 ffmpeg 合并）。
     g_tasks.warmup();
     if (!g_tasks.engineActive()) {
         std::cerr << "tinynext: "
-                  << trf("引擎启动失败：{}", "Engine start failed: {}", g_tasks.lastError())
+                  << trf("cli.engine_start_failed", g_tasks.lastError())
                   << "\n";
         return 1;
     }
@@ -231,14 +229,14 @@ export int runVideoDownload() {
         }
         if (!t) continue;  // 会话恢复竞态下可能暂时缺帧，继续等
         if (t->state == dl::State::Done) {
-            std::cerr << "tinynext: " << tr("[完成]", "[Done]") << " "
+            std::cerr << "tinynext: " << tr("cli.done_tag") << " "
                       << utf8FromPath(t->destPath) << "\n";
             g_tasks.shutdown();
             return 0;
         }
         if (t->state == dl::State::Failed || t->state == dl::State::Cancelled) {
-            std::cerr << "tinynext: " << tr("[失败]", "[Failed]") << " "
-                      << (t->error.empty() ? tr("未知错误", "Unknown error") : t->error)
+            std::cerr << "tinynext: " << tr("cli.failed_tag") << " "
+                      << (t->error.empty() ? tr("cli.unknown_error") : t->error)
                       << "\n";
             g_tasks.shutdown();
             return 1;
@@ -255,7 +253,7 @@ export int run() {
         if (a == "--headless") continue;
         if (isLikelyVideoPageUrl(a)) {
                 std::cerr << "tinynext: "
-                          << tr("视频页链接请用 --video-dl 下载", "Video page URL -- use --video-dl instead")
+                          << tr("cli.video_dl_hint")
                           << "\n";
                 continue;
             }
@@ -263,8 +261,7 @@ export int run() {
     }
     if (urls.empty()) {
         std::cerr << "tinynext: "
-                  << tr("--headless 需要一个下载链接（http(s)/ftp(s)/sftp / magnet: / 本地 .torrent）",
-                        "--headless needs a download link (http(s)/ftp(s)/sftp / magnet: / local .torrent)")
+                  << tr("cli.headless_need_url")
                   << "\n";
         return 1;
     }
@@ -275,7 +272,7 @@ export int run() {
     std::filesystem::create_directories(dir, ec);
 
     std::cerr << "tinynext: "
-              << trf("开始下载 {} 个任务 → {}", "Starting {} download(s) → {}",
+              << trf("cli.starting_n",
                      urls.size(), utf8FromPath(dir))
               << "\n";
 
@@ -296,8 +293,8 @@ export int run() {
         if (id == 0) {
             const std::string err = engine.lastError();
             std::cerr << "tinynext: "
-                      << trf("下载启动失败：{}：{}", "Download start failed: {}: {}",
-                             (err.empty() ? tr("引擎不可用", "Engine unavailable") : err), url)
+                      << trf("cli.dl_start_failed2",
+                             (err.empty() ? tr("err.engine_unavailable") : err), url)
                       << "\n";
             engine.shutdown();
             return 1;
@@ -333,12 +330,12 @@ export int run() {
         // 回退 utf8FromPath（两者都空则空串）。
         const std::string p = !t.destPathUtf8.empty() ? t.destPathUtf8 : utf8FromPath(t.destPath);
         if (t.state == dl::State::Done) {
-            std::cerr << "tinynext: " << tr("[完成]", "[Done]") << " " << p << "\n";
+            std::cerr << "tinynext: " << tr("cli.done_tag") << " " << p << "\n";
         } else if (t.state == dl::State::Failed) {
-            std::cerr << "tinynext: " << tr("[失败]", "[Failed]") << " " << p
-                      << " — " << (t.error.empty() ? tr("未知错误", "Unknown error") : t.error) << "\n";
+            std::cerr << "tinynext: " << tr("cli.failed_tag") << " " << p
+                      << " — " << (t.error.empty() ? tr("cli.unknown_error") : t.error) << "\n";
         } else if (t.state == dl::State::Cancelled) {
-            std::cerr << "tinynext: " << tr("[已取消]", "[Cancelled]") << " " << p << "\n";
+            std::cerr << "tinynext: " << tr("cli.cancelled_tag") << " " << p << "\n";
         }
     }
 

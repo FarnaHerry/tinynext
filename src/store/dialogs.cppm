@@ -51,7 +51,7 @@ export bool addDownload() {
     if (g_addTab == AddTab::Torrent) {
         const std::string torrent = trimText(g_addTorrentPath);
         if (torrent.empty()) {
-            showStatus(tr("请先选择 .torrent 种子文件", "Please select a .torrent file first"));
+            showStatus(tr("store.select_torrent_first"));
             return false;
         }
         opts.torrentPath = torrent;

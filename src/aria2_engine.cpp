@@ -598,8 +598,7 @@ bool Aria2Engine::ensureDaemon() const {
 
     const std::string exe = engineExePath();
     if (exe.empty()) {
-        lastError_ = tr("未找到下载引擎二进制（engines/aria2-next(.exe)）",
-                        "Engine binary not found (engines/aria2-next(.exe))");
+        lastError_ = tr("err.engine_binary_not_found");
         return false;
     }
 
@@ -654,7 +653,7 @@ bool Aria2Engine::ensureDaemon() const {
     if (!CreateProcessW(wExe.c_str(), &cmdLine[0], nullptr, nullptr, TRUE,
                         CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
         if (logFile != INVALID_HANDLE_VALUE) CloseHandle(logFile);
-        lastError_ = tr("下载引擎进程启动失败", "Engine process failed to start");
+        lastError_ = tr("err.engine_process_failed");
         return false;
     }
     if (logFile != INVALID_HANDLE_VALUE) CloseHandle(logFile);
@@ -695,7 +694,7 @@ bool Aria2Engine::ensureDaemon() const {
     if (::posix_spawn(&pid, exe.c_str(), &fa, nullptr, argv.data(), environ) != 0) {
         if (logFd >= 0) ::close(logFd);
         posix_spawn_file_actions_destroy(&fa);
-        lastError_ = tr("下载引擎进程启动失败", "Engine process failed to start");
+        lastError_ = tr("err.engine_process_failed");
         return false;
     }
     posix_spawn_file_actions_destroy(&fa);
@@ -738,8 +737,7 @@ bool Aria2Engine::ensureDaemon() const {
     }
     port_ = 0;
     secret_.clear();
-    lastError_ = tr("下载引擎启动超时（本地 RPC 未就绪）",
-                    "Engine startup timed out (local RPC not ready)");
+    lastError_ = tr("err.engine_startup_timeout");
     return false;
 }
 
@@ -823,7 +821,7 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
         if (bytes.empty()) {
             std::lock_guard<std::mutex> lock(tasksMutex_);
             task->state = State::Failed;
-            task->error = tr("种子文件读取失败或为空：", "Torrent file read failed or empty: ") +
+            task->error = tr("err.torrent_read_failed") +
                           utf8FromPath(options.torrentPath);
             tasks_.push_back(task);
             return task->id;
@@ -1067,7 +1065,7 @@ void Aria2Engine::retryOnWorker(std::uint64_t id) {
         const auto task = findTask(id);
         if (task) {
             task->state = State::Failed;
-            task->error = lastError_.empty() ? tr("引擎不可用", "Engine unavailable") : lastError_;
+            task->error = lastError_.empty() ? tr("err.engine_unavailable") : lastError_;
         }
         return;
     }
@@ -1123,7 +1121,7 @@ void Aria2Engine::retryOnWorker(std::uint64_t id) {
                                 std::istreambuf_iterator<char>());
         if (bytes.empty()) {
             task->state = State::Failed;
-            task->error = tr("种子文件读取失败或为空：", "Torrent file read failed or empty: ") +
+            task->error = tr("err.torrent_read_failed") +
                           utf8FromPath(task->opts.torrentPath);
             return;
         }

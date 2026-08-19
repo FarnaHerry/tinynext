@@ -309,7 +309,7 @@ private:
             bool ok = false;
             std::string err;
             if (ffmpeg.empty()) {
-                err = tr("未找到 engines/ffmpeg（无法合并视频）", "engines/ffmpeg not found (cannot merge video)");
+                err = tr("vres.no_ffmpeg");
             } else {
                 const std::filesystem::path log = job.outputPath.parent_path() / "tinynext-ffmpeg.log";
                 // 音频是否 mp4 装得下：aac(m4a)/mp4 容器可 -c:a copy（b 站 m4s 即此，
@@ -332,7 +332,7 @@ private:
                 std::error_code ec;
                 ok = code == 0 && std::filesystem::exists(job.outputPath, ec) &&
                      std::filesystem::file_size(job.outputPath, ec) > 0;
-                if (!ok) err = tr("ffmpeg 合并失败", "ffmpeg merge failed");
+                if (!ok) err = tr("vmerge.ffmpeg_failed");
             }
             {
                 std::lock_guard<std::mutex> lock(mutex_);

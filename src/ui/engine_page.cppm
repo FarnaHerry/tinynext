@@ -51,7 +51,7 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
     components::text(ui, "engine.title")
         .position(infoX, titleY)
         .size(innerW, 24.0f)
-        .text(tr("引擎监控", "Engine monitor"))
+        .text(tr("app.tab.monitor"))
         .fontSize(17.0f)
         .lineHeight(24.0f)
         .color(theme.titleText)
@@ -59,20 +59,20 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
 
     // ---- 健康快照 + 顶部状态（圆点 + 标签）----
     const dl::HealthInfo h = g_tasks.health();
-    const char* statusLabel = tr("检测中…", "Checking…");
+    const char* statusLabel = tr("eng.checking");
     eui::Color statusColor = theme.metaText;
     if (h.checked) {
         if (!h.binaryFound) {
-            statusLabel = tr("引擎缺失", "Engine missing");
+            statusLabel = tr("eng.missing");
             statusColor = theme.failed;
         } else if (h.rpcReachable) {
-            statusLabel = tr("运行正常", "Healthy");
+            statusLabel = tr("eng.healthy");
             statusColor = theme.done;
         } else if (h.daemonSpawned) {
-            statusLabel = tr("服务异常", "Service error");
+            statusLabel = tr("eng.service_error");
             statusColor = theme.failed;
         } else {
-            statusLabel = tr("未运行", "Not running");
+            statusLabel = tr("eng.not_running");
             statusColor = theme.metaText;
         }
     }
@@ -121,58 +121,58 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
     const eui::Color idleColor = theme.metaText;
 
     if (!h.checked) {
-        statusRow("engine.bin", tr("引擎二进制", "Engine binary"),
-                  tr("检测中…", "Checking…"), idleColor);
+        statusRow("engine.bin", tr("eng.binary"),
+                  tr("eng.checking"), idleColor);
     } else if (h.binaryFound) {
-        statusRow("engine.bin", tr("引擎二进制", "Engine binary"),
-                  tr("存在（engines/aria2-next）", "Found (engines/aria2-next)"), okColor);
+        statusRow("engine.bin", tr("eng.binary"),
+                  tr("eng.binary_found"), okColor);
     } else {
-        statusRow("engine.bin", tr("引擎二进制", "Engine binary"),
-                  tr("未找到（下载不可用）", "Not found (downloads disabled)"), badColor);
+        statusRow("engine.bin", tr("eng.binary"),
+                  tr("eng.binary_not_found"), badColor);
     }
 
     if (h.daemonAlive) {
-        statusRow("engine.daemon", tr("守护进程", "Daemon"),
-                  tr("运行中", "Running"), okColor);
+        statusRow("engine.daemon", tr("eng.daemon"),
+                  tr("eng.running"), okColor);
     } else if (h.daemonSpawned) {
-        statusRow("engine.daemon", tr("守护进程", "Daemon"),
-                  tr("进程已退出", "Process exited"), badColor);
+        statusRow("engine.daemon", tr("eng.daemon"),
+                  tr("eng.process_exited"), badColor);
     } else if (!h.checked) {
-        statusRow("engine.daemon", tr("守护进程", "Daemon"),
-                  tr("检测中…", "Checking…"), idleColor);
+        statusRow("engine.daemon", tr("eng.daemon"),
+                  tr("eng.checking"), idleColor);
     } else {
-        statusRow("engine.daemon", tr("守护进程", "Daemon"),
-                  tr("未运行", "Not running"), idleColor);
+        statusRow("engine.daemon", tr("eng.daemon"),
+                  tr("eng.not_running"), idleColor);
     }
 
     if (h.rpcReachable) {
-        statusRow("engine.rpc", tr("RPC 服务", "RPC service"),
-                  tr("正常", "OK"), okColor);
+        statusRow("engine.rpc", tr("eng.rpc_service"),
+                  tr("eng.ok"), okColor);
     } else if (h.daemonSpawned) {
-        statusRow("engine.rpc", tr("RPC 服务", "RPC service"),
-                  tr("无响应", "No response"), badColor);
+        statusRow("engine.rpc", tr("eng.rpc_service"),
+                  tr("eng.no_response"), badColor);
     } else if (!h.checked) {
-        statusRow("engine.rpc", tr("RPC 服务", "RPC service"),
-                  tr("检测中…", "Checking…"), idleColor);
+        statusRow("engine.rpc", tr("eng.rpc_service"),
+                  tr("eng.checking"), idleColor);
     } else {
-        statusRow("engine.rpc", tr("RPC 服务", "RPC service"),
-                  tr("未运行", "Not running"), idleColor);
+        statusRow("engine.rpc", tr("eng.rpc_service"),
+                  tr("eng.not_running"), idleColor);
     }
 
     if (h.wsConnected) {
-        statusRow("engine.ws", tr("WS 推送", "WS push"),
-                  tr("已连接", "Connected"), okColor);
+        statusRow("engine.ws", tr("eng.ws_push"),
+                  tr("eng.connected"), okColor);
     } else {
-        statusRow("engine.ws", tr("WS 推送", "WS push"),
-                  tr("未连接（轮询兜底）", "Disconnected (poll fallback)"), idleColor);
+        statusRow("engine.ws", tr("eng.ws_push"),
+                  tr("eng.disconnected_poll"), idleColor);
     }
 
-    statusRow("engine.ver", tr("引擎版本", "Engine version"),
-              h.version.empty() ? tr("未知", "Unknown") : h.version, theme.nameText);
+    statusRow("engine.ver", tr("eng.version"),
+              h.version.empty() ? tr("eng.unknown") : h.version, theme.nameText);
 
-    statusRow("engine.port", tr("RPC 端点", "RPC endpoint"),
+    statusRow("engine.port", tr("eng.rpc_endpoint"),
               h.rpcPort > 0 ? "127.0.0.1:" + std::to_string(h.rpcPort)
-                            : tr("—", "—"),
+                            : tr("eng.dash"),
               theme.nameText);
 
     // ---- 最近错误（红字，仅当有）----
@@ -180,7 +180,7 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
         components::text(ui, "engine.error")
             .position(infoX, rowY + 2.0f)
             .size(innerW, 20.0f)
-            .text(std::string(tr("错误：", "Error: ")) + h.error)
+            .text(std::string(tr("eng.error_prefix")) + h.error)
             .fontSize(11.0f)
             .lineHeight(20.0f)
             .color(theme.failed)
@@ -190,11 +190,11 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
 
     // ---- 全局统计小卡（下载/上传速度 + 任务数）----
     const struct { const char* label; std::string value; } kStats[] = {
-        {tr("下载速度", "Download"), formatBytes(h.downloadSpeedBps) + "/s"},
-        {tr("上传速度", "Upload"), formatBytes(h.uploadSpeedBps) + "/s"},
-        {tr("活动任务", "Active"), std::to_string(h.activeDownloads)},
-        {tr("等待任务", "Waiting"), std::to_string(h.waitingDownloads)},
-        {tr("停止任务", "Stopped"), std::to_string(h.stoppedDownloads)},
+        {tr("eng.speed_down"), formatBytes(h.downloadSpeedBps) + "/s"},
+        {tr("eng.speed_up"), formatBytes(h.uploadSpeedBps) + "/s"},
+        {tr("eng.active"), std::to_string(h.activeDownloads)},
+        {tr("eng.waiting"), std::to_string(h.waitingDownloads)},
+        {tr("eng.stopped"), std::to_string(h.stoppedDownloads)},
     };
     constexpr int kStatCount = 5;
     const float statGap = 8.0f;
@@ -233,22 +233,22 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
     // ---- 运行参数（daemon 启动时的关键选项摘要，读配置，排 2 列 x 3 行）----
     const cfg::Aria2Config a2 = cfg::aria2Config();
     const struct { const char* label; std::string value; } kParams[] = {
-        {tr("分片 / 连接", "Split / conn"),
+        {tr("eng.split_conn"),
          std::to_string(a2.split) + " / " + std::to_string(a2.maxConnectionPerServer)},
-        {tr("最大并发", "Max concurrent"), std::to_string(a2.maxConcurrentDownloads)},
-        {tr("每任务限速", "Per-task limit"),
+        {tr("eng.max_concurrent"), std::to_string(a2.maxConcurrentDownloads)},
+        {tr("eng.per_task_limit"),
          a2.maxDownloadLimit > 0 ? formatSpeed(static_cast<double>(a2.maxDownloadLimit))
-                                 : tr("不限", "Unlimited")},
-        {tr("重试", "Max tries"),
+                                 : tr("eng.unlimited")},
+        {tr("eng.retry"),
          std::to_string(a2.maxTries) + " (" + std::to_string(a2.retryWait) + "s)"},
-        {tr("代理", "Proxy"), a2.proxy.empty() ? tr("无", "None") : a2.proxy},
-        {tr("Cookie", "Cookies"), a2.loadCookies.empty() ? tr("无", "None") : a2.loadCookies},
+        {tr("eng.proxy"), a2.proxy.empty() ? tr("eng.none") : a2.proxy},
+        {tr("eng.cookie"), a2.loadCookies.empty() ? tr("eng.none") : a2.loadCookies},
     };
     const float paramsTop = statTop + 46.0f + 14.0f;
     components::text(ui, "engine.params.header")
         .position(infoX, paramsTop)
         .size(innerW, 16.0f)
-        .text(tr("运行参数（daemon 启动时）", "Runtime options (at daemon start)"))
+        .text(tr("eng.runtime_opts"))
         .fontSize(11.0f)
         .lineHeight(16.0f)
         .color(theme.statusText)
@@ -289,7 +289,7 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
     components::button(ui, "engine.check")
         .position(infoX, actionY)
         .size(76.0f, kActionH)
-        .text(g_checking.load() ? tr("检测中…", "Checking…") : tr("立即检测", "Check now"))
+        .text(g_checking.load() ? tr("eng.checking") : tr("eng.check_now"))
         .fontSize(12.0f)
         .theme(theme.components, false)
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -307,7 +307,7 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
     components::button(ui, "engine.restart")
         .position(infoX + 76.0f + 8.0f, actionY)
         .size(84.0f, kActionH)
-        .text(restarting ? tr("重启中…", "Restarting…") : tr("重启引擎", "Restart engine"))
+        .text(restarting ? tr("eng.restarting") : tr("eng.restart"))
         .fontSize(12.0f)
         .theme(theme.components, true)
         .textColor(onPrimaryColor(theme))
@@ -316,8 +316,8 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
         .onClick([] {
             if (g_restartState.load() == 1) return;  // 正在重启，忽略连点
             // 文案在 UI 线程预翻译成静态串再捕获（后台回调不碰 g_lang）。
-            const char* okMsg = tr("引擎已重启，任务已恢复", "Engine restarted, tasks recovered");
-            const char* failMsg = tr("引擎重启失败，请查看日志", "Engine restart failed, check the log");
+            const char* okMsg = tr("eng.restarted");
+            const char* failMsg = tr("eng.restart_failed");
             g_restartState.store(1);
             g_tasks.restartEngine([okMsg, failMsg](bool ok) {
                 postStatus(ok ? okMsg : failMsg);
@@ -331,7 +331,7 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
     components::button(ui, "engine.log")
         .position(infoX + 76.0f + 8.0f + 84.0f + 8.0f, actionY)
         .size(76.0f, kActionH)
-        .text(tr("打开日志", "Open log"))
+        .text(tr("eng.open_log"))
         .fontSize(12.0f)
         .theme(theme.components, false)
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -343,8 +343,7 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
     components::text(ui, "engine.hint")
         .position(infoX + 76.0f + 8.0f + 84.0f + 8.0f + 76.0f + 12.0f, actionY)
         .size(innerW - (76.0f + 8.0f + 84.0f + 8.0f + 76.0f + 12.0f), kActionH)
-        .text(tr("重启会保存会话并重新拉起引擎，进行中的下载会继续。",
-                 "Restart saves the session and relaunches the engine; in-progress downloads continue."))
+        .text(tr("eng.restart_hint"))
         .fontSize(10.0f)
         .lineHeight(kActionH)
         .color(theme.metaText)

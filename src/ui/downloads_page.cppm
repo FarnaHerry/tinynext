@@ -124,7 +124,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             components::text(ui, "sub.filter.label")
                 .position(9.0f, 10.0f)
                 .size(kSubSidebarWidth - 18.0f, 18.0f)
-                .text(tr("任务列表", "Tasks"))
+                .text(tr("dl.tasks"))
                 .fontSize(13.0f)
                 .lineHeight(18.0f)
                 .color(theme.titleText)
@@ -140,17 +140,17 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 else if (stateMatches(Filter::Done, task.state)) ++doneCount;
             }
             drawSidebarItem(ui, "filter.all", 6.0f, itemY, itemW, 22.0f,
-                            tr("所有", "All"), 0xF03A, g_filter == Filter::All, theme,
+                            tr("dl.filter_all"), 0xF03A, g_filter == Filter::All, theme,
                             [] { g_filter = Filter::All; g_page = 1; },
                             static_cast<int>(tasks.size()));
             itemY += 27.0f;
             drawSidebarItem(ui, "filter.active", 6.0f, itemY, itemW, 22.0f,
-                            tr("下载中", "Active"), 0xF019, g_filter == Filter::Active, theme,
+                            tr("card.state.downloading"), 0xF019, g_filter == Filter::Active, theme,
                             [] { g_filter = Filter::Active; g_page = 1; },
                             activeCount);
             itemY += 27.0f;
             drawSidebarItem(ui, "filter.done", 6.0f, itemY, itemW, 22.0f,
-                            tr("已完成", "Done"), 0xF00C, g_filter == Filter::Done, theme,
+                            tr("card.state.done"), 0xF00C, g_filter == Filter::Done, theme,
                             [] { g_filter = Filter::Done; g_page = 1; },
                             doneCount);
         })
@@ -167,8 +167,8 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
 
     // 排序选择器：图标按钮 + 向下弹出列表（buildListPicker 不设位置，
     // 由外层 stack 绝对定位）。
-    const char* kSortLabels[] = {tr("最新在前", "Newest first"), tr("状态优先", "Status first"),
-                                 tr("文件名", "Filename"), tr("大小", "Size"), tr("进度", "Progress")};
+    const char* kSortLabels[] = {tr("dl.sort_newest"), tr("dl.sort_status_first"),
+                                 tr("dl.col_filename"), tr("dl.col_size"), tr("dl.col_progress")};
     ui.stack("tool.sort.wrap")
         .position(sortX, toolY)
         .size(toolW, toolW)
@@ -191,7 +191,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                           0xF04B, false, theme,
                           [] {
                               g_tasks.resumeAll();
-                              showStatus(tr("已全部继续", "Resumed all"));
+                              showStatus(tr("dl.resumed_all"));
                           });
 
     // 全部暂停：暂停所有排队/进行中任务（正圆，默认无描边，hover 才浮现）。
@@ -199,7 +199,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                           0xF04C, false, theme,
                           [] {
                               g_tasks.pauseAll();
-                              showStatus(tr("已全部暂停", "Paused all"));
+                              showStatus(tr("dl.paused_all"));
                           });
 
     // 添加下载：右上角 ➕ 图标（正圆 + 一直主色填充），点击弹出对话框。
@@ -310,9 +310,9 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .build();
 
                     // 分页大小（5/10/20/50/100，纯文本"数字/页"无边框），跟在下一页后面。
-                    const char* kPageLabels[] = {tr("5/页", "5/page"), tr("10/页", "10/page"),
-                                                 tr("20/页", "20/page"), tr("50/页", "50/page"),
-                                                 tr("100/页", "100/page")};
+                    const char* kPageLabels[] = {tr("dl.page.5"), tr("dl.page.10"),
+                                                 tr("dl.page.20"), tr("dl.page.50"),
+                                                 tr("dl.page.100")};
                     buildListPicker(ui, "pager.pageSize", kPageSizeWidth,
                                     kPagerHeight, theme, g_pageSizeOpen,
                                     kPageLabels, 5, pageSizeIndex(), true,
@@ -391,7 +391,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 components::text(ui, "add.dialog.title")
                     .position(labelX, 12.0f)
                     .size(dlgW - 32.0f, 20.0f)
-                    .text(tr("添加下载", "Add download"))
+                    .text(tr("dl.add_download"))
                     .fontSize(14.0f)
                     .lineHeight(20.0f)
                     .color(theme.titleText)
@@ -401,7 +401,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 components::button(ui, "add.tab.direct")
                     .position(labelX, tabY)
                     .size(tabW, tabH)
-                    .text(tr("直链下载", "Direct link"))
+                    .text(tr("dl.tab.direct"))
                     .fontSize(12.0f)
                     .theme(theme.components, g_addTab == AddTab::Direct)
                     .textColor(onPrimaryColor(theme, g_addTab == AddTab::Direct))
@@ -411,7 +411,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 components::button(ui, "add.tab.torrent")
                     .position(labelX + tabW + 8.0f, tabY)
                     .size(tabW, tabH)
-                    .text(tr("种子", "Torrent"))
+                    .text(tr("dl.tab.torrent"))
                     .fontSize(12.0f)
                     .theme(theme.components, g_addTab == AddTab::Torrent)
                     .textColor(onPrimaryColor(theme, g_addTab == AddTab::Torrent))
@@ -426,8 +426,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .position(labelX, urlY)
                         .size(dlgW - 32.0f, urlH)
                         .multiline(true)  // 多行：长链接完整可见，滚轮可滚动
-                        .placeholder(tr("https://… / magnet:… / ftp://…",
-                                        "https://… / magnet:… / ftp://…"))
+                        .placeholder(tr("dl.url_placeholder"))
                         .value(g_urlText)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                         .theme(theme.components)
@@ -440,7 +439,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     components::text(ui, "add.mirror.label")
                         .position(labelX, mirrorY)
                         .size(dlgW - 16.0f - 60.0f, 28.0f)
-                        .text(tr("多行URL合并为镜像", "Merge lines as mirrors"))
+                        .text(tr("dl.merge_mirror"))
                         .fontSize(12.0f)
                         .lineHeight(28.0f)
                         .color(theme.metaText)
@@ -453,7 +452,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     components::text(ui, "add.conn.label")
                         .position(labelX, splitY)
                         .size(labelW, 28.0f)
-                        .text(tr("分片数", "Splits"))
+                        .text(tr("dl.splits"))
                         .fontSize(12.0f)
                         .lineHeight(28.0f)
                         .color(theme.metaText)
@@ -467,7 +466,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     components::text(ui, "add.rename.label")
                         .position(labelX, renameY)
                         .size(labelW, 28.0f)
-                        .text(tr("重命名", "Rename"))
+                        .text(tr("dl.rename"))
                         .fontSize(12.0f)
                         .lineHeight(28.0f)
                         .color(theme.metaText)
@@ -475,7 +474,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     components::input(ui, "add.rename")
                         .position(inputX, renameY - 2.0f)
                         .size(dlgW - inputX - 16.0f, 28.0f)
-                        .placeholder(tr("可选", "Optional"))
+                        .placeholder(tr("dl.optional"))
                         .value(g_addRenameText)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                         .theme(theme.components)
@@ -487,7 +486,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     components::text(ui, "add.dir.label")
                         .position(labelX, dirY)
                         .size(labelW, 28.0f)
-                        .text(tr("下载目录", "Directory"))
+                        .text(tr("dl.directory"))
                         .fontSize(12.0f)
                         .lineHeight(28.0f)
                         .color(theme.metaText)
@@ -495,7 +494,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     components::input(ui, "add.dir")
                         .position(inputX, dirY - 2.0f)
                         .size(dlgW - inputX - 16.0f - 60.0f - 8.0f, 28.0f)
-                        .placeholder(tr("留空=全局", "Empty = default"))
+                        .placeholder(tr("dl.dir_hint"))
                         .value(g_addDirText)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                         .theme(theme.components)
@@ -507,7 +506,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                                       8.0f,
                                   dirY - 2.0f)
                         .size(60.0f, 26.0f)
-                        .text(tr("浏览…", "Browse…"))
+                        .text(tr("dl.browse"))
                         .fontSize(12.0f)
                         .theme(theme.components, false)
                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -524,7 +523,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     components::text(ui, "add.torrent.label")
                         .position(labelX, torY)
                         .size(labelW, 28.0f)
-                        .text(tr("种子文件", "Torrent file"))
+                        .text(tr("dl.torrent_file"))
                         .fontSize(12.0f)
                         .lineHeight(28.0f)
                         .color(theme.metaText)
@@ -532,7 +531,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     components::input(ui, "add.torrent")
                         .position(inputX, torY - 2.0f)
                         .size(dlgW - inputX - 16.0f - 60.0f - 8.0f, 28.0f)
-                        .placeholder(tr("选择本地 .torrent", "Select a local .torrent"))
+                        .placeholder(tr("dl.select_torrent"))
                         .value(g_addTorrentPath)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                         .theme(theme.components)
@@ -542,7 +541,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .position(inputX + (dlgW - inputX - 16.0f - 60.0f - 8.0f) + 8.0f,
                                   torY - 2.0f)
                         .size(60.0f, 26.0f)
-                        .text(tr("浏览…", "Browse…"))
+                        .text(tr("dl.browse"))
                         .fontSize(12.0f)
                         .theme(theme.components, false)
                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -556,7 +555,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     components::text(ui, "add.torrent.dir.label")
                         .position(labelX, torDirY)
                         .size(labelW, 28.0f)
-                        .text(tr("下载目录", "Directory"))
+                        .text(tr("dl.directory"))
                         .fontSize(12.0f)
                         .lineHeight(28.0f)
                         .color(theme.metaText)
@@ -564,7 +563,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     components::input(ui, "add.torrent.dir")
                         .position(inputX, torDirY - 2.0f)
                         .size(dlgW - inputX - 16.0f - 60.0f - 8.0f, 28.0f)
-                        .placeholder(tr("留空=全局", "Empty = default"))
+                        .placeholder(tr("dl.dir_hint"))
                         .value(g_addDirText)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                         .theme(theme.components)
@@ -574,7 +573,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .position(inputX + (dlgW - inputX - 16.0f - 60.0f - 8.0f) + 8.0f,
                                   torDirY - 2.0f)
                         .size(60.0f, 26.0f)
-                        .text(tr("浏览…", "Browse…"))
+                        .text(tr("dl.browse"))
                         .fontSize(12.0f)
                         .theme(theme.components, false)
                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -587,8 +586,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     components::text(ui, "add.torrent.hint")
                         .position(labelX, torHintY)
                         .size(dlgW - 32.0f, 32.0f)
-                        .text(tr("下载内容名由种子决定；磁力链接请切到「直链下载」粘贴",
-                                "Content name comes from the torrent; for magnet links use Direct link"))
+                        .text(tr("dl.torrent_name_hint"))
                         .fontSize(11.0f)
                         .lineHeight(16.0f)
                         .color(theme.metaText)
@@ -598,7 +596,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 components::button(ui, "add.cancel")
                     .position(dlgW - 16.0f - 76.0f - 8.0f - 76.0f, btnY)
                     .size(76.0f, 26.0f)
-                    .text(tr("取消", "Cancel"))
+                    .text(tr("dl.cancel"))
                     .fontSize(12.0f)
                     .theme(theme.components, false)
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -608,7 +606,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 components::button(ui, "add.submit")
                     .position(dlgW - 16.0f - 76.0f, btnY)
                     .size(76.0f, 26.0f)
-                    .text(tr("提交", "Submit"))
+                    .text(tr("dl.submit"))
                     .fontSize(12.0f)
                     .theme(theme.components, true)
                     .textColor(onPrimaryColor(theme))
@@ -659,7 +657,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 components::text(ui, "del.title")
                     .position(16.0f, 12.0f)
                     .size(dlgW - 32.0f, 20.0f)
-                    .text(tr("删除任务", "Delete task"))
+                    .text(tr("dl.delete_task"))
                     .fontSize(14.0f)
                     .lineHeight(20.0f)
                     .color(theme.titleText)
@@ -672,7 +670,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .position(16.0f, 34.0f)
                     .size(delNameW, 18.0f)
                     .text(ellipsizeText(
-                        trf("删除「{}」？", "Delete \"{}\"?", delName),
+                        trf("dl.delete_confirm", delName),
                         delNameW, 12.0f))
                     .fontSize(12.0f)
                     .lineHeight(18.0f)
@@ -695,7 +693,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         components::checkbox(ui, "del.checkbox")
                             .size(dlgW - 32.0f, 20.0f)
                             .checked(g_deleteIncludeFiles)
-                            .text(tr("同时删除源文件", "Also delete source file"))
+                            .text(tr("dl.delete_source_too"))
                             .fontSize(11.0f)
                             .theme(theme.components)
                             .style(cbStyle)   // 覆盖 mark 颜色（其余同 theme）
@@ -716,7 +714,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 components::button(ui, "del.cancel")
                     .position(cancelX, btnY)
                     .size(wCancel, btnH)
-                    .text(tr("取消", "Cancel"))
+                    .text(tr("dl.cancel"))
                     .fontSize(11.0f)
                     .theme(theme.components, false)
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -726,7 +724,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 components::button(ui, "del.confirm")
                     .position(delX, btnY)
                     .size(wDel, btnH)
-                    .text(tr("删除", "Delete"))
+                    .text(tr("dl.delete"))
                     .fontSize(11.0f)
                     .theme(theme.components, true)
                     .textColor(onPrimaryColor(theme))
@@ -740,12 +738,9 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                             // 完成后经状态信箱（postStatus + requestUiUpdate）回 UI
                             // 线程提示，不卡删除按钮。文案在 UI 线程先按当前语言解析
                             // 成静态字符串，后台线程只投递、不碰 g_lang。
-                            const char* recycledMsg = tr("已删除记录，源文件已移到回收站",
-                                                         "Deleted record, source file moved to Recycle Bin");
-                            const char* failedMsg = tr("已删除记录（移入回收站失败，文件保留）",
-                                                       "Deleted record (recycle failed, file kept)");
-                            const char* missingMsg = tr("已删除记录（源文件不存在）",
-                                                        "Deleted record (source file missing)");
+                            const char* recycledMsg = tr("dl.del_recycled");
+                            const char* failedMsg = tr("dl.del_recycle_failed");
+                            const char* missingMsg = tr("dl.del_source_missing");
                             moveToTrashAsync(task.destPath,
                                              [recycledMsg, failedMsg, missingMsg](TrashResult r) {
                                 const char* msg = r == TrashResult::Recycled ? recycledMsg
@@ -755,8 +750,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                                 core::platform::requestUiUpdate();
                             });
                         } else {
-                            showStatus(tr("已删除记录，保留源文件",
-                                          "Deleted record, source file kept"));
+                            showStatus(tr("dl.del_source_kept"));
                         }
                     })
                     .build();
@@ -876,7 +870,7 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
             components::text(ui, "info.title")
                 .position(pad, titleY)
                 .size(contentW, 20.0f)
-                .text(tr("任务信息", "Task info"))
+                .text(tr("dl.task_info"))
                 .fontSize(14.0f)
                 .lineHeight(20.0f)
                 .color(theme.titleText)
@@ -886,7 +880,7 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
             components::text(ui, "info.name")
                 .position(pad, nameY)
                 .size(contentW, rowH)
-                .text(ellipsizeText(task.name.empty() ? tr("（未命名）", "(unnamed)")
+                .text(ellipsizeText(task.name.empty() ? tr("dl.unnamed")
                                                        : task.name,
                                     contentW, 12.0f))
                 .fontSize(12.0f)
@@ -899,7 +893,7 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
             components::text(ui, "info.url.label")
                 .position(pad, urlY)
                 .size(labelW, rowH)
-                .text(tr("来源", "Source"))
+                .text(tr("dl.source"))
                 .fontSize(11.0f)
                 .lineHeight(rowH)
                 .color(theme.metaText)
@@ -933,12 +927,12 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
 
             // 保存路径（可换行）。大小/进度已在上方状态行展示。
             const std::string pathText = task.path.empty()
-                ? std::string(tr("（未知）", "(unknown)"))
+                ? std::string(tr("dl.unknown"))
                 : sanitizeForDisplay(task.path, 200);
             components::text(ui, "info.path.label")
                 .position(pad, sizeY)
                 .size(labelW, rowH)
-                .text(tr("路径", "Path"))
+                .text(tr("dl.path"))
                 .fontSize(11.0f)
                 .lineHeight(rowH)
                 .color(theme.metaText)
@@ -959,7 +953,7 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
                 components::text(ui, "info.err.label")
                     .position(pad, pathY)
                     .size(labelW, rowH)
-                    .text(tr("错误", "Error"))
+                    .text(tr("dl.error"))
                     .fontSize(11.0f)
                     .lineHeight(rowH)
                     .color(theme.failed)
@@ -980,7 +974,7 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
             components::button(ui, "info.close")
                 .position(dlgW - pad - 76.0f, btnY)
                 .size(76.0f, 26.0f)
-                .text(tr("关闭", "Close"))
+                .text(tr("about.close"))
                 .fontSize(11.0f)
                 .theme(theme.components, true)
                 .textColor(onPrimaryColor(theme))
@@ -1027,7 +1021,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
             components::text(ui, "mirror.title")
                 .position(16.0f, 12.0f)
                 .size(dlgW - 32.0f, 22.0f)
-                .text(tr("镜像源管理", "Mirror sources"))
+                .text(tr("dl.mirror_sources"))
                 .fontSize(14.0f)
                 .lineHeight(22.0f)
                 .color(theme.titleText)
@@ -1051,7 +1045,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                 .position(16.0f, 36.0f)
                 .size(dlgW - 32.0f, 18.0f)
                 .text(task ? ellipsizeText(taskDisplayName(*task), dlgW - 32.0f, 11.0f)
-                           : tr("任务已结束", "Task ended"))
+                           : tr("dl.task_ended"))
                 .fontSize(11.0f)
                 .lineHeight(18.0f)
                 .color(theme.metaText)
@@ -1082,9 +1076,9 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                                     .lineHeight(26.0f)
                                     .color(theme.nameText)
                                     .build();
-                                const char* st = status == "used" ? tr("在用", "used")
-                                                  : (status == "error" ? tr("失败", "failed")
-                                                                        : tr("备用", "standby"));
+                                const char* st = status == "used" ? tr("dl.mirror_status_used")
+                                                  : (status == "error" ? tr("card.state.failed")
+                                                                        : tr("dl.mirror_status_standby"));
                                 const eui::Color stc = status == "used" ? theme.done
                                                        : (status == "error" ? theme.failed
                                                                           : theme.metaText);
@@ -1100,16 +1094,15 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                                     components::button(sv, rowId + ".rm")
                                         .position(w - 44.0f, 1.0f)
                                         .size(38.0f, 24.0f)
-                                        .text(tr("移除", "Remove"))
+                                        .text(tr("dl.remove"))
                                         .fontSize(10.0f)
                                         .theme(theme.components, false)
                                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                                         .onClick([id = task->id, uri] {
                                             // 移除走后台 RPC，结果经状态信箱回 UI
                                             // 线程提示（文案先按当前语言解析成静态串）。
-                                            const char* okMsg = tr("已移除镜像源", "Mirror removed");
-                                            const char* failMsg = tr("移除失败（任务非活动或源不存在）",
-                                                                     "Remove failed (inactive task or source missing)");
+                                            const char* okMsg = tr("dl.mirror_removed");
+                                            const char* failMsg = tr("dl.mirror_remove_failed");
                                             g_tasks.removeMirror(id, uri, [okMsg, failMsg](bool ok) {
                                                 postStatus(ok ? okMsg : failMsg);
                                                 core::platform::requestUiUpdate();
@@ -1125,8 +1118,8 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                         components::text(sv, "mirror.empty")
                             .position(6.0f, 0)
                             .size(w - 12.0f, 26.0f)
-                            .text(task ? tr("无镜像源（可在下方添加）", "No mirrors (add below)")
-                                       : tr("任务无镜像源", "Task has no mirrors"))
+                            .text(task ? tr("dl.no_mirrors")
+                                       : tr("dl.task_no_mirrors"))
                             .fontSize(10.0f)
                             .lineHeight(26.0f)
                             .color(theme.metaText)
@@ -1149,7 +1142,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
             components::text(ui, "mirror.add.label")
                 .position(16.0f, 250.0f)
                 .size(60.0f, 26.0f)
-                .text(tr("添加源", "Add source"))
+                .text(tr("dl.add_source"))
                 .fontSize(11.0f)
                 .lineHeight(26.0f)
                 .color(theme.metaText)
@@ -1157,8 +1150,8 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
             components::input(ui, "mirror.add.input")
                 .position(74.0f, 248.0f)
                 .size(dlgW - 74.0f - 64.0f - 16.0f, 26.0f)
-                .placeholder(active ? tr("镜像源 URL", "Mirror URL")
-                                    : tr("仅活动任务可添加", "Only active tasks can add"))
+                .placeholder(active ? tr("dl.mirror_url")
+                                    : tr("dl.only_active_add"))
                 .value(g_mirrorAddText)
                 .fontFamily("")
                 .theme(theme.components)
@@ -1168,7 +1161,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                 components::button(ui, "mirror.add.btn")
                     .position(dlgW - 16.0f - 56.0f, 248.0f)
                     .size(56.0f, 26.0f)
-                    .text(tr("添加", "Add"))
+                    .text(tr("dl.add"))
                     .fontSize(11.0f)
                     .theme(theme.components, true)
                     .textColor(onPrimaryColor(theme))
@@ -1176,19 +1169,17 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                     .onClick([] {
                         std::string url = trimText(g_mirrorAddText);
                         if (url.empty()) {
-                            showStatus(tr("请输入镜像源地址", "Please enter a mirror URL"));
+                            showStatus(tr("dl.enter_mirror_url"));
                             return;
                         }
                         if (!isDownloadableSource(url) || url.starts_with("magnet:")) {
-                            showStatus(tr("镜像源须为 http(s)/ftp(s)/sftp 链接",
-                                          "Mirror must be an http(s)/ftp(s)/sftp link"));
+                            showStatus(tr("dl.mirror_url_invalid"));
                             return;
                         }
                         // 添加走后台 RPC：成功由回调置 pending 标志让 UI 线程清空输入
                         // （g_mirrorAddText 只允许 UI 线程写），结果状态经信箱回 UI。
-                        const char* okMsg = tr("已添加镜像源", "Mirror added");
-                        const char* failMsg = tr("添加失败（任务非活动或地址无效）",
-                                                 "Add failed (inactive task or invalid URL)");
+                        const char* okMsg = tr("dl.mirror_added");
+                        const char* failMsg = tr("dl.add_failed");
                         g_tasks.addMirror(g_mirrorTaskId, url, [okMsg, failMsg](bool ok) {
                             if (ok) g_mirrorAddClearPending.store(true);
                             postStatus(ok ? okMsg : failMsg);
@@ -1201,7 +1192,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
             components::button(ui, "mirror.close")
                 .position((dlgW - 76.0f) * 0.5f, dlgH - 34.0f)
                 .size(76.0f, 26.0f)
-                .text(tr("关闭", "Close"))
+                .text(tr("about.close"))
                 .fontSize(12.0f)
                 .theme(theme.components, true)
                 .textColor(onPrimaryColor(theme))

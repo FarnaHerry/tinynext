@@ -227,19 +227,27 @@ export void setCloseToTray(bool value) {
 
 // ---- language / UI locale ----
 
-export enum class Lang { Zh, En };
+export enum class Lang { ZhCN, ZhTW, En };
 
 export Lang lang() {
     const auto j = loadConfig();
     if (j.contains("language") && j["language"].is_string()) {
-        if (j["language"].get<std::string>() == "en") return Lang::En;
+        const std::string v = j["language"].get<std::string>();
+        if (v == "en") return Lang::En;
+        if (v == "zh-TW") return Lang::ZhTW;
+        // zh-CN / 旧值 "zh"（无缝升级，老用户配置不丢）→ 简体中文
+        if (v == "zh-CN" || v == "zh") return Lang::ZhCN;
     }
-    return Lang::Zh;  // 默认中文
+    return Lang::ZhCN;  // 默认简体中文
 }
 
 export void setLang(Lang l) {
     auto j = loadConfig();
-    j["language"] = l == Lang::En ? "en" : "zh";
+    switch (l) {
+        case Lang::En:   j["language"] = "en";    break;
+        case Lang::ZhTW: j["language"] = "zh-TW"; break;
+        case Lang::ZhCN: j["language"] = "zh-CN"; break;
+    }
     saveConfig(j);
 }
 

@@ -308,7 +308,7 @@ ResolveResult parseJson(const std::string& text) {
     try {
         j = nlohmann::json::parse(text);
     } catch (const std::exception& e) {
-        rr.error = std::string(tr("解析器返回了无法识别的数据：", "Resolver returned invalid data: ")) + e.what();
+        rr.error = std::string(tr("vres.invalid_data")) + e.what();
         return rr;
     }
 
@@ -406,8 +406,7 @@ ResolveResult parseJson(const std::string& text) {
     info.formats = std::move(deduped);
 
     if (info.formats.empty()) {
-        rr.error = tr("未找到可下载的视频流（可能需要登录 cookie，或链接不受支持）",
-                      "No downloadable stream found (may need login cookie, or unsupported link)");
+        rr.error = tr("vres.no_stream_login");
         return rr;
     }
     rr.ok = true;
@@ -611,8 +610,7 @@ export ResolveResult resolveVideoUrl(const std::string& url, const std::string& 
     ResolveResult rr;
     const std::string exe = findEngineBinary("yt-dlp");
     if (exe.empty()) {
-        rr.error = tr("未找到解析器 engines/yt-dlp（视频解析不可用）",
-                      "Resolver engines/yt-dlp not found (video parsing unavailable)");
+        rr.error = tr("vres.resolver_not_found");
         return rr;
     }
 
@@ -642,7 +640,7 @@ export ResolveResult resolveVideoUrl(const std::string& url, const std::string& 
         return rr;
     }
     if (proc.timedOut) {
-        rr.error = tr("解析超时（解析器启动过慢或网络异常）", "Parse timed out (resolver slow to start or network error)");
+        rr.error = tr("vres.timeout");
         return rr;
     }
     if (proc.exitCode != 0) {
@@ -657,8 +655,8 @@ export ResolveResult resolveVideoUrl(const std::string& url, const std::string& 
             errTail = all;
         }
         rr.error = errTail.empty()
-            ? tr("视频解析失败（链接无效或需要登录）", "Video parse failed (invalid link or login required)")
-            : std::string(tr("视频解析失败：", "Video parse failed: ")) + errTail;
+            ? tr("vres.failed_login")
+            : std::string(tr("vres.failed_prefix")) + errTail;
         return rr;
     }
     return parseJson(proc.out);

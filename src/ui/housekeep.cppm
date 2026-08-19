@@ -51,11 +51,11 @@ void checkDownloadNotifications() {
             if (wasActive && prev != t.state) {
                 const std::string name = taskDisplayName(t);
                 if (t.state == dl::State::Done) {
-                    notifyDownload(tr("下载完成", "Download complete"),
-                                   trf("{} 已下载完成", "{} downloaded", name));
+                    notifyDownload(tr("hk.download_complete"),
+                                   trf("hk.downloaded", name));
                 } else if (t.state == dl::State::Failed) {
-                    notifyDownload(tr("下载失败", "Download failed"),
-                                   trf("{} 下载失败", "{} failed", name));
+                    notifyDownload(tr("hk.download_failed"),
+                                   trf("hk.failed", name));
                 }
             }
         }
