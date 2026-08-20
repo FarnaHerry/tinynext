@@ -508,27 +508,128 @@ std::string detectJsRuntimeSpecOnPath() {
     return {};
 }
 
+// 辅助函数：从可执行文件路径或基名检测运行时类型。
+// 返回 yt-dlp 的 runtime 名称（如 "node"、"deno" 等），未知则返回空字符串。
+std::string detectRuntimeFromPath(const std::filesystem::path& p) {
+    const std::string filename = p.filename().string();
+    // 转换为小写进行比较（Windows 不区分大小写）
+    std::string lower = filename;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+
+    // 检查常见的运行时名称（包含在文件名中）
+    if (lower.find("node") != std::string::npos) return "node";
+    if (lower.find("deno") != std::string::npos) return "deno";
+    if (lower.find("bun") != std::string::npos) return "bun";
+    if (lower.find("qjs") != std::string::npos || lower.find("quickjs") != std::string::npos) {
+        return "quickjs";
+    }
+    // 检查扩展名（用于无名称的情况）
+    const std::string ext = p.extension().string();
+    std::string lowerExt = ext;
+    std::transform(lowerExt.begin(), lowerExt.end(), lowerExt.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+#ifdef _WIN32
+    if (lowerExt == ".exe") {
+        // 从主文件名部分再检测一次
+        const std::string stem = p.stem().string();
+        std::string lowerStem = stem;
+        std::transform(lowerStem.begin(), lowerStem.end(), lowerStem.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+        if (lowerStem.find("node") != std::string::npos) return "node";
+        if (lowerStem.find("deno") != std::string::npos) return "deno";
+        if (lowerStem.find("bun") != std::string::npos) return "bun";
+        if (lowerStem.find("qjs") != std::string::npos || lowerStem.find("quickjs") != std::string::npos) {
+            return "quickjs";
+        }
+    }
+#endif
+    return {};
+}
+
+// 辅助函数：在目录中搜索 JS runtime 可执行文件。
+// 返回 "runtime:executable_path" 规格，找不到则返回空字符串。
+std::string detectRuntimeInDirectory(const std::filesystem::path& dir) {
+    if (!std::filesystem::is_directory(dir)) return {};
+
+#ifdef _WIN32
+    const char* suffix = ".exe";
+#else
+    const char* suffix = "";
+#endif
+    // (yt-dlp runtime 名, 常见可执行文件基底)，按偏好序。
+    const std::array<std::pair<const char*, const char*>, 5> candidates = {{
+        {"node", "node"},
+        {"deno", "deno"},
+        {"bun", "bun"},
+        {"quickjs", "qjs"},
+        {"quickjs", "quickjs"},
+    }};
+    for (const auto& [runtime, base] : candidates) {
+        const std::filesystem::path candidate = dir / (std::string(base) + suffix);
+        std::error_code ec;
+        if (std::filesystem::is_regular_file(candidate, ec)) {
+            return std::string(runtime) + ":" + utf8FromPath(candidate);
+        }
+    }
+    return {};
+}
+
 // 规范化 JS runtime 规格：从配置项或自动探测得到可直接传给 yt-dlp 的 "runtime:path" 规格。
 std::string jsRuntimeSpec() {
     const std::string configured = cfg::videoConfig().jsRuntime;
     if (configured.empty()) return detectJsRuntimeSpecOnPath();
 
+    // 基本格式验证：冒号只能出现在开头（且后面不能有冒号或无效字符）
+    const std::size_t colonPos = configured.find(':');
+    if (colonPos != std::string::npos && colonPos != 0) {
+        // 包含多个冒号或冒号不在开头，视为无效格式
+        // 但保留向后兼容：直接返回原始值让 yt-dlp 尝试
+        // 这里我们只做基本检查，不严格拒绝
+    }
+
     const std::filesystem::path candidate = pathFromUtf8(configured);
     std::error_code ec;
+
+    // 情况1：配置的是显式规格（如 "node:C:\\tools\\node.exe"）
+    if (colonPos == 0) {
+        // 已经是 "runtime:path" 格式，直接返回
+        return configured;
+    }
+
+    // 情况2：配置的是文件路径
     if (std::filesystem::is_regular_file(candidate, ec)) {
+        // 检测运行时类型，而不是假设为 node
+        const std::string runtime = detectRuntimeFromPath(candidate);
+        if (!runtime.empty()) {
+            return runtime + ":" + utf8FromPath(candidate);
+        }
+        // 未知文件类型，尝试作为 node 处理（向后兼容）
         return "node:" + utf8FromPath(candidate);
     }
+
+    // 情况3：配置的是目录路径
     if (std::filesystem::is_directory(candidate, ec)) {
-#ifdef _WIN32
-        const std::filesystem::path node = candidate / "node.exe";
-#else
-        const std::filesystem::path node = candidate / "node";
-#endif
-        if (std::filesystem::is_regular_file(node, ec)) {
-            return "node:" + utf8FromPath(node);
+        const std::string found = detectRuntimeInDirectory(candidate);
+        if (!found.empty()) {
+            return found;
         }
+        // 目录中找不到运行时，返回空（触发自动检测）
+        return {};
     }
-    // 保留显式 yt-dlp 规格如 "node:C:\\tools\\node.exe" 以及支持的符号名如 "node"。
+
+    // 情况4：配置的是运行时名称（如 "node"、"deno"）或无效路径
+    // 检查是否是已知的运行时名称
+    std::string lowerConfigured = configured;
+    std::transform(lowerConfigured.begin(), lowerConfigured.end(), lowerConfigured.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    if (lowerConfigured == "node" || lowerConfigured == "deno" || lowerConfigured == "bun" ||
+        lowerConfigured == "quickjs" || lowerConfigured == "qjs") {
+        // 已知运行时名称，直接返回（yt-dlp 会在 PATH 中搜索）
+        return configured;
+    }
+
+    // 其他情况：可能是路径但不存在，或无效值，直接返回原始值让 yt-dlp 尝试
     return configured;
 }
 
