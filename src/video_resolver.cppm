@@ -459,9 +459,12 @@ export std::string findEngineBinary(const char* baseName) {
 // —— yt-dlp 的 JavaScript runtime（解 YouTube PO Token / JS challenge）——
 // 2026 起 YouTube 强制要求 JS runtime，否则 player response playability 直接
 // ERROR → "Video unavailable" / 原生下载失败。b 站等不需要，不受影响。
-// 拼 `--js-runtimes <name>`（yt-dlp 自己会在 PATH 里找对应二进制）。优先配置
-// 手动指定的 runtime 名；否则自动探测 PATH 里的 node/deno/quickjs/bun。
-std::string detectJsRuntimeOnPath() {
+// 拼 `--js-runtimes <spec>`，其中 spec 是 `runtime:executable_path` 形式（yt-dlp
+// 直接使用给定的可执行文件，不再自行在 PATH 里搜索）。优先配置手动指定的路径；
+// 否则自动探测 PATH 里的 node/deno/quickjs/bun 可执行文件。
+
+// 在 PATH 里搜索 JS runtime 可执行文件，返回 "runtime:executable_path" 规格。
+std::string detectJsRuntimeSpecOnPath() {
 #ifdef _WIN32
     const char* suffix = ".exe";
     const char sep = ';';
@@ -497,19 +500,44 @@ std::string detectJsRuntimeOnPath() {
             std::error_code ec;
             const std::filesystem::path p =
                 std::filesystem::path(dir) / (std::string(base) + suffix);
-            if (std::filesystem::exists(p, ec)) return runtime;
+            if (std::filesystem::exists(p, ec)) {
+                return std::string(runtime) + ":" + utf8FromPath(p);
+            }
         }
     }
     return {};
 }
 
-// 往 yt-dlp 命令 args 注入 `--js-runtimes <name>`（有可用 runtime 才注入）。
+// 规范化 JS runtime 规格：从配置项或自动探测得到可直接传给 yt-dlp 的 "runtime:path" 规格。
+std::string jsRuntimeSpec() {
+    const std::string configured = cfg::videoConfig().jsRuntime;
+    if (configured.empty()) return detectJsRuntimeSpecOnPath();
+
+    const std::filesystem::path candidate = pathFromUtf8(configured);
+    std::error_code ec;
+    if (std::filesystem::is_regular_file(candidate, ec)) {
+        return "node:" + utf8FromPath(candidate);
+    }
+    if (std::filesystem::is_directory(candidate, ec)) {
+#ifdef _WIN32
+        const std::filesystem::path node = candidate / "node.exe";
+#else
+        const std::filesystem::path node = candidate / "node";
+#endif
+        if (std::filesystem::is_regular_file(node, ec)) {
+            return "node:" + utf8FromPath(node);
+        }
+    }
+    // 保留显式 yt-dlp 规格如 "node:C:\\tools\\node.exe" 以及支持的符号名如 "node"。
+    return configured;
+}
+
+// 往 yt-dlp 命令 args 注入 `--js-runtimes <spec>`（有可用 runtime 才注入）。
 void appendJsRuntimeArgs(std::vector<std::string>& args) {
-    const std::string cfgRt = cfg::videoConfig().jsRuntime;
-    const std::string rt = !cfgRt.empty() ? cfgRt : detectJsRuntimeOnPath();
-    if (rt.empty()) return;
+    const std::string spec = jsRuntimeSpec();
+    if (spec.empty()) return;
     args.push_back("--js-runtimes");
-    args.push_back(rt);
+    args.push_back(spec);
 }
 
 // spawn 进程并把 stdout+stderr 重定向到日志文件，阻塞等待退出（带超时强杀）。cancel
