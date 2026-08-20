@@ -17,3 +17,4 @@ tinynext.session
 engines/*.exe
 engines/aria2-next
 tmp/
+.worktrees/
