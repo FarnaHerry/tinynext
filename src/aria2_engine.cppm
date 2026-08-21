@@ -64,7 +64,7 @@ private:
     struct Task;
     bool ensureDaemon() const;      // spawn + wait until RPC answers
     void recoverSession() const;    // 重启后重建会话任务（tellActive/Waiting/Stopped）
-    void refreshStates() const;     // poll tellStatus for live tasks (~1 Hz)
+    void refreshStates() const;     // poll tellStatus for live tasks (~1 Hz), 内部管理锁
     std::shared_ptr<Task> findTask(std::uint64_t id) const;
     std::filesystem::path makeUniqueDest(const std::filesystem::path& dest) const;
     // 后台命令队列：任务动作（暂停/继续/重试/删除/镜像）的 rpcCall 在独立线程跑，

@@ -1418,30 +1418,42 @@ void Aria2Engine::applyTellStatus(const std::shared_ptr<Task>& task,
     }
 }
 
-// 轮询活动任务进度 + 补全 needsFinalize 任务。调用方（snapshot）须已持锁。
+// 轮询活动任务进度 + 补全 needsFinalize 任务。内部管理锁（不要求调用方持锁）。
 // 状态迁移主要由 WS 事件接管（即时），这里的 tellStatus 负责进度字节/速度/连接数，
 // 以及事件只带 gid 时的最终态补全。
+// 注意：rpcCall 可能阻塞 ~500ms，所以先收集目标后释放锁，RPC 完毕再取锁写结果；
+// 避免堵塞 UI 线程的 snapshot（它也要取 tasksMutex_），导致「连接信息时有时无」。
 void Aria2Engine::refreshStates() const {
     if (!daemonSpawned_) return;
-    // 收集需要轮询/补全的任务（活动状态 + needsFinalize），RPC 期间锁保持（WS
-    // 事件回调只是短暂等待，无死锁）。
-    std::vector<std::pair<std::shared_ptr<Task>, std::string>> targets;
-    targets.reserve(tasks_.size());
-    for (const auto& task : tasks_) {
-        const State s = task->state;
-        if (s == State::Queued || s == State::Downloading || s == State::Paused ||
-            task->needsFinalize) {
-            targets.emplace_back(task, task->gid);
+    // 阶段 1：持锁收集目标 gid，极短。
+    std::vector<std::pair<std::uint64_t, std::string>> targets;
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        targets.reserve(tasks_.size());
+        for (const auto& task : tasks_) {
+            const State s = task->state;
+            if (s == State::Queued || s == State::Downloading || s == State::Paused ||
+                task->needsFinalize) {
+                targets.emplace_back(task->id, task->gid);
+            }
         }
     }
-    for (const auto& [task, gid] : targets) {
+    // 阶段 2：解锁做 RPC（不阻塞 UI snapshot）。
+    for (const auto& [id, gid] : targets) {
+        if (gid.empty()) continue;
+        nlohmann::json st;
         try {
-            const nlohmann::json st =
-                rpcCall(port_, secret_, "aria2.tellStatus", nlohmann::json::array({gid}));
+            st = rpcCall(port_, secret_, "aria2.tellStatus", nlohmann::json::array({gid}));
+        } catch (...) {
+            continue; // Transient RPC failure — leave state as-is, retry next poll.
+        }
+        // 阶段 3：取锁写结果（短暂持锁）。
+        {
+            std::lock_guard<std::mutex> lock(tasksMutex_);
+            auto task = findTask(id);
+            if (!task) continue;
             applyTellStatus(task, st);
             task->needsFinalize = false;
-        } catch (...) {
-            // Transient RPC failure — leave state as-is, retry next poll.
         }
     }
 }
@@ -1449,7 +1461,6 @@ void Aria2Engine::refreshStates() const {
 // 后台线程进度轮询：~1s 节流批量 tellStatus（UI 线程的 snapshot 已剥离 RPC，
 // 进度刷新由 housekeep / headless 等待循环显式驱动，绝不占 UI 线程）。
 void Aria2Engine::pollProgress() {
-    std::lock_guard<std::mutex> lock(tasksMutex_);
     const auto now = std::chrono::steady_clock::now();
     if (now - lastPoll_ >= std::chrono::seconds(1)) {
         lastPoll_ = now;
@@ -1561,7 +1572,8 @@ void Aria2Engine::restartEngine(std::function<void(bool)> onDone) {
 std::vector<TaskView> Aria2Engine::snapshot() const {
     // 纯读缓存、立即返回：只持锁拷贝任务表，不发任何 RPC（UI 线程每帧调用）。
     // 状态迁移由 WS 事件接管（即时），进度字节/速度由 pollProgress（后台线程）
-    // ~1s 刷新，UI 显示至多滞后 1s（对齐 Motrix/AriaNg）。
+    // ~1s 刷新（RPC 在锁外做，绝不让本 snapshot 等待），UI 显示至多滞后 1s
+    // （对齐 Motrix/AriaNg）。
     std::lock_guard<std::mutex> lock(tasksMutex_);
     std::vector<TaskView> out;
     out.reserve(tasks_.size());
