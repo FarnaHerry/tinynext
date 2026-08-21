@@ -77,9 +77,10 @@ bilibili 等站点）；下载分两种走法：
   Referer/UA 头）同时下载，列表里只显示**一个任务**；两边下完自动用
   `engines/ffmpeg(.exe)` 合并成 mp4（状态显示「合并中」），低画质合流格式单文件
   直接下载免合并。
-- **YouTube（googlevideo CDN）**：这类 CDN 拒绝 aria2 的开放式 Range 请求（直连第
-  一次请求即 403，代理/绕过网络下更甚），所以 YouTube 走**解析器原生下载兼合并**
-  （`yt-dlp` 直接下两个流并用 ffmpeg 合成一个 mp4），列表同样只显示一个任务。
+- **YouTube（googlevideo CDN）**：这类 CDN 拒绝第三方下载器的开放式 Range 请求
+  （直连第一次请求即 403），所以 YouTube 走 **yt-dlp 命令行下载**（`--downloader
+  aria2c` 把分片下载委托给 aria2-next，yt-dlp 自行处理 JS challenge 与 DASH
+  合并），列表同样只显示一个任务。
 
 - **1080P+ / 会员画质**：在「设置 → 视频」填 bilibili Cookie 的 **SESSDATA** 值
   （登录 bilibili 后 F12 → 应用 → Cookies 里复制；仅对 bilibili 站点生效）；不填
@@ -88,6 +89,11 @@ bilibili 等站点）；下载分两种走法：
   `1080` 则解析后预选 1080P 档），留空自动选最高。
 - 流地址有时效，解析后请尽快下载；下载失败（403/过期）重新解析一次再下。
 - yt-dlp 首次启动较慢（冷启动数秒到十几秒），解析最长等待 60 秒。
+- **YouTube 解析依赖**：发行包附带的 yt-dlp 包含 EJS challenge solver；系统还需
+  安装受支持的 JavaScript runtime。TinyNext 会优先从 PATH 自动找到 Node.js，也可在
+  「设置 → 视频 → JavaScript runtime」填 `node`、`node:C:\完整\node.exe` 或 runtime
+  可执行文件的完整路径。推荐 Node.js 22+；未安装 runtime 时，bilibili 等不需要 JS
+  challenge 的站点仍可尝试解析。
 - **已知边界**：bilibili 的 DASH 下载中重启应用，音/视频子任务会被会话恢复成两个
   普通 `.m4s` 任务，不会自动合并（重新在视频页下载即可）；YouTube 原生任务重启后
   同样不会再合并。

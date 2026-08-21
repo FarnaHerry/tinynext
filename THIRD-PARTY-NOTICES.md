@@ -19,13 +19,13 @@ TinyNext 随发行包附带以下第三方程序（均在 `engines/` 目录）�
 
 ## yt-dlp
 
-- **版本**：2026.07.04
-- **用途**：视频网页解析（出直链 / 请求头），并在 YouTube 等站点承担原生下载+合并。
+- **版本**：2026.08.19（官方 standalone executable，内含匹配的 yt-dlp-ejs 组件）
+- **用途**：视频网页解析（出直链 / 请求头）；内置 yt-dlp-ejs 用于 YouTube JavaScript challenge 解析，仍需系统提供受支持的 JavaScript runtime。
 - **来源**：https://github.com/yt-dlp/yt-dlp
 - **许可**：Unlicense（公有领域），并保留对上游 youtube-dl 的版权声明。
 - **说明**：yt-dlp 派生自已停止维护的 youtube-dl。正式许可文本见仓库 LICENSE：
   https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE
-- **二进制**：`engines/yt-dlp.exe`
+- **二进制**：`engines/yt-dlp(.exe)`
 
 ## ffmpeg
 

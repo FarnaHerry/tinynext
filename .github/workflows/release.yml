@@ -277,8 +277,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # 固定 yt-dlp 版本（官方 standalone executable 内含 yt-dlp-ejs，YouTube
+          # 解析必需）；不用 latest 以免发行包间漂移、无法复现。
+          ytdlp_version="2026.08.19"
           curl -fL --retry 3 -o "${{ matrix.ytdlp_asset }}" \
-            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/${{ matrix.ytdlp_asset }}"
+            "https://github.com/yt-dlp/yt-dlp/releases/download/${ytdlp_version}/${{ matrix.ytdlp_asset }}"
           chmod +x "${{ matrix.ytdlp_asset }}"
           mv "${{ matrix.ytdlp_asset }}" "${{ matrix.ytdlp_file }}"
 
