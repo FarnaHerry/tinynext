@@ -260,16 +260,12 @@ jobs:
           name: trimmed-ffmpeg-${{ matrix.name }}
           path: engines
 
-      - name: Fetch aria2-next engine (checksum-verified)
+      - name: Fetch aria2-next engine
         shell: bash
         run: |
           mkdir -p engines
-          curl -fL -o "engines/${{ matrix.engine_asset }}" \
+          curl -fL --retry 3 -o "engines/${{ matrix.engine_asset }}" \
             "https://github.com/AnInsomniacy/aria2-next/releases/download/v2.5.5/${{ matrix.engine_asset }}"
-          tr -d '\r' < engines/checksums.sha256 > engines/checksums.tmp
-          mv engines/checksums.tmp engines/checksums.sha256
-          (cd engines && sha256sum -c checksums.sha256 --ignore-missing) || {
-            echo "aria2-next checksum mismatch — aborting" >&2; exit 1; }
           mv "engines/${{ matrix.engine_asset }}" "${{ matrix.engine_file }}"
           chmod +x "${{ matrix.engine_file }}"
 

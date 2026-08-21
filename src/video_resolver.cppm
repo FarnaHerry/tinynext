@@ -80,6 +80,21 @@ export struct ResolveResult {
     std::optional<VideoInfo> info;
 };
 
+// yt-dlp 下载任务的实时进度。所有字段都是原子变量，可在任意线程安全读写。
+export struct YtDlpProgress {
+    std::atomic<bool> started{false};    // 进程已启动
+    std::atomic<bool> finished{false};   // 进程已退出（成功或失败）
+    std::atomic<bool> canceled{false};   // 用户主动取消
+    std::atomic<bool> ok{false};         // 退出码 0
+    std::atomic<bool> merging{false};    // 进入 yt-dlp [Merger] 阶段（DASH 合并中）
+    std::atomic<double> percent{0.0};    // [download] 百分比（0-100）
+    std::atomic<std::int64_t> speedBps{0};
+    std::atomic<std::int64_t> downloadedBytes{0};
+    std::atomic<std::int64_t> totalBytes{0};
+    std::string error;                   // 非原子：仅在 finished 后读
+    std::string outputPath;              // 最终输出文件路径
+};
+
 namespace {
 
 // 进程捕获结果。
@@ -259,6 +274,263 @@ CapturedProc runCapture(const std::string& exe,
 #endif
 }
 
+// 解析 yt-dlp stderr 进度行，更新共享进度结构。
+void parseProgressLine(const std::string& line, std::shared_ptr<YtDlpProgress> prog) {
+    // [download]  12.3% of  500.00MiB at  862.37KiB/s ETA 02:09:52
+    if (line.find("[download]") != std::string::npos) {
+        // 百分比
+        std::size_t pctPos = line.find('%');
+        if (pctPos != std::string::npos) {
+            const std::size_t start = line.rfind(' ', pctPos - 1);
+            if (start != std::string::npos) {
+                try { prog->percent.store(std::stod(line.substr(start + 1))); }
+                catch (...) {}
+            }
+        }
+        // 速度
+        const std::size_t atPos = line.find(" at ");
+        if (atPos != std::string::npos) {
+            const std::size_t slashPos = line.find("/s", atPos + 4);
+            if (slashPos != std::string::npos) {
+                std::string speedStr = line.substr(atPos + 4, slashPos - atPos - 4);
+                speedStr.erase(0, speedStr.find_first_not_of(" \t"));
+                double speedVal = 0;
+                try { speedVal = std::stod(speedStr); } catch (...) {}
+                if (speedStr.rfind("GiB") != std::string::npos || speedStr.rfind("G") != std::string::npos) {
+                    prog->speedBps.store(static_cast<std::int64_t>(speedVal * 1024.0 * 1024.0 * 1024.0));
+                } else if (speedStr.rfind("MiB") != std::string::npos || speedStr.rfind("M") != std::string::npos) {
+                    prog->speedBps.store(static_cast<std::int64_t>(speedVal * 1024.0 * 1024.0));
+                } else if (speedStr.rfind("KiB") != std::string::npos || speedStr.rfind("k") != std::string::npos) {
+                    prog->speedBps.store(static_cast<std::int64_t>(speedVal * 1024.0));
+                } else {
+                    prog->speedBps.store(static_cast<std::int64_t>(speedVal));
+                }
+            }
+        }
+        // 总量
+        const std::size_t ofPos = line.find(" of ");
+        if (ofPos != std::string::npos) {
+            const std::size_t atPos2 = line.find(" at ", ofPos);
+            std::string sizeStr = atPos2 != std::string::npos
+                ? line.substr(ofPos + 4, atPos2 - ofPos - 4)
+                : line.substr(ofPos + 4);
+            sizeStr.erase(0, sizeStr.find_first_not_of(" \t"));
+            double sizeVal = 0;
+            try { sizeVal = std::stod(sizeStr); } catch (...) {}
+            std::int64_t total = 0;
+            if (sizeStr.rfind("GiB") != std::string::npos) total = static_cast<std::int64_t>(sizeVal * 1024.0 * 1024.0 * 1024.0);
+            else if (sizeStr.rfind("MiB") != std::string::npos) total = static_cast<std::int64_t>(sizeVal * 1024.0 * 1024.0);
+            else if (sizeStr.rfind("KiB") != std::string::npos) total = static_cast<std::int64_t>(sizeVal * 1024.0);
+            else total = static_cast<std::int64_t>(sizeVal);
+            if (total > 0) prog->totalBytes.store(total);
+        }
+        // 已下载 = 百分比 × 总量
+        const std::int64_t tb = prog->totalBytes.load();
+        if (tb > 0) {
+            prog->downloadedBytes.store(static_cast<std::int64_t>(tb * prog->percent.load() / 100.0));
+        }
+    }
+    // [Merger] Merging formats into "..."
+    else if (line.find("[Merger]") != std::string::npos) {
+        prog->merging.store(true);
+        const std::size_t q1 = line.find('"');
+        if (q1 != std::string::npos) {
+            const std::size_t q2 = line.find('"', q1 + 1);
+            if (q2 != std::string::npos) {
+                prog->outputPath = line.substr(q1 + 1, q2 - q1 - 1);
+            }
+        }
+    }
+    // [download] Destination: "..."
+    else if (line.find("Destination:") != std::string::npos) {
+        const std::size_t q1 = line.find('"');
+        if (q1 != std::string::npos) {
+            const std::size_t q2 = line.find('"', q1 + 1);
+            if (q2 != std::string::npos && prog->outputPath.empty()) {
+                prog->outputPath = line.substr(q1 + 1, q2 - q1 - 1);
+            }
+        }
+    }
+}
+
+// 带实时进度解析的子进程执行器：spawn 进程，逐行读取 stdout+stderr，解析进度行，
+// 同时写入日志文件。支持取消（prog->canceled）。跨平台（Win32 / POSIX）。
+void runCaptureYtDlp(const std::string& exe,
+                     const std::vector<std::string>& args,
+                     const std::filesystem::path& logFile,
+                     std::shared_ptr<YtDlpProgress> prog) {
+#ifdef _WIN32
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    HANDLE readPipe = nullptr, writePipe = nullptr;
+    if (!CreatePipe(&readPipe, &writePipe, &sa, 0)) {
+        prog->finished.store(true); prog->ok.store(false); prog->error = "pipe creation failed";
+        return;
+    }
+    SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
+
+    HANDLE log = CreateFileW(utf8ToWide(logFile.string()).c_str(),
+                             GENERIC_WRITE, FILE_SHARE_READ, &sa,
+                             CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+
+    std::wstring cmd = quoteArg(exe);
+    for (const auto& a : args) { cmd += L" "; cmd += quoteArg(a); }
+
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = writePipe;
+    si.hStdError = writePipe;
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    PROCESS_INFORMATION pi{};
+    std::vector<wchar_t> cmdBuf(cmd.begin(), cmd.end());
+    cmdBuf.push_back(L'\0');
+    const BOOL ok = CreateProcessW(nullptr, cmdBuf.data(), nullptr, nullptr, TRUE,
+                                   CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    CloseHandle(writePipe);
+    if (log != INVALID_HANDLE_VALUE) CloseHandle(log);
+    if (!ok) { CloseHandle(readPipe); prog->finished.store(true); prog->ok.store(false); prog->error = "spawn failed"; return; }
+
+    std::string lineBuf;
+    bool exited = false;
+    for (;;) {
+        if (prog->canceled.load()) {
+            TerminateProcess(pi.hProcess, 1);
+            prog->finished.store(true);
+            break;
+        }
+        DWORD avail = 0;
+        if (PeekNamedPipe(readPipe, nullptr, 0, nullptr, &avail, nullptr) && avail > 0) {
+            char buf[8192];
+            DWORD got = 0;
+            const DWORD want = avail < sizeof(buf) ? avail : (DWORD)sizeof(buf);
+            if (ReadFile(readPipe, buf, want, &got, nullptr) && got > 0) {
+                // 写入日志
+                log = CreateFileW(utf8ToWide(logFile.string()).c_str(),
+                                  FILE_WRITE_DATA, FILE_SHARE_READ, nullptr,
+                                  OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+                if (log != INVALID_HANDLE_VALUE) {
+                    DWORD written = 0;
+                    WriteFile(log, buf, got, &written, nullptr);
+                    CloseHandle(log);
+                }
+                // 分行解析
+                for (DWORD i = 0; i < got; ++i) {
+                    if (buf[i] == '\n') {
+                        if (!lineBuf.empty()) {
+                            parseProgressLine(lineBuf, prog);
+                            lineBuf.clear();
+                        }
+                    } else if (buf[i] != '\r') {
+                        lineBuf += buf[i];
+                    }
+                }
+            }
+            continue;
+        }
+        if (WaitForSingleObject(pi.hProcess, 0) == WAIT_OBJECT_0) { exited = true; break; }
+        Sleep(15);
+    }
+    // 排空剩余管道数据
+    for (;;) {
+        DWORD avail = 0;
+        if (!PeekNamedPipe(readPipe, nullptr, 0, nullptr, &avail, nullptr) || avail == 0) break;
+        char buf[8192]; DWORD got = 0;
+        const DWORD want = avail < sizeof(buf) ? avail : (DWORD)sizeof(buf);
+        if (!ReadFile(readPipe, buf, want, &got, nullptr) || got == 0) break;
+        for (DWORD i = 0; i < got; ++i) {
+            if (buf[i] == '\n' && !lineBuf.empty()) { parseProgressLine(lineBuf, prog); lineBuf.clear(); }
+            else if (buf[i] != '\r') lineBuf += buf[i];
+        }
+    }
+    // 最后一行
+    if (!lineBuf.empty()) parseProgressLine(lineBuf, prog);
+
+    DWORD code = 1;
+    if (exited) GetExitCodeProcess(pi.hProcess, &code);
+    prog->finished.store(true);
+    prog->ok.store(code == 0);
+    if (code != 0 && prog->error.empty()) prog->error = "yt-dlp exit code " + std::to_string(code);
+    CloseHandle(readPipe);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+#else
+    int pipefd[2];
+    if (pipe(pipefd) != 0) {
+        prog->finished.store(true); prog->ok.store(false); prog->error = "pipe creation failed";
+        return;
+    }
+    const int logFd = open(logFile.string().c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_adddup2(&fa, pipefd[1], STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&fa, pipefd[1], STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&fa, pipefd[0]);
+
+    std::vector<std::string> argStorage;
+    argStorage.push_back(exe);
+    for (const auto& a : args) argStorage.push_back(a);
+    std::vector<char*> argv;
+    argv.reserve(argStorage.size() + 1);
+    for (auto& s : argStorage) argv.push_back(s.data());
+    argv.push_back(nullptr);
+
+    pid_t pid = 0;
+    const int rc = posix_spawn(&pid, exe.c_str(), &fa, nullptr, argv.data(), environ);
+    posix_spawn_file_actions_destroy(&fa);
+    close(pipefd[1]);
+    if (logFd >= 0) close(logFd);
+    if (rc != 0) { close(pipefd[0]); prog->finished.store(true); prog->ok.store(false); prog->error = "spawn failed"; return; }
+
+    fcntl(pipefd[0], F_SETFL, O_NONBLOCK);
+    std::string lineBuf;
+    int status = 0;
+    bool exited = false;
+    for (;;) {
+        if (prog->canceled.load()) {
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0);
+            prog->finished.store(true);
+            break;
+        }
+        char buf[8192];
+        const ssize_t n = read(pipefd[0], buf, sizeof(buf));
+        if (n > 0) {
+            // 写入日志
+            const int logFdW = open(logFile.string().c_str(), O_WRONLY | O_APPEND, 0644);
+            if (logFdW >= 0) { write(logFdW, buf, (std::size_t)n); close(logFdW); }
+            // 分行解析
+            for (ssize_t i = 0; i < n; ++i) {
+                if (buf[i] == '\n') { if (!lineBuf.empty()) { parseProgressLine(lineBuf, prog); lineBuf.clear(); } }
+                else if (buf[i] != '\r') lineBuf += buf[i];
+            }
+            continue;
+        }
+        if (waitpid(pid, &status, WNOHANG) == pid) { exited = true; break; }
+        usleep(15000);
+    }
+    // 排空
+    for (;;) {
+        char buf[8192];
+        const ssize_t n = read(pipefd[0], buf, sizeof(buf));
+        if (n <= 0) break;
+        for (ssize_t i = 0; i < n; ++i) {
+            if (buf[i] == '\n' && !lineBuf.empty()) { parseProgressLine(lineBuf, prog); lineBuf.clear(); }
+            else if (buf[i] != '\r') lineBuf += buf[i];
+        }
+    }
+    if (!lineBuf.empty()) parseProgressLine(lineBuf, prog);
+    close(pipefd[0]);
+
+    const bool exitedOk = exited && WIFEXITED(status);
+    prog->finished.store(true);
+    prog->ok.store(exitedOk && WEXITSTATUS(status) == 0);
+    if (!exitedOk && prog->error.empty()) prog->error = "yt-dlp exited abnormally";
+#endif
+}
+
 // 把 SESSDATA 写成 Netscape cookie 文件（yt-dlp --cookies 用）。返回路径；空值返回空。
 std::filesystem::path writeCookieFile(const std::string& sessdata) {
     if (sessdata.empty()) return {};
@@ -416,6 +688,80 @@ ResolveResult parseJson(const std::string& text) {
 
 } // namespace
 
+// 前向声明（findEngineBinary 定义在后面，但 startYtDlpDownload 要先调用它）
+export std::string findEngineBinary(const char* baseName);
+
+// 启动 yt-dlp 下载（含 --downloader aria2c 委托 aria2 分片下载 + yt-dlp 自行 DASH
+// 合并）。进程跑在独立后台线程，进度实时写入 prog。返回 true 表示成功启动。
+export bool startYtDlpDownload(const std::string& url,
+                               const std::string& jsRuntime,
+                               const std::string& outName,
+                               const std::filesystem::path& dir,
+                               const std::string& userAgent,
+                               const std::string& referer,
+                               const std::filesystem::path& logFile,
+                               std::shared_ptr<YtDlpProgress> prog) {
+    const std::string exe = findEngineBinary("yt-dlp");
+    if (exe.empty()) {
+        prog->finished.store(true);
+        prog->ok.store(false);
+        prog->error = tr("vres.resolver_not_found");
+        return false;
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    std::filesystem::create_directories(logFile.parent_path(), ec);
+
+    std::vector<std::string> args = {
+        "--no-warnings", "--no-check-certificates", "--no-update",
+        "--no-playlist", "--newline", "--progress", "--no-colors",
+    };
+    if (!jsRuntime.empty()) {
+        args.push_back("--js-runtimes");
+        args.push_back(jsRuntime);
+    }
+    // --downloader: 找 aria2c 或 aria2-next
+    args.push_back("--downloader");
+    std::string aria2c = findEngineBinary("aria2c");
+    if (aria2c.empty()) aria2c = findEngineBinary("aria2-next");
+    if (aria2c.empty()) aria2c = "aria2c";
+    args.push_back(aria2c);
+    // downloder-args 从配置读取分片数/连接数，与设置页「直链下载」栏一致
+    const cfg::Aria2Config a2cfg = cfg::aria2Config();
+    const std::string dlArgs = "aria2c:-x " + std::to_string(a2cfg.maxConnectionPerServer)
+        + " -s " + std::to_string(a2cfg.split)
+        + " --enable-rpc=false";
+    args.push_back("--downloader-args");
+    args.push_back(dlArgs);
+    // 代理透传（与设置页「网络 → 代理地址」一致）
+    const std::string proxy = a2cfg.proxy;
+    if (!proxy.empty()) {
+        args.push_back("--proxy");
+        args.push_back(proxy);
+    }
+    // 请求头
+    if (!userAgent.empty()) {
+        args.push_back("--add-header");
+        args.push_back("User-Agent: " + userAgent);
+    }
+    if (!referer.empty()) {
+        args.push_back("--add-header");
+        args.push_back("Referer: " + referer);
+    }
+    // 输出路径
+    args.push_back("--paths");
+    args.push_back(utf8FromPath(dir));
+    args.push_back("-o");
+    args.push_back(outName);
+    args.push_back(url);
+
+    std::thread([exe, args, logFile, prog] {
+        prog->started.store(true);
+        runCaptureYtDlp(exe, args, logFile, prog);
+    }).detach();
+    return true;
+}
+
 // 在 engines/ 下找外部工具二进制（复用 aria2 的 engineExePath 思路）：先
 // <exeDir>/engines/，回退 <cwd>/engines/；POSIX 上再回退系统 PATH 里的同名工具
 // （Linux/macOS 用户常已用包管理器装好 ffmpeg/yt-dlp，不必再放一份到 engines/）。
@@ -511,39 +857,17 @@ std::string detectJsRuntimeSpecOnPath() {
 // 辅助函数：从可执行文件路径或基名检测运行时类型。
 // 返回 yt-dlp 的 runtime 名称（如 "node"、"deno" 等），未知则返回空字符串。
 std::string detectRuntimeFromPath(const std::filesystem::path& p) {
-    const std::string filename = p.filename().string();
-    // 转换为小写进行比较（Windows 不区分大小写）
-    std::string lower = filename;
+    // 用小写 stem（去扩展名）精确匹配常用 runtime 可执行文件名，避免
+    // "notepad.exe" 之类含 "node" 子串的误判。
+    const std::string stem = p.stem().string();
+    std::string lower = stem;
     std::transform(lower.begin(), lower.end(), lower.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
+                   [](unsigned char c) { return static_cast<unsigned char>(std::tolower(c)); });
 
-    // 检查常见的运行时名称（包含在文件名中）
-    if (lower.find("node") != std::string::npos) return "node";
-    if (lower.find("deno") != std::string::npos) return "deno";
-    if (lower.find("bun") != std::string::npos) return "bun";
-    if (lower.find("qjs") != std::string::npos || lower.find("quickjs") != std::string::npos) {
-        return "quickjs";
-    }
-    // 检查扩展名（用于无名称的情况）
-    const std::string ext = p.extension().string();
-    std::string lowerExt = ext;
-    std::transform(lowerExt.begin(), lowerExt.end(), lowerExt.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
-#ifdef _WIN32
-    if (lowerExt == ".exe") {
-        // 从主文件名部分再检测一次
-        const std::string stem = p.stem().string();
-        std::string lowerStem = stem;
-        std::transform(lowerStem.begin(), lowerStem.end(), lowerStem.begin(),
-                       [](unsigned char c) { return std::tolower(c); });
-        if (lowerStem.find("node") != std::string::npos) return "node";
-        if (lowerStem.find("deno") != std::string::npos) return "deno";
-        if (lowerStem.find("bun") != std::string::npos) return "bun";
-        if (lowerStem.find("qjs") != std::string::npos || lowerStem.find("quickjs") != std::string::npos) {
-            return "quickjs";
-        }
-    }
-#endif
+    if (lower == "node") return "node";
+    if (lower == "deno") return "deno";
+    if (lower == "bun") return "bun";
+    if (lower == "qjs" || lower == "quickjs") return "quickjs";
     return {};
 }
 
@@ -576,17 +900,12 @@ std::string detectRuntimeInDirectory(const std::filesystem::path& dir) {
 }
 
 // 规范化 JS runtime 规格：从配置项或自动探测得到可直接传给 yt-dlp 的 "runtime:path" 规格。
-std::string jsRuntimeSpec() {
+export std::string jsRuntimeSpec() {
     const std::string configured = cfg::videoConfig().jsRuntime;
     if (configured.empty()) return detectJsRuntimeSpecOnPath();
 
     // 基本格式验证：冒号只能出现在开头（且后面不能有冒号或无效字符）
     const std::size_t colonPos = configured.find(':');
-    if (colonPos != std::string::npos && colonPos != 0) {
-        // 包含多个冒号或冒号不在开头，视为无效格式
-        // 但保留向后兼容：直接返回原始值让 yt-dlp 尝试
-        // 这里我们只做基本检查，不严格拒绝
-    }
 
     const std::filesystem::path candidate = pathFromUtf8(configured);
     std::error_code ec;
