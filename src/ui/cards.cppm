@@ -70,13 +70,6 @@ export std::string cardInfoText(const dl::TaskView& task) {
             break;
     }
 
-    // 下载中但无进度字节（yt-dlp 还在解析阶段）：显示"解析中…"
-    // 注意用 totalBytes == 0 而非 <= 0：aria2 普通下载的 totalBytes 初始为 -1
-    // （未知大小），如果用 <= 0 会把 aria2 任务也拦截显示"解析中"。
-    if (displayState == dl::State::Downloading && task.totalBytes == 0 && task.speedBps <= 0.0) {
-        return tr("card.state.resolving");
-    }
-
     std::string parts;
     const auto push = [&](std::string_view part) {
         if (!parts.empty()) {
@@ -93,6 +86,9 @@ export std::string cardInfoText(const dl::TaskView& task) {
     } else if (task.downloadedBytes > 0) {
         push(formatBytes(task.downloadedBytes));
     }
+    // 连接数 & 镜像恒常展示（即使没有进度/速度数据），避免信息行短暂空白。
+    // aria2 任务连接数 1-64 恒 > 0；yt-dlp 合成任务固定 1。只有非下载态
+    // （Queued/Merging/Paused/Done/Failed/Cancelled）在前面 switch 已提前返回。
     const std::string speed = formatSpeed(task.speedBps);
     if (!speed.empty()) {
         push(speed);
