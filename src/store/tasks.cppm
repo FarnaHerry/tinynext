@@ -242,10 +242,12 @@ public:
 
         // YouTube 等 googlevideo CDN：aria2 直连分段 Range 会被 403，统一走 yt-dlp
         // 命令行下载（内部 --downloader aria2c 委托分片，DASH 由 yt-dlp+ffmpeg 合并）。
+        // 注意：传 info.webpageUrl（原始 YouTube 页面）而非 format.videoUrl（直链）——
+        // yt-dlp 需要网页 URL 来做 JS challenge + cookie 验证 + 选择最佳格式。
         if (format.rangeBootstrap) {
             const std::filesystem::path logFile = cfg::configDir() / "tinynext-ytdlp-download.log";
             const std::uint64_t id = videoMerge_.startYtDlpJob(
-                format.videoUrl, cfg::videoConfig().jsRuntime, base, dir,
+                info.webpageUrl, cfg::videoConfig().jsRuntime, base, dir,
                 format.headers.userAgent, format.headers.referer);
             if (id == 0) {
                 return {false, tr("store.video_start_engine_unavailable")};
