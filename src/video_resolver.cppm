@@ -748,6 +748,12 @@ export bool startYtDlpDownload(const std::string& url,
         args.push_back("--add-header");
         args.push_back("Referer: " + referer);
     }
+    // 通用 cookies 文件（YouTube 等需要登录态绕过 bot 检测）
+    const std::string generalCookies = cfg::videoConfig().cookiesFile;
+    if (!generalCookies.empty()) {
+        args.push_back("--cookies");
+        args.push_back(generalCookies);
+    }
     // 输出路径
     args.push_back("--paths");
     args.push_back(utf8FromPath(dir));
@@ -1072,12 +1078,20 @@ export ResolveResult resolveVideoUrl(const std::string& url, const std::string& 
         args.push_back(proxy);
     }
     // SESSDATA 只对 bilibili 主机有效，其它站点（YouTube 等）不挂 cookie 走匿名。
+    // 通用 cookies 文件（YouTube 等需要登录态绕过 bot 检测的站点）由配置指定。
     const bool isBilibili = url.find("bilibili.com") != std::string::npos;
     const std::filesystem::path cookieFile =
         isBilibili ? writeCookieFile(sessdata) : std::filesystem::path{};
     if (!cookieFile.empty()) {
         args.push_back("--cookies");
         args.push_back(cookieFile.string());
+    } else if (!isBilibili) {
+        // 非 bilibili 站点尝试通用 cookies 文件（Netscape 格式，供 YouTube 等使用）。
+        const std::string generalCookies = cfg::videoConfig().cookiesFile;
+        if (!generalCookies.empty()) {
+            args.push_back("--cookies");
+            args.push_back(generalCookies);
+        }
     }
     args.push_back(url);
 

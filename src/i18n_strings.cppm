@@ -106,6 +106,10 @@ export constexpr Entry kEntries[] = {
           "影片下載啟動失敗：引擎不可用", "Failed to start video download: engine unavailable"},
     Entry{"store.video_started",    "已开始下载视频 #{} — {}", "已開始下載影片 #{} — {}",
           "Started video download #{} — {}"},
+    Entry{"store.video_resolve_failed", "视频解析失败", "影片解析失敗",
+          "Video resolution failed"},
+    Entry{"store.video_resolve_prefix", "视频解析：", "影片解析：",
+          "Video resolve: "},
     Entry{"store.no_stream_for_quality", "该画质没有可用的视频流地址", "此畫質沒有可用的影片串流網址",
           "No playable stream URL for this quality"},
     Entry{"store.video_start_failed", "视频下载启动失败：{}", "影片下載啟動失敗：{}",
@@ -334,6 +338,10 @@ export constexpr Entry kEntries[] = {
     Entry{"settings.js_runtime_hint", "node/deno/quickjs/bun；空=自动检测（解 YouTube 用）",
           "node/deno/quickjs/bun；空=自動偵測（解 YouTube 用）",
           "node/deno/quickjs/bun; empty = auto-detect (for YouTube)"},
+    Entry{"settings.cookies_file", "Cookies 文件", "Cookies 檔案", "Cookies file"},
+    Entry{"settings.cookies_file_hint", "Netscape 格式 cookies.txt 路径；YouTube 防 bot 需要",
+          "Netscape 格式 cookies.txt 路徑；YouTube 防 bot 需要",
+          "Netscape cookies.txt path; required for YouTube anti-bot"},
 
     // ---- settings：网络 tab ----
     Entry{"settings.proxy",       "代理地址", "代理伺服器網址", "Proxy"},

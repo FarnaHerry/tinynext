@@ -529,10 +529,10 @@ void startFromLines(const std::vector<std::string>& lines) {
             }
             continue;
         }
-        // 视频页 URL 检测：YouTube / bilibili 等已知站点网页不应作普通直链下载 HTML，
-        // 而是在状态条提示用户用 --resolve / --video-dl。
+        // 视频页 URL（YouTube/bilibili 等）：自动解析并下载最佳画质。
+        // 同步阻塞（最长 60s）但 CLI 场景用户等待解析完成是合理的。
         if (isLikelyVideoPageUrl(line)) {
-            showStatus(tr("cli.video_page_warning"));
+            showStatus(g_tasks.startVideoFromUrl(line, dl::StartOptions{}).message);
             continue;
         }
         showStatus(g_tasks.startFromUrl(line, 0).message);

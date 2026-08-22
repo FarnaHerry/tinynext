@@ -23,6 +23,8 @@ import tinynext.utils;
 import tinynext.video_resolver;  // VideoInfo/VideoFormat（startVideoDownload 入参）
 import tinynext.video_merge;     // MergeTracker（DASH 音视频合并编排）
 
+constexpr const char* kProxyEmpty = "";
+
 // 任务显示名：BT/磁力优先用种子真实名（displayName，bittorrent.info.name）；
 // 否则用真实下载路径的文件名（HTTP 经 Content-Disposition 解析后的最终名，替换
 // URL 末尾 uuid 占位）；占位（magnet-N）回退 URL 文件名。
@@ -180,6 +182,44 @@ public:
     }
 
     // ---- 视频下载 ----
+    // 从 URL 智能派发：检测视频页（YouTube/bilibili 等）时自动解析并下载最佳画质；
+    // 普通 URL 直走 aria2。同步阻塞（解析最长 60s），UI 线程调用时注意。
+    // 返回 StartResult，id 在成功时有效。
+    StartResult startVideoFromUrl(std::string url, const dl::StartOptions& baseOpts) {
+        // 修剪
+        const std::size_t first = url.find_first_not_of(" \t\r\n");
+        const std::size_t last = url.find_last_not_of(" \t\r\n");
+        url = first == std::string::npos ? "" : url.substr(first, last - first + 1);
+        if (url.empty()) return {false, tr("store.enter_download_url")};
+
+        if (!isLikelyVideoPageUrl(url)) {
+            // 非视频页，走普通下载
+            return startFromUrl(url, baseOpts);
+        }
+
+        // 视频页：解析 → 选最佳画质 → 下载
+        const std::string proxy = cfg::aria2Config().proxy;
+        const video::ResolveResult rr = video::resolveVideoUrl(
+            url, cfg::videoConfig().bilibiliCookie, proxy);
+        if (!rr.ok || !rr.info.has_value() || rr.info->formats.empty()) {
+            const std::string err = rr.error.empty()
+                ? tr("store.video_resolve_failed")
+                : std::string(tr("store.video_resolve_prefix")) + rr.error;
+            return {false, err};
+        }
+
+        const video::VideoInfo& info = *rr.info;
+        // 选画质：设置默认画质关键词 → 最高画质（formats 已按高度降序）
+        const std::string want = cfg::videoConfig().defaultQuality;
+        int pick = 0;
+        if (!want.empty()) {
+            for (int i = 0; i < static_cast<int>(info.formats.size()); ++i) {
+                if (info.formats[i].label.find(want) != std::string::npos) { pick = i; break; }
+            }
+        }
+        return startVideoDownload(info, info.formats[pick], baseOpts);
+    }
+
     // 启动一个已解析好的视频下载（视频页在 resolveVideoUrl 成功后调用）。
     //   - rangeBootstrap（YouTube 等 googlevideo CDN）：yt-dlp 命令行原生下载
     //     （--downloader aria2c，yt-dlp 自行处理 JS challenge 与 DASH 合并）；

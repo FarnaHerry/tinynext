@@ -46,8 +46,11 @@ export std::string stateLabel(dl::State state) {
 }
 
 // 卡片信息行：百分比 · 速度 · 已下载/总大小；非下载中则显示状态/错误。
+// 使用 task.progressState（如果存在）优先于 task.state，以便 yt-dlp 原生任务
+// 在 ffmpeg 合并阶段显示「合并中」而非「下载中」。
 export std::string cardInfoText(const dl::TaskView& task) {
-    switch (task.state) {
+    const dl::State displayState = task.progressState;
+    switch (displayState) {
         case dl::State::Queued: return tr("card.state.wait_queue");
         case dl::State::Merging: return tr("card.state.av_merging");
         case dl::State::Paused: return tr("card.state.paused");

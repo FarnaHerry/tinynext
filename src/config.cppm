@@ -577,6 +577,10 @@ export struct VideoConfig {
     // 强制）。可填 runtime 名（node/deno/quickjs/bun）或完整可执行路径；空 = 运行时
     // 自动检测 PATH 里的 node/deno/quickjs/bun。
     std::string jsRuntime = "";
+    // 通用 cookies 文件（Netscape 格式，yt-dlp --cookies 用）。对 YouTube 等需要
+    // 登录态才能过 bot 检测的站点生效（bilibili 走上面 bilibiliCookie 的 SESSDATA）。
+    // 空 = 不挂 cookie（bilibili/无防 bot 站点匿名即可）。
+    std::string cookiesFile = "";
 };
 
 export VideoConfig videoConfig() {
@@ -596,6 +600,9 @@ export VideoConfig videoConfig() {
         if (v.contains("js_runtime") && v["js_runtime"].is_string()) {
             c.jsRuntime = v["js_runtime"].get<std::string>();
         }
+        if (v.contains("cookies_file") && v["cookies_file"].is_string()) {
+            c.cookiesFile = v["cookies_file"].get<std::string>();
+        }
     }
     return c;
 }
@@ -607,6 +614,7 @@ export void setVideoConfig(const VideoConfig& c) {
     v["default_quality"] = c.defaultQuality;
     v["keep_m4s_parts"] = c.keepM4sParts;
     v["js_runtime"] = c.jsRuntime;
+    v["cookies_file"] = c.cookiesFile;
     j["video"] = v;
     saveConfig(j);
 }

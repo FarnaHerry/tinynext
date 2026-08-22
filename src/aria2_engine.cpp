@@ -1593,6 +1593,9 @@ std::vector<TaskView> Aria2Engine::snapshot() const {
         tv.mirrorCount = static_cast<int>(task.opts.mirrors.size());
         tv.mirrors = task.mirrors;
         tv.fromSession = task.fromSession;
+        // 普通 aria2 任务的展示进度状态 = 本身状态（progressState 默认 Queued，
+        // 这里同步为 task.state，供卡片信息行读取；yt-dlp 合成任务会覆盖它）。
+        tv.progressState = task.state;
         // 在任务数据仍存活时预编码 destPath 到 UTF-8 串，后续读（如任务信息弹窗、终端输出）
         // 不走可能已悬空的 destPath（原生下载分支的遗留问题，见 dialogs.cppm）。
         tv.destPathUtf8 = task.destPath.empty() ? std::string() : utf8FromPath(task.destPath);

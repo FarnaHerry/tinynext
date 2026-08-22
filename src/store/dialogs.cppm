@@ -12,7 +12,7 @@ import tinynext.download_engine;
 import tinynext.i18n;   // tr（提交动作里的提示文案）
 import tinynext.store.tasks;
 import tinynext.store.ui;
-import tinynext.utils;
+import tinynext.utils; // isLikelyVideoPageUrl
 
 // ---- 弹窗开关 / 通用 ----
 
@@ -88,6 +88,61 @@ export bool addDownload() {
         }
     }
     const auto r = g_tasks.startFromUrl(url, opts);
+    showStatus(r.message);
+    return r.ok;
+}
+
+// 添加下载弹窗提交（视频页自动路由版）。UI 层在 g_addMirror 时走旧 startFromUrl
+// （镜像多源不适用视频解析），否则检测视频页走 startVideoFromUrl。
+export bool addDownloadAuto() {
+    dl::StartOptions opts;
+    if (g_addTab == AddTab::Torrent) {
+        const std::string torrent = trimText(g_addTorrentPath);
+        if (torrent.empty()) {
+            showStatus(tr("store.select_torrent_first"));
+            return false;
+        }
+        opts.torrentPath = torrent;
+        opts.dirOverride = trimText(g_addDirText);
+        const auto r = g_tasks.startFromUrl(torrent, opts);
+        showStatus(r.message);
+        return r.ok;
+    }
+
+    std::string t = g_addConnectionsText;
+    if (!t.empty()) {
+        try {
+            opts.connections = std::clamp(std::stoi(trimText(t)), 0, 64);
+        } catch (...) {
+            opts.connections = 0;
+        }
+    }
+    opts.outputName = trimText(g_addRenameText);
+    opts.dirOverride = trimText(g_addDirText);
+    std::string url = trimText(g_urlText);
+    if (url.empty()) {
+        showStatus(tr("store.enter_download_url"));
+        return false;
+    }
+    if (g_addMirror) {
+        // 镜像多源：走普通 startFromUrl（视频解析不支持镜像）。
+        std::vector<std::string> lines;
+        std::istringstream ss(g_urlText);
+        std::string line;
+        while (std::getline(ss, line)) {
+            const std::string lt = trimText(line);
+            if (!lt.empty()) lines.push_back(lt);
+        }
+        if (lines.size() > 1) {
+            url = lines[0];
+            opts.mirrors.assign(lines.begin() + 1, lines.end());
+        }
+        const auto r = g_tasks.startFromUrl(url, opts);
+        showStatus(r.message);
+        return r.ok;
+    }
+    // 非镜像模式：检测视频页自动走解析 + 下载
+    const auto r = g_tasks.startVideoFromUrl(url, opts);
     showStatus(r.message);
     return r.ok;
 }

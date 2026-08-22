@@ -382,6 +382,11 @@ private:
                 if (view.error.empty() && !prog->error.empty() && prog->finished.load() && !prog->ok.load()) {
                     view.error = prog->error;
                 }
+                // 信息行展示区分解析阶段/合并阶段：yt-dlp 原生任务在解析格式时显示
+                // "解析中"，在 ffmpeg 合并阶段显示进度（卡片用 Merging 态已覆盖）。
+                // 这里额外在 Downloading 时标记 progressState，供卡片信息行显示
+                // 更贴切的状态（如 yt-dlp [Merger] 阶段）。
+                view.progressState = prog->merging.load() ? dl::State::Merging : view.state;
             } else {
                 view.state = dl::State::Queued;
             }
@@ -396,6 +401,7 @@ private:
         view.speedBps = (v ? v->speedBps : 0.0) + (a ? a->speedBps : 0.0);
         view.connections = (v ? v->connections : 0) + (a ? a->connections : 0);
         view.state = aggregateState(job, v, a);
+        view.progressState = view.state;
         view.fromSession = (v && v->fromSession) || (a && a->fromSession);
         if (view.error.empty()) {
             if (v && !v->error.empty()) view.error = v->error;

@@ -61,6 +61,8 @@ export struct TaskView {
     bool fromSession = false;           // 从上次会话恢复的历史任务：不触发「完成/失败」通知
     std::string destPathUtf8;           // destPath 的预编码 UTF-8 串（在快照时任务数据存活时转好，
                                         // 避免后续读 destPath 本体时遇悬空指针崩溃）
+    State progressState = State::Queued; // 信息行展示用的状态（yt-dlp 原生任务在 ffmpeg 合并时
+                                         // 覆盖 state 为 Merging，卡片信息行据此展示「合并中」）
 };
 
 // Per-task start options. connections == 0 means "use the engine default from

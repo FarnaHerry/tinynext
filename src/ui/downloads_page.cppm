@@ -16,7 +16,7 @@ import tinynext.ui.widgets;
 import tinynext.ui.cards;
 import tinynext.store.tasks;    // g_tasks（snapshot/命令）+ taskDisplayName
 import tinynext.store.ui;       // 筛选/排序/分页 + showStatus
-import tinynext.store.dialogs;  // 添加/镜像/删除弹窗状态 + addDownload/requestDelete
+import tinynext.store.dialogs;  // 添加/镜像/删除弹窗状态 + addDownloadAuto/requestDelete
 import tinynext.ui.platform;
 
 // 镜像源管理弹窗（定义在文件末尾；drawDownloadsPage 调用它）。
@@ -431,7 +431,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                         .theme(theme.components)
                         .onChange([](const std::string& value) { g_urlText = value; })
-                        .onEnter([] { if (addDownload()) g_addOpen = false; })
+                        .onEnter([] { if (addDownloadAuto()) g_addOpen = false; })
                         .build();
 
                     // ---- 镜像多源：勾选时 URL 框多行 → 首行为主 URL，其余为镜像源
@@ -479,7 +479,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                         .theme(theme.components)
                         .onChange([](const std::string& value) { g_addRenameText = value; })
-                        .onEnter([] { if (addDownload()) g_addOpen = false; })
+                        .onEnter([] { if (addDownloadAuto()) g_addOpen = false; })
                         .build();
 
                     // ---- 下载目录（留空=全局）----
@@ -499,7 +499,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                         .theme(theme.components)
                         .onChange([](const std::string& value) { g_addDirText = value; })
-                        .onEnter([] { if (addDownload()) g_addOpen = false; })
+                        .onEnter([] { if (addDownloadAuto()) g_addOpen = false; })
                         .build();
                     components::button(ui, "add.dir.browse")
                         .position(inputX + (dlgW - inputX - 16.0f - 60.0f - 8.0f) +
@@ -611,7 +611,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .theme(theme.components, true)
                     .textColor(onPrimaryColor(theme))
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                    .onClick([] { if (addDownload()) g_addOpen = false; })
+                    .onClick([] { if (addDownloadAuto()) g_addOpen = false; })
                     .build();
             })
             .build();

@@ -93,6 +93,7 @@ std::string g_videoCookieText = cfg::videoConfig().bilibiliCookie;
 std::string g_videoQualityText = cfg::videoConfig().defaultQuality;
 bool g_videoKeepParts = cfg::videoConfig().keepM4sParts;
 std::string g_videoJsRuntimeText = cfg::videoConfig().jsRuntime;
+std::string g_videoCookiesFileText = cfg::videoConfig().cookiesFile;
 
 namespace {
 
@@ -614,6 +615,12 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                           [](const std::string& v) { g_videoJsRuntimeText = v; },
                           tr("settings.js_runtime_hint"));
                 });
+                row("video.cookiesfile", kFieldH, [&](eui::Ui& r, float) {
+                    field(r, "video.cookiesfile", tr("settings.cookies_file"), 0, fullW,
+                          g_videoCookiesFileText,
+                          [](const std::string& v) { g_videoCookiesFileText = v; },
+                          tr("settings.cookies_file_hint"));
+                });
             }  // 视频 tab 结束
 
             // ============== 网络 tab（代理 / UA / Referer / 请求头 / Cookie）==============
@@ -916,6 +923,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_videoQualityText = vd.defaultQuality;
             g_videoKeepParts = vd.keepM4sParts;
             g_videoJsRuntimeText = vd.jsRuntime;
+            g_videoCookiesFileText = vd.cookiesFile;
             showStatus(tr("settings.reset_done"));
         })
         .build();
@@ -1093,6 +1101,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             vc.defaultQuality = trimText(g_videoQualityText);
             vc.keepM4sParts = g_videoKeepParts;
             vc.jsRuntime = trimText(g_videoJsRuntimeText);
+            vc.cookiesFile = trimText(g_videoCookiesFileText);
             cfg::setVideoConfig(vc);
             g_videoCookieText = vc.bilibiliCookie;
             g_videoQualityText = vc.defaultQuality;
