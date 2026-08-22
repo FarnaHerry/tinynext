@@ -20,4 +20,4 @@ engines/aria2c
 engines/yt-dlp
 engines/ffmpeg
 tmp/
-.worktrees/
+.worktrees/engines/aria2-next-2.5.5
