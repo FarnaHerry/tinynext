@@ -3,7 +3,7 @@
 #
 #   * `mcpp` is installed from the official one-line script (→ ~/.mcpp).
 #   * The aria2-next engine binary is downloaded per-platform from the
-#     AnInsomniacy/aria2-next v2.5.5 release and verified against
+#     AnInsomniacy/aria2-next v2.5.6 release and verified against
 #     engines/checksums.sha256 before packaging.
 #   * Packaging: Windows → make-win-pkg.ps1 (zip + NSIS setup.exe), Linux →
 #     make-linux-pkg.sh (tar.gz + .deb + .rpm), macOS → make-dist.sh (tar.gz).
@@ -222,7 +222,7 @@ jobs:
             os: windows-latest
             os_id: win
             arch: win64
-            engine_asset: aria2-next-2.5.5-windows-x86_64.exe
+            engine_asset: aria2-next-2.5.6-windows-x86_64.exe
             engine_file: engines/aria2-next.exe
             ytdlp_asset: yt-dlp.exe
             ytdlp_file: engines/yt-dlp.exe
@@ -231,7 +231,7 @@ jobs:
             os: ubuntu-latest
             os_id: linux
             arch: x86_64
-            engine_asset: aria2-next-2.5.5-linux-x86_64
+            engine_asset: aria2-next-2.5.6-linux-x86_64
             engine_file: engines/aria2-next
             ytdlp_asset: yt-dlp_linux
             ytdlp_file: engines/yt-dlp
@@ -240,7 +240,7 @@ jobs:
             os: macos-latest
             os_id: macos
             arch: arm64
-            engine_asset: aria2-next-2.5.5-macos-arm64
+            engine_asset: aria2-next-2.5.6-macos-arm64
             engine_file: engines/aria2-next
             ytdlp_asset: yt-dlp_macos
             ytdlp_file: engines/yt-dlp
@@ -265,7 +265,7 @@ jobs:
         run: |
           mkdir -p engines
           curl -fL --retry 3 -o "engines/${{ matrix.engine_asset }}" \
-            "https://github.com/AnInsomniacy/aria2-next/releases/download/v2.5.5/${{ matrix.engine_asset }}"
+            "https://github.com/AnInsomniacy/aria2-next/releases/download/v2.5.6/${{ matrix.engine_asset }}"
           mv "engines/${{ matrix.engine_asset }}" "${{ matrix.engine_file }}"
           chmod +x "${{ matrix.engine_file }}"
           # yt-dlp 的 --downloader 只识别 "aria2c" 名称。发行装一份同义文件名，

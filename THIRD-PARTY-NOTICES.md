@@ -9,7 +9,7 @@ TinyNext 随发行包附带以下第三方程序（均在 `engines/` 目录）�
 
 ## aria2-next
 
-- **版本**：2.5.5
+- **版本**：2.5.6
 - **用途**：TinyNext 的下载引擎（JSON-RPC 驱动，外部进程）。
 - **来源**：https://github.com/AnInsomniacy/aria2-next
 - **许可**：GPLv2（GNU General Public License v2）
