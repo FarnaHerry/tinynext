@@ -92,6 +92,7 @@ export struct YtDlpProgress {
     std::atomic<std::int64_t> speedBps{0};
     std::atomic<std::int64_t> downloadedBytes{0};
     std::atomic<std::int64_t> totalBytes{0};
+    std::atomic<std::int64_t> phaseCompletedBytes{0};  // DASH 多阶段累积（前序阶段已下载字节）
     std::string error;                   // 非原子：仅在 finished 后读
     std::string outputPath;              // 最终输出文件路径
 };
@@ -276,9 +277,32 @@ CapturedProc runCapture(const std::string& exe,
 }
 
 // 解析 yt-dlp stderr 进度行，更新共享进度结构。
+// 注意：阶段间（DASH 音视频顺序下载）totalBytes 重置会导致 info 行闪烁。
+// 逻辑：在 [download] 行内先判断是否阶段完成（100%），若是则累加 phaseCompletedBytes
+// 并重置本阶段计数；否则按常规解析百分比/速度/总量。
 void parseProgressLine(const std::string& line, std::shared_ptr<YtDlpProgress> prog) {
     // [download]  12.3% of  500.00MiB at  862.37KiB/s ETA 02:09:52
+    // [download] 100.0% of   90.84MiB at    2.19MiB/s ETA 00:00
+    // [download] 100% of   90.84MiB in 00:00:50 at 1.80MiB/s
     if (line.find("[download]") != std::string::npos) {
+        // 阶段完成行（"100%" 出现在行尾 " 100% of X in ..." 或进度条 "100.0%"）。
+        // yt-dlp 原生下载是自包含进程：DASH 音视频分两个阶段顺序下载（视频 .f401 →
+        // 音频 .f251），阶段间进度会回跳（音频阶段重新从 0% 开始），卡片信息行会因此
+        // 「闪」一下。这里在阶段完成时把已下载字节累计进 phaseCompletedBytes，作为
+        // 信息行的单调底数。后续阶段按「已累计 + 本阶段占比 × 本阶段总量」计算单调
+        // 总进度（mergeSnapshot 里做加法）。
+        if (line.find(" 100%") != std::string::npos || line.find(" 100.0%") != std::string::npos) {
+            const std::int64_t tb = prog->totalBytes.load();
+            const std::int64_t dl = prog->downloadedBytes.load();
+            if (tb > 0 && dl > 0) {
+                prog->phaseCompletedBytes.store(prog->phaseCompletedBytes.load() + tb);
+            }
+            // 重置本阶段计数，累计值保留。
+            prog->totalBytes.store(0);
+            prog->downloadedBytes.store(0);
+            prog->percent.store(0.0);
+            return;
+        }
         // 百分比
         std::size_t pctPos = line.find('%');
         if (pctPos != std::string::npos) {
@@ -330,6 +354,7 @@ void parseProgressLine(const std::string& line, std::shared_ptr<YtDlpProgress> p
         if (tb > 0) {
             prog->downloadedBytes.store(static_cast<std::int64_t>(tb * prog->percent.load() / 100.0));
         }
+        return;
     }
     // [Merger] Merging formats into "..."
     else if (line.find("[Merger]") != std::string::npos) {

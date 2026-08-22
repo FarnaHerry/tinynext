@@ -373,8 +373,13 @@ private:
         if (job.kind == Job::Kind::YtDlpNative) {
             const auto& prog = job.ytDlpProg;
             if (prog) {
-                view.totalBytes = prog->totalBytes.load();
-                view.downloadedBytes = prog->downloadedBytes.load();
+                // 单调进度：累计已完成的阶段字节 + 当前阶段已下载字节
+                const std::int64_t phaseAcc = prog->phaseCompletedBytes.load();
+                const std::int64_t curDl = prog->downloadedBytes.load();
+                view.downloadedBytes = phaseAcc + curDl;
+                // 总大小 = 累计已完成 + 当前阶段总量
+                const std::int64_t curTotal = prog->totalBytes.load();
+                view.totalBytes = curTotal > 0 ? phaseAcc + curTotal : phaseAcc;
                 view.speedBps = static_cast<double>(prog->speedBps.load());
                 view.connections = 0;
                 view.state = ytDlpState(job, *prog);
