@@ -85,11 +85,13 @@ void housekeepLoop() {
         checkDownloadNotifications();
         if (g_tasks.busy()) {
             g_tasks.pollProgress();
-            core::platform::requestUiUpdate();
         }
-        // DASH 视频合并：两个子任务都下完则触发 ffmpeg 合并（有触发才唤醒 UI 显示
-        // 「合并中」；snapshot 是纯缓存读，空闲零开销）。
-        if (g_tasks.pollVideoMerges()) {
+        // 有活动任务时每 500ms 唤醒 UI 重绘一帧进度（连接数/速度/百分比实时更新，
+        // 不依赖 RPC 结果回调）。注意：唤醒必须无条件——pollProgress 的 ~1s 节流
+        // 只在 RPC 间隙跳过 RPC，不代表进度没变，但 snapshot 是纯读缓存，每帧读取
+        // 最新数据就够。把 requestUiUpdate 移出 {} 确保 busy 为 true 时每 500ms 都
+        // 唤醒，解决之前 aria2 进度刷新断断续续、信息行间歇空白的问题。
+        if (g_tasks.busy() || g_tasks.pollVideoMerges()) {
             core::platform::requestUiUpdate();
         }
         // 引擎监控页打开时 ~2s 刷新一次健康信息（getVersion/getGlobalStat RPC 在
