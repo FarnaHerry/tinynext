@@ -71,7 +71,9 @@ export std::string cardInfoText(const dl::TaskView& task) {
     }
 
     // 下载中但无进度字节（yt-dlp 还在解析阶段）：显示"解析中…"
-    if (displayState == dl::State::Downloading && task.totalBytes <= 0 && task.speedBps <= 0.0) {
+    // 注意用 totalBytes == 0 而非 <= 0：aria2 普通下载的 totalBytes 初始为 -1
+    // （未知大小），如果用 <= 0 会把 aria2 任务也拦截显示"解析中"。
+    if (displayState == dl::State::Downloading && task.totalBytes == 0 && task.speedBps <= 0.0) {
         return tr("card.state.resolving");
     }
 
