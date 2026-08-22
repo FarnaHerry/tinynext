@@ -260,7 +260,7 @@ jobs:
           name: trimmed-ffmpeg-${{ matrix.name }}
           path: engines
 
-      - name: Fetch aria2-next engine
+      - name: Fetch aria2 engine (aria2c-compatible name)
         shell: bash
         run: |
           mkdir -p engines
@@ -268,6 +268,14 @@ jobs:
             "https://github.com/AnInsomniacy/aria2-next/releases/download/v2.5.5/${{ matrix.engine_asset }}"
           mv "engines/${{ matrix.engine_asset }}" "${{ matrix.engine_file }}"
           chmod +x "${{ matrix.engine_file }}"
+          # yt-dlp 的 --downloader 只识别 "aria2c" 名称。发行装一份同义文件名，
+          # 让 startYtDlpDownload 的 findEngineBinary("aria2c") 能命中。注意 releases
+          # 附带的 aria2-next 二进制不变（engine_file 仍指向 aria2-next 名）。
+          if [ "${{ matrix.os_id }}" = "win" ]; then
+            cp engines/aria2-next.exe engines/aria2c.exe
+          else
+            cp engines/aria2-next engines/aria2c
+          fi
 
       - name: Fetch yt-dlp engine
         shell: bash
