@@ -24,6 +24,7 @@ module;
 #include <spawn.h>       // posix_spawn
 #include <fcntl.h>       // fcntl, O_NONBLOCK, open
 #include <unistd.h>      // pipe/read/close/usleep
+#include <stdlib.h>      // setenv / unsetenv / getenv（PyInstaller yt-dlp 的 UTF-8 argv 修复）
 #ifdef __APPLE__
 #include <mach-o/dyld.h> // _NSGetExecutablePath
 #endif
@@ -469,6 +470,19 @@ void runCaptureYtDlp(const std::string& exe,
     posix_spawn_file_actions_adddup2(&fa, pipefd[1], STDERR_FILENO);
     posix_spawn_file_actions_addclose(&fa, pipefd[0]);
 
+    // PyInstaller 打包的 yt-dlp 在 argv 含 CJK 字符时解码失败
+    // （[PYI-*:ERROR] Failed to set sys.argv: decoding error）。
+    // 直接构建自定义 envp 传给 posix_spawn，带 PYTHONUTF8=1 + LC_ALL=C.UTF-8
+    // 强制 Python 以 UTF-8 解码命令行参数。
+    std::vector<std::string> envStorage;
+    for (char** e = environ; *e; ++e) envStorage.push_back(*e);
+    envStorage.push_back("PYTHONUTF8=1");
+    envStorage.push_back("LC_ALL=C.UTF-8");
+    std::vector<char*> envp;
+    envp.reserve(envStorage.size() + 1);
+    for (auto& s : envStorage) envp.push_back(s.data());
+    envp.push_back(nullptr);
+
     std::vector<std::string> argStorage;
     argStorage.push_back(exe);
     for (const auto& a : args) argStorage.push_back(a);
@@ -478,7 +492,7 @@ void runCaptureYtDlp(const std::string& exe,
     argv.push_back(nullptr);
 
     pid_t pid = 0;
-    const int rc = posix_spawn(&pid, exe.c_str(), &fa, nullptr, argv.data(), environ);
+    const int rc = posix_spawn(&pid, exe.c_str(), &fa, nullptr, argv.data(), envp.data());
     posix_spawn_file_actions_destroy(&fa);
     close(pipefd[1]);
     if (logFd >= 0) close(logFd);
@@ -720,24 +734,19 @@ export bool startYtDlpDownload(const std::string& url,
         args.push_back("--js-runtimes");
         args.push_back(jsRuntime);
     }
-    // --downloader: 找 aria2c 或 aria2-next
+    // --downloader: 永远不传 — yt-dlp 原生下载器已验证对 YouTube googlevideo CDN
+    // 完全可跑通（SSL/DASH 合并/JS challenge 全部自行处理）。aria2-next 2.5.6
+    // 的 SSL 库仍与部分 googlevideo CDN 节点握手失败，且即使传了也得不到多连接
+    // 加速（YouTube CDN 拒绝多段 Range）。让 yt-dlp 原生下载更可靠。
+    // 注意：不传 --downloader 时 yt-dlp 会自动检测 aria2c 并优先使用（导致 SSL
+    // 握手失败 → 403），必须显式指定 native 避免它捡到 engines/aria2c。
     args.push_back("--downloader");
-    std::string aria2c = findEngineBinary("aria2c");
-    if (aria2c.empty()) aria2c = findEngineBinary("aria2-next");
-    if (aria2c.empty()) aria2c = "aria2c";
-    args.push_back(aria2c);
-    // downloder-args 从配置读取分片数/连接数，与设置页「直链下载」栏一致
-    const cfg::Aria2Config a2cfg = cfg::aria2Config();
-    const std::string dlArgs = "aria2c:-x " + std::to_string(a2cfg.maxConnectionPerServer)
-        + " -s " + std::to_string(a2cfg.split)
-        + " --enable-rpc=false";
-    args.push_back("--downloader-args");
-    args.push_back(dlArgs);
+    args.push_back("native");
     // 代理透传（与设置页「网络 → 代理地址」一致）
-    const std::string proxy = a2cfg.proxy;
-    if (!proxy.empty()) {
+    const cfg::Aria2Config a2cfg = cfg::aria2Config();
+    if (!a2cfg.proxy.empty()) {
         args.push_back("--proxy");
-        args.push_back(proxy);
+        args.push_back(a2cfg.proxy);
     }
     // 请求头
     if (!userAgent.empty()) {
@@ -754,11 +763,15 @@ export bool startYtDlpDownload(const std::string& url,
         args.push_back("--cookies");
         args.push_back(generalCookies);
     }
-    // 输出路径
+    // 输出路径：用安全 ASCII 文件名避免 PyInstaller yt-dlp 的 argv 解码问题
+    // （[PYI-*:ERROR] Failed to set sys.argv: decoding error）。让 yt-dlp 自己
+    // 用 %(title)s 模板生成最终文件名，可正确处理 Unicode。
     args.push_back("--paths");
     args.push_back(utf8FromPath(dir));
     args.push_back("-o");
-    args.push_back(outName);
+    // 用 yt-dlp 内置的 title 模板（安全 ASCII），再由它自动处理 Unicode 标题。
+    // 保留 .mp4 扩展名（yt-dlp 会根据实际格式调整）。
+    args.push_back("%(title).80s.%(ext)s");
     args.push_back(url);
 
     std::thread([exe, args, logFile, prog] {
