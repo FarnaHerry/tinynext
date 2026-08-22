@@ -381,7 +381,7 @@ private:
                 const std::int64_t curTotal = prog->totalBytes.load();
                 view.totalBytes = curTotal > 0 ? phaseAcc + curTotal : phaseAcc;
                 view.speedBps = static_cast<double>(prog->speedBps.load());
-                view.connections = 0;
+                view.connections = 1;   // yt-dlp 是单进程下载，算 1 连接
                 view.state = ytDlpState(job, *prog);
                 view.fromSession = false;
                 if (view.error.empty() && !prog->error.empty() && prog->finished.load() && !prog->ok.load()) {

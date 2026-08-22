@@ -141,6 +141,7 @@ export constexpr Entry kEntries[] = {
     Entry{"card.state.failed",      "失败", "失敗", "Failed"},
     Entry{"card.state.wait_queue",  "等待队列中", "等待佇列中", "Waiting in queue"},
     Entry{"card.state.av_merging",  "音视频合并中…", "音影片合併中…", "Merging audio/video…"},
+    Entry{"card.state.resolving",   "解析中…", "解析中…", "Resolving…"},
     Entry{"card.connections",       "{} 连接", "{} 連線", "{} connections"},
     Entry{"card.mirror_count",      "镜像 ×{}", "鏡像 ×{}", "mirror ×{}"},
     Entry{"card.mirrors_all_failed", "镜像全部失效", "鏡像全部失效", "all mirrors failed"},

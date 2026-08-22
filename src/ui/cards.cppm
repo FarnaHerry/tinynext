@@ -70,6 +70,11 @@ export std::string cardInfoText(const dl::TaskView& task) {
             break;
     }
 
+    // 下载中但无进度字节（yt-dlp 还在解析阶段）：显示"解析中…"
+    if (displayState == dl::State::Downloading && task.totalBytes <= 0 && task.speedBps <= 0.0) {
+        return tr("card.state.resolving");
+    }
+
     std::string parts;
     const auto push = [&](std::string_view part) {
         if (!parts.empty()) {
