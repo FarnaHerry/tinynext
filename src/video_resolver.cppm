@@ -720,19 +720,37 @@ export bool startYtDlpDownload(const std::string& url,
         args.push_back("--js-runtimes");
         args.push_back(jsRuntime);
     }
-    // --downloader: 找 aria2c 或 aria2-next
-    args.push_back("--downloader");
+    // --downloader: 找 aria2c；找不到时回退 yt-dlp 原生下载（不传 --downloader）。
+    // 注意：现网 aria2 分发包就是 aria2-next（progressive 改名），yt-dlp 按名字
+    // 只能识别 "aria2c"，传完整路径/aria2-next 会直接报 "No such external
+    // downloader"。系统没有 aria2c 时宁可让 yt-dlp 自己下（验证可跑通）。
     std::string aria2c = findEngineBinary("aria2c");
     if (aria2c.empty()) aria2c = findEngineBinary("aria2-next");
-    if (aria2c.empty()) aria2c = "aria2c";
-    args.push_back(aria2c);
-    // downloder-args 从配置读取分片数/连接数，与设置页「直链下载」栏一致
+    if (!aria2c.empty()) {
+        args.push_back("--downloader");
+        if (aria2c.find("aria2-next") != std::string::npos) {
+            // aria2-next 是 aria2c 的继任者但名字不同，yt-dlp 不认。
+            // 用符号链接或 PATH 里叫 aria2c 的入口最省事；这里直接让 yt-dlp 原生下。
+            aria2c.clear();
+        } else if (aria2c.rfind("/", 0) == 0 || aria2c.rfind("\\", 0) == 0 ||
+                   aria2c.find(".exe") != std::string::npos) {
+            // 路径而非纯名字：yt-dlp 仍要求可识别的名。回退原生下载。
+            aria2c.clear();
+        }
+    }
+    if (!aria2c.empty()) {
+        args.push_back(aria2c);
+    }
+    // downloder-args 从配置读取分片数/连接数，与设置页「直链下载」栏一致。
+    // 只有实际传了 --downloader 才需要（否则 yt-dlp 原生下载，DASH 由它自己合并）。
     const cfg::Aria2Config a2cfg = cfg::aria2Config();
-    const std::string dlArgs = "aria2c:-x " + std::to_string(a2cfg.maxConnectionPerServer)
-        + " -s " + std::to_string(a2cfg.split)
-        + " --enable-rpc=false";
-    args.push_back("--downloader-args");
-    args.push_back(dlArgs);
+    if (!aria2c.empty()) {
+        const std::string dlArgs = "aria2c:-x " + std::to_string(a2cfg.maxConnectionPerServer)
+            + " -s " + std::to_string(a2cfg.split)
+            + " --enable-rpc=false";
+        args.push_back("--downloader-args");
+        args.push_back(dlArgs);
+    }
     // 代理透传（与设置页「网络 → 代理地址」一致）
     const std::string proxy = a2cfg.proxy;
     if (!proxy.empty()) {
