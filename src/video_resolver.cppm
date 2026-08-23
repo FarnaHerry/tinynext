@@ -814,8 +814,8 @@ export bool startYtDlpDownload(const std::string& url,
     // 完全可跑通（SSL/DASH 合并/JS challenge 全部自行处理）。aria2-next 2.5.6
     // 的 SSL 库仍与部分 googlevideo CDN 节点握手失败，且即使传了也得不到多连接
     // 加速（YouTube CDN 拒绝多段 Range）。让 yt-dlp 原生下载更可靠。
-    // 注意：不传 --downloader 时 yt-dlp 会自动检测 aria2c 并优先使用（导致 SSL
-    // 握手失败 → 403），必须显式指定 native 避免它捡到 engines/aria2c。
+    // 注意：不传 --downloader 时 yt-dlp 会自动检测 PATH 里的 aria2c 并优先使用
+    //（导致 SSL 握手失败 → 403），必须显式指定 native 防止它捡到系统 aria2c。
     args.push_back("--downloader");
     args.push_back("native");
     // 代理透传（与设置页「网络 → 代理地址」一致）

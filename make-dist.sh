@@ -44,9 +44,6 @@ fi
 if [ -x "$root/engines/aria2-next" ]; then
     cp "$root/engines/aria2-next" "$dist/engines/aria2-next"
     chmod +x "$dist/engines/aria2-next"
-    # yt-dlp 的 --downloader 只识别 "aria2c" 名称，发行装一份同义文件名。
-    cp "$dist/engines/aria2-next" "$dist/engines/aria2c"
-    chmod +x "$dist/engines/aria2c"
     # 运行时完整性校验清单：随包分发，保证 spawn 前能校验二进制未被篡改
     # （Windows 的 make-dist.ps1 直接拷整个 engines/ 已含它）。
     cp "$root/engines/checksums.sha256" "$dist/engines/checksums.sha256"
