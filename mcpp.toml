@@ -50,13 +50,13 @@ description       = "TinyNext 下载器"
 original-filename = "tinynext.exe"
 internal-name     = "tinynext"
 
-# eui-neo 0.5.6：compat 配方加包级 -fno-char8_t（修 u8string() 返回 char8_t 赋给
-# std::string 的 C++23 编译错，0.5.6 上游仍未修）+ 补 -ldwmapi（glfw win32 深色标题栏）。
+# eui-neo 0.5.7：compat 配方加包级 -fno-char8_t（修 u8string() 返回 char8_t 赋给
+# std::string 的 C++23 编译错，上游仍未修）+ 补 -ldwmapi（glfw win32 深色标题栏）。
 # 0.5.6 起 eui_neo.h 不再包含 eui/detail/dsl_app_impl.h（入口机制挪进 app-main 的
 # glfw_app_main.cpp 内部），app.cpp 只需提供 app::dslAppConfig() + app::compose()。
 # 版本决策见 docs/roadmap.md。
 [dependencies.compat]
-eui-neo = { version = "0.5.6", features = ["app-main"] }
+eui-neo = { version = "0.5.7", features = ["app-main"] }
 # 包装 IXWebSocket（client-only、零依赖）：aria2 RPC 的 WebSocket 事件推送
 # （onDownloadStart/Complete/Error/...），让状态迁移/完成通知即时，进度轮询降到 1s。
 websocket = "12.0.1"

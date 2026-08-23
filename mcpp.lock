@@ -7,9 +7,9 @@ version = 2
 
 [package."compat.eui-neo"]
 namespace = "compat"
-version = "0.5.6"
-source  = "index+compat@0.5.6"
-hash    = "fnv1a:9e17df2b39befca9"
+version = "0.5.7"
+source  = "index+compat@0.5.7"
+hash    = "fnv1a:ed4e12f4ce60ca8c"
 
 [package."compat.freetype"]
 namespace = "compat"
