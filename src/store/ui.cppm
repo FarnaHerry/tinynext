@@ -14,6 +14,14 @@ import tinynext.download_engine;  // dl::State（stateMatches 的任务状态入
 export enum class Page { Downloads, Video, Settings, Monitor };
 export Page g_page_view = Page::Downloads;  // 默认打开下载列表
 
+// ---- 应用退出标志 ----
+
+// 进程退出中：atexit 处理器置位（atexit 注册于 main 期间，先于所有静态对象
+// 析构执行）。后台线程（housekeep / CLI 监听）每轮检查，为 true 立即退出——
+// 否则静态对象（g_tasks 等）被主线程析构时后台线程仍在访问 → 退出即 SIGSEGV
+// （coredump 实锤：housekeepLoop 在 TaskStore 析构期间调 snapshot 崩掉）。
+export std::atomic<bool> g_appExiting{false};
+
 // ---- 状态消息条（4s 自动消失）----
 
 export std::string g_statusMessage;

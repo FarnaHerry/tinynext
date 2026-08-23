@@ -25,6 +25,12 @@ namespace {
 
 std::atomic<bool> g_statusExpired{false};
 
+// housekeep 线程生命周期：joinable（不再 detach），退出时由 atexit 处理器
+// 置位 g_appExiting + notify + join，保证静态对象析构前线程已死。
+std::mutex g_wakeMutex;
+std::condition_variable g_wakeCv;
+std::thread g_thread;
+
 // 检查任务状态迁移，仅当任务从进行中（排队/下载/暂停）迁移到 Done/Failed 时发
 // 系统通知（避免会话恢复等历史状态误触发）。snapshot 走引擎 tasksMutex_，后台
 // 线程安全；lastStates 由 housekeep 单线程独占。
@@ -73,7 +79,13 @@ void checkDownloadNotifications() {
 
 void housekeepLoop() {
     for (;;) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        // 500ms 周期，但退出时立即被 atexit 处理器唤醒（不拖慢退出）。
+        {
+            std::unique_lock lock(g_wakeMutex);
+            g_wakeCv.wait_for(lock, std::chrono::milliseconds(500),
+                              [] { return g_appExiting.load(); });
+        }
+        if (g_appExiting.load()) return;
         // 状态消息 4s 自动消失：置位 + 唤醒，UI 线程在下一帧清空显示。
         if (statusExpired()) {
             g_statusExpired.store(true);
@@ -114,7 +126,15 @@ void housekeepLoop() {
 export void startHousekeeping() {
     static std::atomic<bool> started = false;
     if (started.exchange(true)) return;
-    std::thread(housekeepLoop).detach();
+    g_thread = std::thread(housekeepLoop);
+    // atexit 在 main 期间注册 → 先于所有静态对象析构执行：置退出标志、唤醒
+    // housekeep 线程并 join，确保 g_tasks 等静态对象析构时它已死（修退出时
+    // housekeep 访问半析构 TaskStore 的 SIGSEGV）。
+    std::atexit([] {
+        g_appExiting.store(true);
+        g_wakeCv.notify_all();
+        if (g_thread.joinable()) g_thread.join();
+    });
 }
 
 // UI 线程消费：状态消息是否已过期（过期则清空 g_statusMessage/g_statusTimer）。

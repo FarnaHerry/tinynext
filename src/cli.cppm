@@ -76,6 +76,19 @@ inline void closeFd(CliFd fd) { ::close(fd); }
 std::mutex g_urlsMutex;
 std::vector<std::string> g_pendingUrls;
 
+// CLI 转发握手横幅：主实例 accept 后立刻发，第二实例 connect 后先收并校验。
+// 端口文件可能过期（PID 复用 / fd 继承导致别的进程占用该端口），只测 connect
+// 成功会把陌生进程当主实例——URL 被吞、进程静默退出（真实踩坑：kill 掉主实例
+// 后其 aria2 daemon 子进程继承了监听 socket，新实例转发给它后秒退）。
+constexpr std::string_view kCliBanner = "TINYNEXT-CLI/1\n";
+
+// 发送带 MSG_NOSIGNAL（POSIX）：对方提前断开时 send 不会 raise SIGPIPE 杀进程。
+#ifdef _WIN32
+constexpr int kSendFlags = 0;
+#else
+constexpr int kSendFlags = MSG_NOSIGNAL;
+#endif
+
 // 第二实例：把 URL 通过 TCP loopback 直连发到主实例。loopback 上无人监听会立即
 // ECONNREFUSED，阻塞 connect 不会卡住。返回是否成功。
 bool trySendUrls(const std::vector<std::string>& urls) {
@@ -99,18 +112,47 @@ bool trySendUrls(const std::vector<std::string>& urls) {
         closeFd(fd);
         return false;
     }
+    // 握手：先收横幅校验对方确实是 TinyNext 主实例（端口文件过期时 connect 到的
+    // 可能是任何进程）。2s 超时——旧版本主实例没横幅，超时回退 inbox（向后兼容）。
+    {
+#ifdef _WIN32
+        const DWORD tv = 2000;
+        ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO,
+                     reinterpret_cast<const char*>(&tv), sizeof(tv));
+#else
+        timeval tv{.tv_sec = 2, .tv_usec = 0};
+        ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
+        std::string banner;
+        banner.resize(kCliBanner.size());
+        std::size_t got = 0;
+        while (got < banner.size()) {
+            const int n = static_cast<int>(
+                ::recv(fd, banner.data() + got, banner.size() - got, 0));
+            if (n <= 0) break;
+            got += static_cast<std::size_t>(n);
+        }
+        if (banner != kCliBanner) {
+            closeFd(fd);
+            return false;
+        }
+    }
     std::string data;
     for (const auto& u : urls) {
         data += u;
         data += '\n';
     }
-    ::send(fd, data.data(), static_cast<int>(data.size()), 0);
+    ::send(fd, data.data(), static_cast<int>(data.size()), kSendFlags);
     closeFd(fd);
     return true;
 }
 
 // 主实例：后台线程阻塞在 accept 上（队列空就挂起），收到转发 URL 后入队并唤醒
 // UI 线程处理。TCP loopback，端口系统分配后写进端口文件供第二实例发现。
+// g_listenFd 暴露给 atexit：退出时 shutdown 唤醒 accept 让线程退出（可 join）。
+std::atomic<CliFd> g_listenFd{kCliInvalidFd};
+std::thread g_listenerThread;
+
 void cliListenerLoop() {
 #ifdef _WIN32
     WSADATA wsa{};
@@ -118,6 +160,11 @@ void cliListenerLoop() {
 #endif
     const CliFd listenFd = ::socket(AF_INET, SOCK_STREAM, 0);
     if (listenFd == kCliInvalidFd) return;
+#ifndef _WIN32
+    // 不遗传给子进程：aria2 daemon 由本进程 fork/exec 拉起，若继承了这个监听
+    // socket，主实例被杀后 daemon 仍占着端口，新实例会把它当主实例转发并秒退。
+    ::fcntl(listenFd, F_SETFD, FD_CLOEXEC);
+#endif
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(0);  // 系统分配端口
@@ -127,6 +174,7 @@ void cliListenerLoop() {
         closeFd(listenFd);
         return;
     }
+    g_listenFd.store(listenFd);
     sockaddr_in got{};
 #ifdef _WIN32
     int len = static_cast<int>(sizeof(got));
@@ -139,6 +187,7 @@ void cliListenerLoop() {
     for (;;) {
         const CliFd client = ::accept(listenFd, nullptr, nullptr);
         if (client == kCliInvalidFd) {
+            if (g_appExiting.load()) return;
 #ifdef _WIN32
             if (WSAGetLastError() == WSAEINTR) continue;
 #else
@@ -147,6 +196,9 @@ void cliListenerLoop() {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
+        // 握手横幅先发（trySendUrls 校验用），再读 URL 到对方关闭。
+        ::send(client, kCliBanner.data(), static_cast<int>(kCliBanner.size()),
+               kSendFlags);
         std::string data;
         char buf[1024];
         for (;;) {
@@ -155,6 +207,7 @@ void cliListenerLoop() {
             data.append(buf, static_cast<std::size_t>(n));
         }
         closeFd(client);
+        if (g_appExiting.load()) return;
         std::vector<std::string> urls;
         std::istringstream ss(data);
         std::string line;
@@ -362,6 +415,9 @@ export bool acquireSingleInstance() {
             std::filesystem::temp_directory_path() / "tinynext.lock";
         const int fd = ::open(lockPath.string().c_str(), O_CREAT | O_RDWR, 0600);
         if (fd < 0) return true;
+        // 不遗传给子进程：否则主实例被杀后，继承了该 fd 的 aria2 daemon 仍持有
+        // flock，新实例 acquireSingleInstance 永远失败 → 静默退出、窗口起不来。
+        ::fcntl(fd, F_SETFD, FD_CLOEXEC);
         if (::flock(fd, LOCK_EX | LOCK_NB) != 0) {
             ::close(fd);
             return false;  // 已有一份在跑
@@ -506,7 +562,23 @@ CliBoot g_cliBoot;
 export void startCliIpc() {
     static std::atomic<bool> started = false;
     if (started.exchange(true)) return;
-    std::thread(cliListenerLoop).detach();
+    g_listenerThread = std::thread(cliListenerLoop);
+    // atexit 先于静态析构：shutdown 监听 socket 把 accept 唤醒，线程看到
+    // g_appExiting 退出后 join，避免退出途中线程仍在往 g_pendingUrls 写。
+    std::atexit([] {
+        // 与 housekeep 的 atexit 顺序不定，这里也置位，保证 accept 被 shutdown
+        // 唤醒后第一轮就看到退出标志（否则空转到 housekeep 的 atexit 才停）。
+        g_appExiting.store(true);
+        const CliFd fd = g_listenFd.load();
+        if (fd != kCliInvalidFd) {
+#ifdef _WIN32
+            ::shutdown(fd, SD_BOTH);
+#else
+            ::shutdown(fd, SHUT_RDWR);
+#endif
+        }
+        if (g_listenerThread.joinable()) g_listenerThread.join();
+    });
 }
 
 // 按行启动下载：普通行 = 单 URL 任务；"mirror:<主URL> <镜像...>" 行 = 多源合一
