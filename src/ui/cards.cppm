@@ -62,7 +62,7 @@ export std::string cardInfoText(const dl::TaskView& task) {
         case dl::State::Failed: {
             std::string error = task.error;
             if (error.size() > 36) {
-                error = error.substr(0, 36) + "…";
+                error = truncateUtf8Bytes(error, 36) + "…";  // 不在多字节字符中间切
             }
             return error.empty() ? tr("card.state.failed") : error;
         }

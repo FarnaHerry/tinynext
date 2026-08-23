@@ -116,6 +116,18 @@ export std::string formatSpeed(double bytesPerSecond) {
     return formatBytes(static_cast<std::int64_t>(bytesPerSecond)) + "/s";
 }
 
+// UTF-8 边界安全截断：最多 maxBytes 字节，绝不在多字节字符中间切开（切半的
+// 字符会让下游 nlohmann::json 解析抛 invalid UTF-8——sanitizeFileName 按字节
+// 截 80 导致 b 站中文标题下载失败就是踩的这个）。
+export std::string truncateUtf8Bytes(std::string_view s, std::size_t maxBytes) {
+    if (s.size() <= maxBytes) return std::string(s);
+    std::size_t n = maxBytes;
+    // s[n] 是切点后第一个字节：若它是续字节（10xxxxxx），说明切在字符中间，
+    // 回退到该字符的起始字节，把整个不完整字符丢掉。
+    while (n > 0 && (static_cast<unsigned char>(s[n]) & 0xC0) == 0x80) --n;
+    return std::string(s.substr(0, n));
+}
+
 export std::string trimText(std::string s) {
     const std::size_t f = s.find_first_not_of(" \t\r\n");
     const std::size_t l = s.find_last_not_of(" \t\r\n");

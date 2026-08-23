@@ -74,7 +74,7 @@ public:
         }
         while (!out.empty() && (out.back() == ' ' || out.back() == '.')) out.pop_back();
         if (out.empty()) out = "video";
-        if (out.size() > 80) out = out.substr(0, 80);
+        if (out.size() > 80) out = truncateUtf8Bytes(out, 80);
         return out;
     }
 
