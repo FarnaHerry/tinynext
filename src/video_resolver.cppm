@@ -1330,4 +1330,58 @@ export ResolveResult resolveVideoUrl(const std::string& url, const std::string& 
     return parseJson(proc.out);
 }
 
+// ---- yt-dlp / ffmpeg 版本探测（关于页展示用，不再硬编码）----
+// 结果缓存进程内只探测一次；probe 可能各花数秒（yt-dlp 冷启动），必须从后台
+// 线程调用（app.cpp 启动预热线程）。访问器纯读缓存，UI 线程每帧调用安全；
+// 探测完成前/二进制缺失时返回空串，UI 降级只显示工具名。
+namespace {
+std::mutex g_toolVerMutex;
+std::string g_ytDlpVersion;
+std::string g_ffmpegVersion;
+bool g_toolVerProbed = false;
+} // namespace
+
+export void probeVideoToolVersions() {
+    if (g_toolVerProbed) return;
+    g_toolVerProbed = true;
+    const std::filesystem::path errFile = cfg::configDir() / "tinynext-version-probe.log";
+    std::string ytdlp;
+    std::string ffmpeg;
+    const std::string ytdlpExe = findEngineBinary("yt-dlp");
+    if (!ytdlpExe.empty()) {
+        const CapturedProc p = runCapture(ytdlpExe, {"--version"}, errFile, 30);
+        if (p.exitCode == 0) {
+            ytdlp = p.out;  // "2026.08.19\n"
+            while (!ytdlp.empty() && (ytdlp.back() == '\n' || ytdlp.back() == '\r'))
+                ytdlp.pop_back();
+        }
+    }
+    const std::string ffmpegExe = findEngineBinary("ffmpeg");
+    if (!ffmpegExe.empty()) {
+        const CapturedProc p = runCapture(ffmpegExe, {"-version"}, errFile, 30);
+        if (p.exitCode == 0) {
+            // 首行 "ffmpeg version 8.0-static ..." → 只取版本号段。
+            std::string first = p.out.substr(0, p.out.find('\n'));
+            constexpr std::string_view marker = "ffmpeg version ";
+            if (first.starts_with(marker)) {
+                first = first.substr(marker.size());
+                ffmpeg = first.substr(0, first.find(' '));
+            }
+        }
+    }
+    std::lock_guard<std::mutex> lock(g_toolVerMutex);
+    g_ytDlpVersion = std::move(ytdlp);
+    g_ffmpegVersion = std::move(ffmpeg);
+}
+
+export std::string ytDlpVersion() {
+    std::lock_guard<std::mutex> lock(g_toolVerMutex);
+    return g_ytDlpVersion;
+}
+
+export std::string ffmpegVersion() {
+    std::lock_guard<std::mutex> lock(g_toolVerMutex);
+    return g_ffmpegVersion;
+}
+
 } // namespace video

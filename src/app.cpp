@@ -44,6 +44,7 @@ import tinynext.ui.about_dialog;
 import tinynext.ui.platform;
 import tinynext.ui.housekeep;
 import tinynext.store.tasks;    // g_tasks（启动预热 warmup）
+import tinynext.video_resolver; // 启动预热时探测 yt-dlp/ffmpeg 版本（关于页）
 import tinynext.store.ui;       // 状态消息 / 页面
 import tinynext.store.dialogs;  // g_aboutOpen
 
@@ -100,6 +101,9 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
         std::thread([] {
             g_tasks.warmup();
             if (!g_tasks.engineActive()) g_warmupFailed.store(true);
+            // 顺手探测 yt-dlp/ffmpeg 版本（关于页展示；各一次进程启动，可能数秒，
+            // 所以在预热线程而非 UI 线程做）。
+            video::probeVideoToolVersions();
             core::platform::requestUiUpdate();
         }).detach();
     }

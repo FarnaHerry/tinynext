@@ -713,8 +713,17 @@ bool Aria2Engine::ensureDaemon() const {
             break;  // daemon died right after spawn (e.g. invalid args)
         }
         try {
-            rpcCall(port_, secret_, "aria2.getVersion", nlohmann::json::array());
+            const nlohmann::json v =
+                rpcCall(port_, secret_, "aria2.getVersion", nlohmann::json::array());
             daemonSpawned_ = true;
+            // 顺手记下真实引擎版本（关于页展示用，不再硬编码）。
+            if (v.is_object()) {
+                const std::string ver = v.value("version", "");
+                if (!ver.empty()) {
+                    std::lock_guard<std::mutex> hlock(healthMutex_);
+                    healthInfo_.version = ver;
+                }
+            }
             lastError_.clear();  // 成功拉起即清掉历史启动错误（监控页不再显示旧错误）
             // 首次拉起 daemon 后，重建上次会话（--save-session）里的未完成任务。
             recoverSession();

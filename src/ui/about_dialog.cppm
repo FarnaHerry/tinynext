@@ -13,13 +13,15 @@ import tinynext.ui.theme;
 import tinynext.ui.utils;
 import tinynext.ui.widgets;     // glassFill（毛玻璃填充色）
 import tinynext.store.dialogs;  // g_aboutOpen
+import tinynext.store.tasks;    // g_tasks.health()（引擎真实版本）
+import tinynext.video_resolver; // yt-dlp/ffmpeg 真实版本
 import tinynext.ui.platform;
 
 // ---- 关于弹窗：软件信息（所有页面可见）----
 export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
     if (!g_aboutOpen) return;
     const float dlgW = 300.0f;
-    const float dlgH = 306.0f;
+    const float dlgH = 350.0f;
     const float dlgX = (screen.width - dlgW) * 0.5f;
     const float dlgY = (screen.height - dlgH) * 0.5f;
 
@@ -57,18 +59,25 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
                 .color(theme.titleText)
                 .build();
 
-            // 版本从 config.cppm 读（cfg::kAppVersion / cfg::kEuiVersion），升级时
-            // 只需改 config，不再在这里手写。aria2-next 是外部二进制，版本随
-            // engines/checksums.sha256 维护。
+            // 版本全部来自实际运行中的组件，不硬编码：应用/eui 版本由
+            // mcpp.toml 生成（versions.generated.h → config.cppm）；aria2-next
+            // 版本来自 daemon 的 getVersion RPC（预热时缓存进 health）；
+            // yt-dlp/ffmpeg 版本来自预热线程对二进制的 --version 探测。
+            // 探测完成前/守护未起时返回空串，降级只显示组件名。
             const std::string appVersion(cfg::kAppVersion);
             const std::string uiVersion =
                 std::string("EUI-NEO ") + std::string(cfg::kEuiVersion);
+            const auto toolRow = [](const char* name, const std::string& ver) {
+                return ver.empty() ? std::string(name) : std::string(name) + " " + ver;
+            };
             struct AboutRow { const char* label; std::string value; };
             const AboutRow kAboutRows[] = {
                 {tr("about.app_name"), tr("about.app_name_value")},
                 {tr("about.version"), appVersion},
                 {tr("about.ui_framework"), uiVersion},
-                {tr("about.engine"), "aria2-next 2.5.5"},
+                {tr("about.engine"), toolRow("aria2-next", g_tasks.health().version)},
+                {tr("about.video_tool"), toolRow("yt-dlp", video::ytDlpVersion())},
+                {tr("about.merge_tool"), toolRow("ffmpeg", video::ffmpegVersion())},
                 {tr("about.transport"), tr("about.transport_value")},
                 {tr("about.build_tool"), "mcpp（C++23）"},
             };

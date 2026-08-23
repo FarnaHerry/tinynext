@@ -122,6 +122,8 @@ export constexpr Entry kEntries[] = {
     Entry{"about.version",      "版本", "版本", "Version"},
     Entry{"about.ui_framework", "界面框架", "介面框架", "UI framework"},
     Entry{"about.engine",       "下载引擎", "下載引擎", "Engine"},
+    Entry{"about.video_tool",   "视频解析", "影片解析", "Video resolver"},
+    Entry{"about.merge_tool",   "合并工具", "合併工具", "Merge tool"},
     Entry{"about.transport",    "网络传输", "網路傳輸", "Transport"},
     Entry{"about.transport_value", "本地 socket（无外部依赖）", "本地 socket（無外部依賴）",
           "Local socket (no external deps)"},
