@@ -94,6 +94,7 @@ export struct YtDlpProgress {
     std::atomic<std::int64_t> downloadedBytes{0};
     std::atomic<std::int64_t> totalBytes{0};
     std::atomic<std::int64_t> phaseCompletedBytes{0};  // DASH 多阶段累积（前序阶段已下载字节）
+    std::atomic<bool> cookieDbLockSeen{false};       // 日志中出现「cookie 数据库被锁」错误
     std::string error;                   // 非原子：仅在 finished 后读
     std::string outputPath;              // 最终输出文件路径
 };
@@ -277,11 +278,40 @@ CapturedProc runCapture(const std::string& exe,
 #endif
 }
 
+// 错误文本是否为「浏览器 cookie 数据库被锁/不可读」。两种形态：
+//   - Windows：Chrome 运行中独占 Cookies 文件 → "Could not copy Chrome cookie
+//     database"（yt-dlp#7271，官方标记 external-issue，yt-dlp 修不了）；
+//   - Linux：cookie 文件权限/锁异常 → "[Errno 13] Permission denied: '...Cookies'"。
+bool isCookieDbLockedError(std::string_view text) {
+    const bool copyFailed = text.find("Could not copy") != std::string_view::npos &&
+                            text.find("cookie database") != std::string_view::npos;
+    const bool permDenied = text.find("Permission denied") != std::string_view::npos &&
+                            text.find("Cookies") != std::string_view::npos;
+    return copyFailed || permDenied;
+}
+
+// 去掉参数里的 --cookies-from-browser <key>（cookie 库被锁后的匿名重试用）。
+std::vector<std::string> withoutBrowserCookies(const std::vector<std::string>& args) {
+    std::vector<std::string> out = args;
+    for (auto it = out.begin(); it != out.end(); ++it) {
+        if (*it == "--cookies-from-browser" && it + 1 != out.end()) {
+            out.erase(it, it + 2);
+            break;
+        }
+    }
+    return out;
+}
+
 // 解析 yt-dlp stderr 进度行，更新共享进度结构。
 // 注意：阶段间（DASH 音视频顺序下载）totalBytes 重置会导致 info 行闪烁。
 // 逻辑：在 [download] 行内先判断是否阶段完成（100%），若是则累加 phaseCompletedBytes
 // 并重置本阶段计数；否则按常规解析百分比/速度/总量。
 void parseProgressLine(const std::string& line, std::shared_ptr<YtDlpProgress> prog) {
+    // 「浏览器 cookie 数据库被锁/不可读」（Windows 上浏览器运行中独占 Cookies
+    // 文件，yt-dlp#7271，外部问题）——记下来，供进程失败后做无 Cookie 重试判定。
+    if (isCookieDbLockedError(line)) {
+        prog->cookieDbLockSeen.store(true);
+    }
     // [download]  12.3% of  500.00MiB at  862.37KiB/s ETA 02:09:52
     // [download] 100.0% of   90.84MiB at    2.19MiB/s ETA 00:00
     // [download] 100% of   90.84MiB in 00:00:50 at 1.80MiB/s
@@ -382,10 +412,13 @@ void parseProgressLine(const std::string& line, std::shared_ptr<YtDlpProgress> p
 
 // 带实时进度解析的子进程执行器：spawn 进程，逐行读取 stdout+stderr，解析进度行，
 // 同时写入日志文件。支持取消（prog->canceled）。跨平台（Win32 / POSIX）。
+// fallbackArgs 非空时：进程失败且日志出现 cookie 库被锁错误 → 用 fallbackArgs
+// （去掉 --cookies-from-browser 的同参数）重试一次，然后才置 finished。
 void runCaptureYtDlp(const std::string& exe,
                      const std::vector<std::string>& args,
                      const std::filesystem::path& logFile,
-                     std::shared_ptr<YtDlpProgress> prog) {
+                     std::shared_ptr<YtDlpProgress> prog,
+                     const std::vector<std::string>& fallbackArgs = {}) {
 #ifdef _WIN32
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
@@ -476,12 +509,23 @@ void runCaptureYtDlp(const std::string& exe,
 
     DWORD code = 1;
     if (exited) GetExitCodeProcess(pi.hProcess, &code);
-    prog->finished.store(true);
-    prog->ok.store(code == 0);
-    if (code != 0 && prog->error.empty()) prog->error = "yt-dlp exit code " + std::to_string(code);
     CloseHandle(readPipe);
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
+    // cookie 库被锁（浏览器运行中）→ 无 Cookie 重试一次，在置 finished 前完成，
+    // 避免轮询线程抢先看到「失败」把任务标记为 Failed。
+    if (code != 0 && !prog->canceled.load() && prog->cookieDbLockSeen.load() &&
+        !fallbackArgs.empty()) {
+        prog->error.clear();
+        runCaptureYtDlp(exe, fallbackArgs, logFile, prog, {});
+        return;
+    }
+    prog->finished.store(true);
+    prog->ok.store(code == 0);
+    if (code != 0 && prog->error.empty()) prog->error = "yt-dlp exit code " + std::to_string(code);
+    // 重试过仍失败 → 用可操作提示替代裸退出码。
+    if (code != 0 && !prog->canceled.load() && prog->cookieDbLockSeen.load())
+        prog->error = tr("vres.cookie_db_locked");
 #else
     int pipefd[2];
     if (pipe(pipefd) != 0) {
@@ -565,9 +609,20 @@ void runCaptureYtDlp(const std::string& exe,
     close(pipefd[0]);
 
     const bool exitedOk = exited && WIFEXITED(status);
+    const bool runOk = exitedOk && WEXITSTATUS(status) == 0;
+    // cookie 库被锁（浏览器运行中）→ 无 Cookie 重试一次（先于 finished，见上）。
+    if (!runOk && !prog->canceled.load() && prog->cookieDbLockSeen.load() &&
+        !fallbackArgs.empty()) {
+        prog->error.clear();
+        runCaptureYtDlp(exe, fallbackArgs, logFile, prog, {});
+        return;
+    }
     prog->finished.store(true);
-    prog->ok.store(exitedOk && WEXITSTATUS(status) == 0);
+    prog->ok.store(runOk);
     if (!exitedOk && prog->error.empty()) prog->error = "yt-dlp exited abnormally";
+    // 重试过仍失败 → 用可操作提示替代裸退出码。
+    if (!runOk && !prog->canceled.load() && prog->cookieDbLockSeen.load())
+        prog->error = tr("vres.cookie_db_locked");
 #endif
 }
 
@@ -857,9 +912,13 @@ export bool startYtDlpDownload(const std::string& url,
     args.push_back("%(title).80s.%(ext)s");
     args.push_back(url);
 
-    std::thread([exe, args, logFile, prog] {
+    // cookie 库被锁时的匿名重试参数（Windows 上浏览器运行中独占 cookie 数据库）。
+    std::vector<std::string> fallbackArgs;
+    if (!browserKey.empty()) fallbackArgs = withoutBrowserCookies(args);
+
+    std::thread([exe, args, fallbackArgs = std::move(fallbackArgs), logFile, prog] {
         prog->started.store(true);
-        runCaptureYtDlp(exe, args, logFile, prog);
+        runCaptureYtDlp(exe, args, logFile, prog, fallbackArgs);
     }).detach();
     return true;
 }
@@ -1223,6 +1282,16 @@ export ResolveResult resolveVideoUrl(const std::string& url, const std::string& 
         rr.error = errTail.empty()
             ? tr("vres.failed_login")
             : std::string(tr("vres.failed_prefix")) + errTail;
+        // 浏览器 cookie 数据库被锁（Windows 上浏览器运行中独占该文件，yt-dlp#7271
+        // 外部问题）→ 去掉 --cookies-from-browser 匿名重试一次；仍失败给可操作提示。
+        if (!browserKey.empty() && isCookieDbLockedError(errTail)) {
+            const CapturedProc retry =
+                runCapture(exe, withoutBrowserCookies(args), errFile, 60, cancel);
+            if (retry.canceled) { rr.canceled = true; return rr; }
+            if (retry.exitCode == 0) return parseJson(retry.out);
+            rr.canceled = false;
+            rr.error = tr("vres.cookie_db_locked");
+        }
         return rr;
     }
     return parseJson(proc.out);

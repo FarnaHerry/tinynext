@@ -494,6 +494,12 @@ export constexpr Entry kEntries[] = {
     Entry{"vres.failed_login",     "视频解析失败（链接无效或需要登录）",
           "影片解析失敗（連結無效或需要登入）", "Video parse failed (invalid link or login required)"},
     Entry{"vres.failed_prefix",    "视频解析失败：", "影片解析失敗：", "Video parse failed: "},
+    Entry{"vres.cookie_db_locked", "无法读取浏览器 Cookie（浏览器正在运行并锁定数据库），不使用 Cookie 重试也失败了"
+          "——请完全关闭浏览器后重试，或在设置 → 视频中把 Cookie 来源改为「关闭」",
+          "無法讀取瀏覽器 Cookie（瀏覽器正在執行並鎖定資料庫），不使用 Cookie 重試也失敗了"
+          "——請完全關閉瀏覽器後重試，或在設定 → 影片中把 Cookie 來源改為「關閉」",
+          "Cannot read browser cookies (browser is running and locked the database), and the "
+          "cookie-less retry also failed — fully close the browser and retry, or set Cookie source to Off in Settings"},
 };
 
 } // namespace i18n
