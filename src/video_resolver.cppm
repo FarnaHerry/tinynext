@@ -292,6 +292,16 @@ bool isCookieDbLockedError(std::string_view text) {
     return copyFailed || permDenied;
 }
 
+// 错误文本是否为「会话被 CDN/bot 检测拒绝」：HTTP 403 或 YouTube 的
+// "Sign in to confirm you're not a bot"。两者同因（cookie 过期/会话被标记），
+// 共用同一条「清缓存 → 匿名」重试链。bot 检测是间歇性的，重试本身就有相当
+// 概率绕过（yt-dlp 会轮换 player client 重新解 JS challenge）。
+bool isSessionRejectedError(std::string_view text) {
+    return text.find("HTTP Error 403") != std::string_view::npos ||
+           text.find("403: Forbidden") != std::string_view::npos ||
+           text.find("Sign in to confirm") != std::string_view::npos;
+}
+
 // 去掉参数里的 <flag> <value> 参数对（如 --cookies-from-browser / --cookies）。
 std::vector<std::string> withoutArgPair(const std::vector<std::string>& args,
                                         const std::string& flag) {
@@ -339,12 +349,11 @@ void parseProgressLine(const std::string& line, std::shared_ptr<YtDlpProgress> p
     if (isCookieDbLockedError(line)) {
         prog->cookieDbLockSeen.store(true);
     }
-    // 「HTTP Error 403: Forbidden」——cookie 过期/会话被 CDN 拒绝的典型症状
-    // （yt-dlp 报 "unable to download video data: HTTP Error 403: Forbidden"）。
-    // 常见诱因：browser-cookie-cache.txt 里过期 cookie 覆盖了浏览器实时提取的新鲜
-    // cookie，污染整个会话 → 只给最低画质合流且连它也 403。供 403 重试链判定。
-    if (line.find("HTTP Error 403") != std::string::npos ||
-        line.find("403: Forbidden") != std::string::npos) {
+    // 「HTTP Error 403: Forbidden」或 bot 检测「Sign in to confirm you're not a bot」
+    // ——cookie 过期/会话被 CDN 拒绝的典型症状（bot 检测与 403 同因，见
+    // isSessionRejectedError）。常见诱因：browser-cookie-cache.txt 里过期 cookie
+    // 覆盖了浏览器实时提取的新鲜 cookie，污染整个会话。供 403 重试链判定。
+    if (isSessionRejectedError(line)) {
         prog->http403Seen.store(true);
     }
     // [download]  12.3% of  500.00MiB at  862.37KiB/s ETA 02:09:52
@@ -1402,6 +1411,29 @@ export ResolveResult resolveVideoUrl(const std::string& url, const std::string& 
                 if (retry.exitCode == 0) return parseJson(retry.out);
             }
             rr.error = tr("vres.cookie_db_locked");
+            return rr;
+        }
+        // 会话被拒（HTTP 403 / bot 检测「Sign in to confirm you're not a bot」）→
+        // 重试链：① 自动缓存过期污染会话 → 删掉缓存文件后原参数重试（浏览器新鲜
+        // cookie 退出时重建缓存；bot 检测是间歇性的，重试本身也常能绕过）；
+        // ② 仍被拒（浏览器 cookie 本身也过期，或手工 cookies 文件过期）→ 去全部
+        // cookie 参数完全匿名兜底；全失败给可操作提示。
+        if (isSessionRejectedError(errTail)) {
+            if (!browserKey.empty()) {
+                std::error_code ec;
+                std::filesystem::remove(browserCookieCachePath(), ec);
+                const CapturedProc retry = runCapture(exe, args, errFile, 60, cancel);
+                if (retry.canceled) { rr.canceled = true; return rr; }
+                if (retry.exitCode == 0) return parseJson(retry.out);
+            }
+            if (hasArgPair(args, "--cookies-from-browser") || hasArgPair(args, "--cookies")) {
+                const std::vector<std::string> anon = withoutArgPair(
+                    withoutArgPair(args, "--cookies-from-browser"), "--cookies");
+                const CapturedProc retry = runCapture(exe, anon, errFile, 60, cancel);
+                if (retry.canceled) { rr.canceled = true; return rr; }
+                if (retry.exitCode == 0) return parseJson(retry.out);
+            }
+            rr.error = tr("vres.http_forbidden");
         }
         return rr;
     }
