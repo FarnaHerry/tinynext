@@ -32,8 +32,9 @@ bmi_schedule = "on"
 # otherwise demand a WinMain that doesn't exist.
 # -lws2_32 links winsock for aria2_engine.cpp's LocalSocket (tinyhttps used to
 # pull ws2_32 in as its dependency; with it removed we link it explicitly).
+# -ladvapi32: RegGetValueW（video_resolver 读注册表探测系统默认浏览器）。
 [target.'cfg(windows)'.build]
-ldflags = ["-Wl,-subsystem:windows", "-Wl,-entry:mainCRTStartup", "-lws2_32", "-ldwmapi"]
+ldflags = ["-Wl,-subsystem:windows", "-Wl,-entry:mainCRTStartup", "-lws2_32", "-ldwmapi", "-ladvapi32"]
 
 # exe 图标 + 版本信息：mcpp 2026.8.7.1 原生 [resources]（取代旧的 resources.rc /
 # windres workaround，已删除）。仅 PE/Windows 目标实际嵌入；Linux/macOS 只校验路径、
