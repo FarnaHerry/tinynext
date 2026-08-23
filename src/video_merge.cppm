@@ -392,9 +392,10 @@ private:
                 }
                 // 信息行展示区分解析阶段/合并阶段：yt-dlp 原生任务在解析格式时显示
                 // "解析中"，在 ffmpeg 合并阶段显示进度（卡片用 Merging 态已覆盖）。
-                // 这里额外在 Downloading 时标记 progressState，供卡片信息行显示
-                // 更贴切的状态（如 yt-dlp [Merger] 阶段）。
-                view.progressState = prog->merging.load() ? dl::State::Merging : view.state;
+                // 注意：merging 标志进入合并阶段后一直保持 true，进程已 finished
+                // 时不能再覆盖——否则任务已 Done，卡片信息行还永远显示「音视频合成中」。
+                view.progressState = (prog->merging.load() && !prog->finished.load())
+                    ? dl::State::Merging : view.state;
             } else {
                 view.state = dl::State::Queued;
             }
