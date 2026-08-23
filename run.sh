@@ -12,6 +12,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Intel Panther Lake (Arc B390) requires INTEL_FORCE_PROBE=1, otherwise the
+# iris DRI driver refuses to load → "failed to load driver: iris". This flag
+# tells the kernel-mode driver to enable support for pre-production / new
+# stepping Intel GPUs that Mesa knows about but hasn't whitelisted yet.
+export INTEL_FORCE_PROBE=1
+
 BIN=$(ls -dt target/x86_64-linux-gnu/*/bin 2>/dev/null | head -1)
 if [ -z "$BIN" ] || [ ! -x "$BIN/tinynext" ]; then
     echo "binary not found — run \`mcpp build\` first" >&2
