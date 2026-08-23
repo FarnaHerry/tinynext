@@ -343,6 +343,14 @@ export constexpr Entry kEntries[] = {
     Entry{"settings.cookies_file_hint", "Netscape 格式 cookies.txt 路径；YouTube 防 bot 需要",
           "Netscape 格式 cookies.txt 路徑；YouTube 防 bot 需要",
           "Netscape cookies.txt path; required for YouTube anti-bot"},
+    Entry{"settings.cookies_browser", "Cookie 来源", "Cookie 來源", "Cookie source"},
+    Entry{"settings.cookies_browser_off", "关闭", "關閉", "Off"},
+    Entry{"settings.cookies_browser_default", "默认浏览器", "預設瀏覽器", "Default browser"},
+    Entry{"settings.cookies_browser_hint",
+          "每次下载实时从浏览器读 cookie，免导出不过期；开启时忽略 Cookies 文件与 SESSDATA",
+          "每次下載即時從瀏覽器讀 cookie，免匯出不過期；開啟時忽略 Cookies 檔案與 SESSDATA",
+          "Reads cookies live from the browser on every download — no export, no expiry; "
+          "cookies file and SESSDATA are ignored while enabled"},
 
     // ---- settings：网络 tab ----
     Entry{"settings.proxy",       "代理地址", "代理伺服器網址", "Proxy"},

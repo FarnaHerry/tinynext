@@ -75,9 +75,14 @@ yt-dlp 解析 → 选画质 → 下载）、`settings_page`（设置页）、`ab
   快照的**真实 `destPath`**（`files[0].path`）覆盖预设路径（`pollMerges` 里做）。
 - **音频容器**：合并参数按配对音频流决定 `-c:a copy`（aac/m4a 可直装 mp4）还是
   `-c:a aac`（YouTube 的 opus/vorbis 装不进 mp4，需转码）；视频恒 `-c:v copy`。
-- bilibili SESSDATA / 默认画质 / 保留 .m4s 在设置页「视频」tab（`cfg::VideoConfig`，
-  JSON key `"video"`）；SESSDATA 只对 bilibili 主机下发（`resolveVideoUrl` 里按 URL
-  判断），其它站点走匿名。
+- Cookie 来源（`cfg::VideoConfig::cookiesBrowser`，JSON `video.cookies_browser`）：
+  默认 `"default"`（跟随系统默认浏览器，`video_resolver.cppm` 的
+  `detectDefaultBrowserKey()` 探测：Linux 读 `xdg-settings`、Windows 读注册表
+  UserChoice、macOS 不探测），yt-dlp 两个 spawn 点（`resolveVideoUrl` /
+  `startYtDlpDownload`）统一经 `ytDlpBrowserKey()` 加 `--cookies-from-browser`。
+  非 `"off"` 时 SESSDATA 与 cookiesFile 都被忽略；bilibili SESSDATA / cookies_file
+  仅 `"off"` 时的手动遗留方案（`resolveVideoUrl` 里按 URL 判断下发 SESSDATA）。
+- 默认画质 / 保留 .m4s 同在设置页「视频」tab（JSON key `"video"`）。
 - 已知边界：下载中重启 app，任务表丢失、不再自动合并（bilibili 子任务被会话恢复成
   普通任务 / YouTube 原生任务不恢复），重新下载即可（v1 接受）。
 

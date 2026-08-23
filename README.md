@@ -82,9 +82,14 @@ bilibili 等站点）；下载分两种走法：
   aria2c` 把分片下载委托给 aria2-next，yt-dlp 自行处理 JS challenge 与 DASH
   合并），列表同样只显示一个任务。
 
-- **1080P+ / 会员画质**：在「设置 → 视频」填 bilibili Cookie 的 **SESSDATA** 值
-  （登录 bilibili 后 F12 → 应用 → Cookies 里复制；仅对 bilibili 站点生效）；不填
-  则用匿名画质。
+- **Cookie 自动获取（默认开）**：「设置 → 视频 → Cookie 来源」默认是**默认浏览器**
+  ——每次解析/下载 yt-dlp 都实时从浏览器 cookie 库读取（`--cookies-from-browser`），
+  免手工导出、不会过期，YouTube 防 bot 检测和 bilibili 登录态都走这条路。下拉也可
+  指定具体浏览器（Chrome/Firefox/Edge/Chromium/Brave/Opera/Vivaldi/Safari）或关闭。
+- **1080P+ / 会员画质（手动方案）**：Cookie 来源选**关闭**时，可在「设置 → 视频」填
+  bilibili Cookie 的 **SESSDATA** 值（登录 bilibili 后 F12 → 应用 → Cookies 里复制；
+  仅对 bilibili 站点生效），或为 YouTube 等站点指定 Netscape 格式的 **Cookies 文件**；
+  浏览器模式开启时这两项被忽略。
 - **默认画质 / 保留 .m4s 分片**：同「设置 → 视频」。默认画质按名称匹配（如填
   `1080` 则解析后预选 1080P 档），留空自动选最高。
 - 流地址有时效，解析后请尽快下载；下载失败（403/过期）重新解析一次再下。

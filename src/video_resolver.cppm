@@ -24,6 +24,7 @@ module;
 #include <spawn.h>       // posix_spawn
 #include <fcntl.h>       // fcntl, O_NONBLOCK, open
 #include <unistd.h>      // pipe/read/close/usleep
+#include <stdio.h>       // popen/pclose/fgets（xdg-settings 探测默认浏览器）
 #include <stdlib.h>      // setenv / unsetenv / getenv（PyInstaller yt-dlp 的 UTF-8 argv 修复）
 #ifdef __APPLE__
 #include <mach-o/dyld.h> // _NSGetExecutablePath
@@ -581,6 +582,56 @@ std::filesystem::path writeCookieFile(const std::string& sessdata) {
     return p;
 }
 
+// 系统默认浏览器 → yt-dlp 浏览器键（--cookies-from-browser 用）；识别不出返回空
+// （= 不挂 cookie）。结果静态缓存（一次进程内默认浏览器不会变）。
+std::string detectDefaultBrowserKey() {
+    static const std::string cached = [] {
+        std::string id;  // desktop 文件名 / ProgId，转小写后按子串匹配
+#ifdef _WIN32
+        WCHAR buf[256]{};
+        DWORD size = sizeof(buf);
+        if (::RegGetValueW(HKEY_CURRENT_USER,
+                           L"Software\\Microsoft\\Windows\\Shell\\Associations\\"
+                           L"UrlAssociations\\https\\UserChoice",
+                           L"ProgId", RRF_RT_REG_SZ, nullptr, buf, &size) == ERROR_SUCCESS) {
+            for (const WCHAR* p = buf; *p; ++p) {  // ProgId 是纯 ASCII
+                id += static_cast<char>(*p < 128 ? *p : '?');
+            }
+        }
+#elif defined(__APPLE__)
+        return std::string{};  // Safari cookie 限制多，macOS 不自动探测（设置里手选）
+#else
+        if (FILE* fp = ::popen("xdg-settings get default-web-browser 2>/dev/null", "r")) {
+            char line[256];
+            if (::fgets(line, sizeof(line), fp)) id = line;
+            ::pclose(fp);
+        }
+#endif
+        std::string lower;
+        for (const char c : id) {
+            lower += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        // 顺序敏感："chromium" 含 "chrom"，必须先于 "chrome" 判。
+        if (lower.find("brave") != std::string::npos) return std::string{"brave"};
+        if (lower.find("firefox") != std::string::npos) return std::string{"firefox"};
+        if (lower.find("edge") != std::string::npos) return std::string{"edge"};
+        if (lower.find("chromium") != std::string::npos) return std::string{"chromium"};
+        if (lower.find("chrome") != std::string::npos) return std::string{"chrome"};
+        if (lower.find("opera") != std::string::npos) return std::string{"opera"};
+        if (lower.find("vivaldi") != std::string::npos) return std::string{"vivaldi"};
+        if (lower.find("safari") != std::string::npos) return std::string{"safari"};
+        return std::string{};
+    }();
+    return cached;
+}
+
+// 配置解析后的 yt-dlp 浏览器键；"off" / 探测失败返回空串（= 走手动 cookie 方案）。
+std::string ytDlpBrowserKey() {
+    const std::string b = cfg::videoConfig().cookiesBrowser;
+    if (b.empty() || b == "off") return "";
+    return b == "default" ? detectDefaultBrowserKey() : b;
+}
+
 // 从 yt-dlp format 的 http_headers 对象拆出 UA / Referer / 其余头。
 StreamHeaders parseHeaders(const nlohmann::json& h) {
     StreamHeaders sh;
@@ -782,11 +833,18 @@ export bool startYtDlpDownload(const std::string& url,
         args.push_back("--add-header");
         args.push_back("Referer: " + referer);
     }
-    // 通用 cookies 文件（YouTube 等需要登录态绕过 bot 检测）
-    const std::string generalCookies = cfg::videoConfig().cookiesFile;
-    if (!generalCookies.empty()) {
-        args.push_back("--cookies");
-        args.push_back(generalCookies);
+    // Cookie：浏览器模式（--cookies-from-browser，每次调用实时读浏览器 cookie 库，
+    // 免手工导出、不过期）优先；关闭时才回退手工导出的 Netscape cookies 文件。
+    const std::string browserKey = ytDlpBrowserKey();
+    if (!browserKey.empty()) {
+        args.push_back("--cookies-from-browser");
+        args.push_back(browserKey);
+    } else {
+        const std::string generalCookies = cfg::videoConfig().cookiesFile;
+        if (!generalCookies.empty()) {
+            args.push_back("--cookies");
+            args.push_back(generalCookies);
+        }
     }
     // 输出路径：用安全 ASCII 文件名避免 PyInstaller yt-dlp 的 argv 解码问题
     // （[PYI-*:ERROR] Failed to set sys.argv: decoding error）。让 yt-dlp 自己
@@ -1115,20 +1173,28 @@ export ResolveResult resolveVideoUrl(const std::string& url, const std::string& 
         args.push_back("--proxy");
         args.push_back(proxy);
     }
-    // SESSDATA 只对 bilibili 主机有效，其它站点（YouTube 等）不挂 cookie 走匿名。
-    // 通用 cookies 文件（YouTube 等需要登录态绕过 bot 检测的站点）由配置指定。
-    const bool isBilibili = url.find("bilibili.com") != std::string::npos;
-    const std::filesystem::path cookieFile =
-        isBilibili ? writeCookieFile(sessdata) : std::filesystem::path{};
-    if (!cookieFile.empty()) {
-        args.push_back("--cookies");
-        args.push_back(cookieFile.string());
-    } else if (!isBilibili) {
-        // 非 bilibili 站点尝试通用 cookies 文件（Netscape 格式，供 YouTube 等使用）。
-        const std::string generalCookies = cfg::videoConfig().cookiesFile;
-        if (!generalCookies.empty()) {
+    // Cookie 优先级：浏览器模式（实时读浏览器 cookie 库，bilibili 同样生效）>
+    // bilibili SESSDATA 文件 > 通用 cookies 文件（后两者仅浏览器模式关闭时用）。
+    const std::string browserKey = ytDlpBrowserKey();
+    if (!browserKey.empty()) {
+        args.push_back("--cookies-from-browser");
+        args.push_back(browserKey);
+    } else {
+        // SESSDATA 只对 bilibili 主机有效，其它站点（YouTube 等）不挂 cookie 走匿名。
+        // 通用 cookies 文件（YouTube 等需要登录态绕过 bot 检测的站点）由配置指定。
+        const bool isBilibili = url.find("bilibili.com") != std::string::npos;
+        const std::filesystem::path cookieFile =
+            isBilibili ? writeCookieFile(sessdata) : std::filesystem::path{};
+        if (!cookieFile.empty()) {
             args.push_back("--cookies");
-            args.push_back(generalCookies);
+            args.push_back(cookieFile.string());
+        } else if (!isBilibili) {
+            // 非 bilibili 站点尝试通用 cookies 文件（Netscape 格式，供 YouTube 等使用）。
+            const std::string generalCookies = cfg::videoConfig().cookiesFile;
+            if (!generalCookies.empty()) {
+                args.push_back("--cookies");
+                args.push_back(generalCookies);
+            }
         }
     }
     args.push_back(url);

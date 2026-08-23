@@ -580,7 +580,14 @@ export struct VideoConfig {
     // 通用 cookies 文件（Netscape 格式，yt-dlp --cookies 用）。对 YouTube 等需要
     // 登录态才能过 bot 检测的站点生效（bilibili 走上面 bilibiliCookie 的 SESSDATA）。
     // 空 = 不挂 cookie（bilibili/无防 bot 站点匿名即可）。
+    // cookiesBrowser 非 "off" 时本字段被忽略（浏览器 cookie 实时读取，优先）。
     std::string cookiesFile = "";
+    // 自动从浏览器读 cookie（yt-dlp --cookies-from-browser，每次调用实时读浏览器
+    // cookie 库，免手工导出、不过期）。"off"=关闭；"default"=跟随系统默认浏览器；
+    // 其余为 yt-dlp 浏览器键（chrome/firefox/edge/chromium/brave/opera/vivaldi/
+    // safari）。非 "off" 时 cookiesFile 与 bilibiliCookie 均被忽略（bilibili 也
+    // 统一走浏览器）。默认 "default"。
+    std::string cookiesBrowser = "default";
 };
 
 export VideoConfig videoConfig() {
@@ -603,6 +610,9 @@ export VideoConfig videoConfig() {
         if (v.contains("cookies_file") && v["cookies_file"].is_string()) {
             c.cookiesFile = v["cookies_file"].get<std::string>();
         }
+        if (v.contains("cookies_browser") && v["cookies_browser"].is_string()) {
+            c.cookiesBrowser = v["cookies_browser"].get<std::string>();
+        }
     }
     return c;
 }
@@ -615,6 +625,7 @@ export void setVideoConfig(const VideoConfig& c) {
     v["keep_m4s_parts"] = c.keepM4sParts;
     v["js_runtime"] = c.jsRuntime;
     v["cookies_file"] = c.cookiesFile;
+    v["cookies_browser"] = c.cookiesBrowser;
     j["video"] = v;
     saveConfig(j);
 }
