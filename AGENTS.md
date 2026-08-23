@@ -82,6 +82,13 @@ yt-dlp 解析 → 选画质 → 下载）、`settings_page`（设置页）、`ab
   `startYtDlpDownload`）统一经 `ytDlpBrowserKey()` 加 `--cookies-from-browser`。
   非 `"off"` 时 SESSDATA 与 cookiesFile 都被忽略；bilibili SESSDATA / cookies_file
   仅 `"off"` 时的手动遗留方案（`resolveVideoUrl` 里按 URL 判断下发 SESSDATA）。
+  **Windows 锁库兜底链**：浏览器运行中独占 Cookies 文件（yt-dlp#7271，external-issue，
+  yt-dlp 修不了）→ 浏览器模式的所有 yt-dlp 调用都附加 `--cookies <配置目录>/
+  browser-cookie-cache.txt`（yt-dlp 对该参数读+写，成功调用退出时自动刷新缓存）；
+  `isCookieDbLockedError()` 识别锁库错误（Windows "Could not copy … cookie database"
+  与 Linux "Permission denied: …Cookies" 两种形态）后按 ①缓存 ②匿名 顺序重试
+  （下载路径在 `runCaptureYtDlp` 内置 finished 前递归，避免轮询抢到中间失败态），
+  全失败才报 `vres.cookie_db_locked`。
 - 默认画质 / 保留 .m4s 同在设置页「视频」tab（JSON key `"video"`）。
 - 已知边界：下载中重启 app，任务表丢失、不再自动合并（bilibili 子任务被会话恢复成
   普通任务 / YouTube 原生任务不恢复），重新下载即可（v1 接受）。

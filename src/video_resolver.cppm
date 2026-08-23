@@ -290,16 +290,25 @@ bool isCookieDbLockedError(std::string_view text) {
     return copyFailed || permDenied;
 }
 
-// 去掉参数里的 --cookies-from-browser <key>（cookie 库被锁后的匿名重试用）。
-std::vector<std::string> withoutBrowserCookies(const std::vector<std::string>& args) {
+// 去掉参数里的 <flag> <value> 参数对（如 --cookies-from-browser / --cookies）。
+std::vector<std::string> withoutArgPair(const std::vector<std::string>& args,
+                                        const std::string& flag) {
     std::vector<std::string> out = args;
     for (auto it = out.begin(); it != out.end(); ++it) {
-        if (*it == "--cookies-from-browser" && it + 1 != out.end()) {
+        if (*it == flag && it + 1 != out.end()) {
             out.erase(it, it + 2);
             break;
         }
     }
     return out;
+}
+
+// 浏览器 cookie 自动缓存文件：浏览器模式下的 yt-dlp 调用都带上
+// `--cookies <此文件>`（yt-dlp 对该参数是「读+写」——启动时并入、退出时把含浏览器
+// cookie 的整个 jar 落盘）。这样浏览器关着的任何一次成功调用都会刷新缓存；
+// 之后浏览器运行中锁库（Windows 常态）时，用这份最后可用缓存重试，免手动导出。
+std::filesystem::path browserCookieCachePath() {
+    return cfg::configDir() / "browser-cookie-cache.txt";
 }
 
 // 解析 yt-dlp stderr 进度行，更新共享进度结构。
@@ -412,13 +421,14 @@ void parseProgressLine(const std::string& line, std::shared_ptr<YtDlpProgress> p
 
 // 带实时进度解析的子进程执行器：spawn 进程，逐行读取 stdout+stderr，解析进度行，
 // 同时写入日志文件。支持取消（prog->canceled）。跨平台（Win32 / POSIX）。
-// fallbackArgs 非空时：进程失败且日志出现 cookie 库被锁错误 → 用 fallbackArgs
-// （去掉 --cookies-from-browser 的同参数）重试一次，然后才置 finished。
+// fallbacks 非空时：进程失败且日志出现 cookie 库被锁错误 → 依次用后备参数
+// （① 去 --cookies-from-browser 走本地缓存 ② 再去 --cookies 完全匿名）重试，
+// 全部完成前不置 finished，避免轮询线程抢先看到「失败」。
 void runCaptureYtDlp(const std::string& exe,
                      const std::vector<std::string>& args,
                      const std::filesystem::path& logFile,
                      std::shared_ptr<YtDlpProgress> prog,
-                     const std::vector<std::string>& fallbackArgs = {}) {
+                     std::vector<std::vector<std::string>> fallbacks = {}) {
 #ifdef _WIN32
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
@@ -512,12 +522,14 @@ void runCaptureYtDlp(const std::string& exe,
     CloseHandle(readPipe);
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
-    // cookie 库被锁（浏览器运行中）→ 无 Cookie 重试一次，在置 finished 前完成，
-    // 避免轮询线程抢先看到「失败」把任务标记为 Failed。
+    // cookie 库被锁（浏览器运行中）→ 依次用后备参数重试（缓存 → 匿名），
+    // 在置 finished 前完成，避免轮询线程抢先看到「失败」把任务标记为 Failed。
     if (code != 0 && !prog->canceled.load() && prog->cookieDbLockSeen.load() &&
-        !fallbackArgs.empty()) {
+        !fallbacks.empty()) {
         prog->error.clear();
-        runCaptureYtDlp(exe, fallbackArgs, logFile, prog, {});
+        std::vector<std::string> next = std::move(fallbacks.front());
+        fallbacks.erase(fallbacks.begin());
+        runCaptureYtDlp(exe, next, logFile, prog, std::move(fallbacks));
         return;
     }
     prog->finished.store(true);
@@ -610,11 +622,13 @@ void runCaptureYtDlp(const std::string& exe,
 
     const bool exitedOk = exited && WIFEXITED(status);
     const bool runOk = exitedOk && WEXITSTATUS(status) == 0;
-    // cookie 库被锁（浏览器运行中）→ 无 Cookie 重试一次（先于 finished，见上）。
+    // cookie 库被锁（浏览器运行中）→ 依次用后备参数重试（缓存 → 匿名，见上）。
     if (!runOk && !prog->canceled.load() && prog->cookieDbLockSeen.load() &&
-        !fallbackArgs.empty()) {
+        !fallbacks.empty()) {
         prog->error.clear();
-        runCaptureYtDlp(exe, fallbackArgs, logFile, prog, {});
+        std::vector<std::string> next = std::move(fallbacks.front());
+        fallbacks.erase(fallbacks.begin());
+        runCaptureYtDlp(exe, next, logFile, prog, std::move(fallbacks));
         return;
     }
     prog->finished.store(true);
@@ -890,10 +904,14 @@ export bool startYtDlpDownload(const std::string& url,
     }
     // Cookie：浏览器模式（--cookies-from-browser，每次调用实时读浏览器 cookie 库，
     // 免手工导出、不过期）优先；关闭时才回退手工导出的 Netscape cookies 文件。
+    // 浏览器模式同时带 --cookies <缓存文件>（读+写）：成功调用会自动刷新本地缓存，
+    // 供浏览器锁库（Windows 运行中常态）时重试使用。
     const std::string browserKey = ytDlpBrowserKey();
     if (!browserKey.empty()) {
         args.push_back("--cookies-from-browser");
         args.push_back(browserKey);
+        args.push_back("--cookies");
+        args.push_back(utf8FromPath(browserCookieCachePath()));
     } else {
         const std::string generalCookies = cfg::videoConfig().cookiesFile;
         if (!generalCookies.empty()) {
@@ -912,13 +930,19 @@ export bool startYtDlpDownload(const std::string& url,
     args.push_back("%(title).80s.%(ext)s");
     args.push_back(url);
 
-    // cookie 库被锁时的匿名重试参数（Windows 上浏览器运行中独占 cookie 数据库）。
-    std::vector<std::string> fallbackArgs;
-    if (!browserKey.empty()) fallbackArgs = withoutBrowserCookies(args);
+    // cookie 库被锁时的重试链（Windows 上浏览器运行中独占 cookie 数据库）：
+    // ① 去 --cookies-from-browser → 用自动缓存的 cookie 文件；② 再去 --cookies → 完全匿名。
+    std::vector<std::vector<std::string>> fallbacks;
+    if (!browserKey.empty()) {
+        const std::vector<std::string> cacheArgs =
+            withoutArgPair(args, "--cookies-from-browser");
+        fallbacks.push_back(cacheArgs);
+        fallbacks.push_back(withoutArgPair(cacheArgs, "--cookies"));
+    }
 
-    std::thread([exe, args, fallbackArgs = std::move(fallbackArgs), logFile, prog] {
+    std::thread([exe, args, fallbacks = std::move(fallbacks), logFile, prog] {
         prog->started.store(true);
-        runCaptureYtDlp(exe, args, logFile, prog, fallbackArgs);
+        runCaptureYtDlp(exe, args, logFile, prog, std::move(fallbacks));
     }).detach();
     return true;
 }
@@ -1234,10 +1258,14 @@ export ResolveResult resolveVideoUrl(const std::string& url, const std::string& 
     }
     // Cookie 优先级：浏览器模式（实时读浏览器 cookie 库，bilibili 同样生效）>
     // bilibili SESSDATA 文件 > 通用 cookies 文件（后两者仅浏览器模式关闭时用）。
+    // 浏览器模式同时带 --cookies <缓存文件>（读+写）：成功调用自动刷新本地缓存，
+    // 供浏览器锁库（Windows 运行中常态）时重试使用。
     const std::string browserKey = ytDlpBrowserKey();
     if (!browserKey.empty()) {
         args.push_back("--cookies-from-browser");
         args.push_back(browserKey);
+        args.push_back("--cookies");
+        args.push_back(utf8FromPath(browserCookieCachePath()));
     } else {
         // SESSDATA 只对 bilibili 主机有效，其它站点（YouTube 等）不挂 cookie 走匿名。
         // 通用 cookies 文件（YouTube 等需要登录态绕过 bot 检测的站点）由配置指定。
@@ -1283,13 +1311,18 @@ export ResolveResult resolveVideoUrl(const std::string& url, const std::string& 
             ? tr("vres.failed_login")
             : std::string(tr("vres.failed_prefix")) + errTail;
         // 浏览器 cookie 数据库被锁（Windows 上浏览器运行中独占该文件，yt-dlp#7271
-        // 外部问题）→ 去掉 --cookies-from-browser 匿名重试一次；仍失败给可操作提示。
+        // 外部问题）→ 依次重试：① 自动缓存的 cookie 文件 ② 完全匿名；
+        // 全部失败才给可操作提示。
         if (!browserKey.empty() && isCookieDbLockedError(errTail)) {
-            const CapturedProc retry =
-                runCapture(exe, withoutBrowserCookies(args), errFile, 60, cancel);
-            if (retry.canceled) { rr.canceled = true; return rr; }
-            if (retry.exitCode == 0) return parseJson(retry.out);
-            rr.canceled = false;
+            const std::vector<std::string> cacheArgs =
+                withoutArgPair(args, "--cookies-from-browser");
+            const std::vector<std::vector<std::string>> fallbacks = {
+                cacheArgs, withoutArgPair(cacheArgs, "--cookies")};
+            for (const auto& fb : fallbacks) {
+                const CapturedProc retry = runCapture(exe, fb, errFile, 60, cancel);
+                if (retry.canceled) { rr.canceled = true; return rr; }
+                if (retry.exitCode == 0) return parseJson(retry.out);
+            }
             rr.error = tr("vres.cookie_db_locked");
         }
         return rr;

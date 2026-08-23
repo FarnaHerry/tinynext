@@ -86,6 +86,10 @@ bilibili 等站点）；下载分两种走法：
   ——每次解析/下载 yt-dlp 都实时从浏览器 cookie 库读取（`--cookies-from-browser`），
   免手工导出、不会过期，YouTube 防 bot 检测和 bilibili 登录态都走这条路。下拉也可
   指定具体浏览器（Chrome/Firefox/Edge/Chromium/Brave/Opera/Vivaldi/Safari）或关闭。
+  **Windows 上浏览器运行中会独占锁定 cookie 数据库**（yt-dlp#7271，官方 external-issue）：
+  为此做了三级兜底——① 实时读浏览器；② 锁库时自动改用本地缓存（任何一次浏览器
+  关闭状态下的成功调用都会把 cookie 自动缓存到 `<配置目录>/browser-cookie-cache.txt`，
+  无需手动导出）；③ 缓存也不可用时匿名重试。全部失败才会提示「完全关闭浏览器后重试」。
 - **1080P+ / 会员画质（手动方案）**：Cookie 来源选**关闭**时，可在「设置 → 视频」填
   bilibili Cookie 的 **SESSDATA** 值（登录 bilibili 后 F12 → 应用 → Cookies 里复制；
   仅对 bilibili 站点生效），或为 YouTube 等站点指定 Netscape 格式的 **Cookies 文件**；
