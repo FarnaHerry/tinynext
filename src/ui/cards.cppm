@@ -243,7 +243,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
             const float iconsW = actionCount * kCardIconW +
                                  (actionCount > 0 ? (actionCount - 1) * kCardIconGap : 0.0f);
 
-            components::text(ui, fid + ".info")
+            components::text(ui, fid + ".infotext")
                 .position(kCardPad, 42.0f)
                 .size(inner - iconsW, kCardIconW)
                 .text(cardInfoText(task))
