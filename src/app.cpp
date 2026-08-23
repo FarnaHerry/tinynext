@@ -73,8 +73,8 @@ const DslAppConfig& dslAppConfig() {
         .textFont("NotoSansSC-Regular.ttf")
         .iconFont("FontAwesome7.otf")
         // 系统托盘：配置 close_to_tray 决定 X 是否缩到托盘（不退出），托盘菜单
-        // 「显示/退出」。仅 Windows/macOS 生效（Linux 的 eui-neo 配方托盘为 stub）；
-        // 设置页可改，重启生效。Windows 图标要 .ico（Shell_NotifyIcon），其余用 PNG。
+        // 「显示/退出」。Windows 用 Shell_NotifyIcon（.ico），Linux 0.5.7 起用
+        // StatusNotifierItem（GDBus/GIO），无需额外依赖；设置页可改，重启生效。
         .tray(cfg::closeToTray())
         .trayTitle("TinyNext 下载器")
 #ifdef _WIN32
