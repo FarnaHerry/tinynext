@@ -47,245 +47,272 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
     // 整页一张岛卡（无二级侧边栏，监控内容无需分栏）。
     drawPanel(ui, "engine.island", islandX, islandTop, islandW, islandH, theme);
 
-    const float titleY = islandTop + 16.0f;
-    components::text(ui, "engine.title")
-        .position(infoX, titleY)
-        .size(innerW, 24.0f)
-        .text(tr("app.tab.monitor"))
-        .fontSize(17.0f)
-        .lineHeight(24.0f)
-        .color(theme.titleText)
-        .build();
-
-    // ---- 健康快照 + 顶部状态（圆点 + 标签）----
-    const dl::HealthInfo h = g_tasks.health();
-    const char* statusLabel = tr("eng.checking");
-    eui::Color statusColor = theme.metaText;
-    if (h.checked) {
-        if (!h.binaryFound) {
-            statusLabel = tr("eng.missing");
-            statusColor = theme.failed;
-        } else if (h.rpcReachable) {
-            statusLabel = tr("eng.healthy");
-            statusColor = theme.done;
-        } else if (h.daemonSpawned) {
-            statusLabel = tr("eng.service_error");
-            statusColor = theme.failed;
-        } else {
-            statusLabel = tr("eng.not_running");
-            statusColor = theme.metaText;
-        }
-    }
-    const float dotX = islandX + islandW - pad - 140.0f;
-    ui.rect("engine.status.dot")
-        .position(dotX, titleY + 7.0f)
-        .size(10.0f, 10.0f)
-        .color(statusColor)
-        .radius(5.0f)
-        .build();
-    components::text(ui, "engine.status.label")
-        .position(dotX + 16.0f, titleY)
-        .size(124.0f, 24.0f)
-        .text(statusLabel)
-        .fontSize(12.0f)
-        .lineHeight(24.0f)
-        .color(statusColor)
-        .verticalAlign(core::VerticalAlign::Center)
-        .build();
-
-    // ---- 体检行：标签 + 值（绿=正常 / 红=异常 / 灰=未运行）----
-    float rowY = titleY + 30.0f;
-    const auto statusRow = [&](const std::string& id, const char* label,
-                               const std::string& value, const eui::Color& color) {
-        components::text(ui, id + ".label")
-            .position(infoX, rowY)
-            .size(kLabelW, 22.0f)
-            .text(label)
-            .fontSize(11.0f)
-            .lineHeight(22.0f)
-            .color(theme.metaText)
-            .build();
-        components::text(ui, id + ".value")
-            .position(infoX + kLabelW, rowY)
-            .size(innerW - kLabelW, 22.0f)
-            .text(value)
-            .fontSize(11.0f)
-            .lineHeight(22.0f)
-            .color(color)
-            .build();
-        rowY += 22.0f;
-    };
-
-    const eui::Color okColor = theme.done;
-    const eui::Color badColor = theme.failed;
-    const eui::Color idleColor = theme.metaText;
-
-    if (!h.checked) {
-        statusRow("engine.bin", tr("eng.binary"),
-                  tr("eng.checking"), idleColor);
-    } else if (h.binaryFound) {
-        statusRow("engine.bin", tr("eng.binary"),
-                  tr("eng.binary_found"), okColor);
-    } else {
-        statusRow("engine.bin", tr("eng.binary"),
-                  tr("eng.binary_not_found"), badColor);
-    }
-
-    if (h.daemonAlive) {
-        statusRow("engine.daemon", tr("eng.daemon"),
-                  tr("eng.running"), okColor);
-    } else if (h.daemonSpawned) {
-        statusRow("engine.daemon", tr("eng.daemon"),
-                  tr("eng.process_exited"), badColor);
-    } else if (!h.checked) {
-        statusRow("engine.daemon", tr("eng.daemon"),
-                  tr("eng.checking"), idleColor);
-    } else {
-        statusRow("engine.daemon", tr("eng.daemon"),
-                  tr("eng.not_running"), idleColor);
-    }
-
-    if (h.rpcReachable) {
-        statusRow("engine.rpc", tr("eng.rpc_service"),
-                  tr("eng.ok"), okColor);
-    } else if (h.daemonSpawned) {
-        statusRow("engine.rpc", tr("eng.rpc_service"),
-                  tr("eng.no_response"), badColor);
-    } else if (!h.checked) {
-        statusRow("engine.rpc", tr("eng.rpc_service"),
-                  tr("eng.checking"), idleColor);
-    } else {
-        statusRow("engine.rpc", tr("eng.rpc_service"),
-                  tr("eng.not_running"), idleColor);
-    }
-
-    if (h.wsConnected) {
-        statusRow("engine.ws", tr("eng.ws_push"),
-                  tr("eng.connected"), okColor);
-    } else {
-        statusRow("engine.ws", tr("eng.ws_push"),
-                  tr("eng.disconnected_poll"), idleColor);
-    }
-
-    statusRow("engine.ver", tr("eng.version"),
-              h.version.empty() ? tr("eng.unknown") : h.version, theme.nameText);
-
-    statusRow("engine.port", tr("eng.rpc_endpoint"),
-              h.rpcPort > 0 ? "127.0.0.1:" + std::to_string(h.rpcPort)
-                            : tr("eng.dash"),
-              theme.nameText);
-
-    // ---- 最近错误（红字，仅当有）----
-    if (!h.error.empty()) {
-        components::text(ui, "engine.error")
-            .position(infoX, rowY + 2.0f)
-            .size(innerW, 20.0f)
-            .text(std::string(tr("eng.error_prefix")) + h.error)
-            .fontSize(11.0f)
-            .lineHeight(20.0f)
-            .color(theme.failed)
-            .build();
-        rowY += 24.0f;
-    }
-
-    // ---- 全局统计小卡（下载/上传速度 + 任务数）----
-    const struct { const char* label; std::string value; } kStats[] = {
-        {tr("eng.speed_down"), formatBytes(h.downloadSpeedBps) + "/s"},
-        {tr("eng.speed_up"), formatBytes(h.uploadSpeedBps) + "/s"},
-        {tr("eng.active"), std::to_string(h.activeDownloads)},
-        {tr("eng.waiting"), std::to_string(h.waitingDownloads)},
-        {tr("eng.stopped"), std::to_string(h.stoppedDownloads)},
-    };
-    constexpr int kStatCount = 5;
-    const float statGap = 8.0f;
-    const float statW = (innerW - statGap * (kStatCount - 1)) / kStatCount;
-    const float statTop = rowY + 10.0f;
-    float sx = infoX;
-    for (int i = 0; i < kStatCount; ++i) {
-        ui.rect(std::format("engine.stat.{}.bg", i))
-            .position(sx, statTop)
-            .size(statW, 46.0f)
-            .color(theme.components.surface)
-            .radius(8.0f)
-            .border(1.0f, components::theme::withOpacity(theme.components.border, 0.6f))
-            .build();
-        components::text(ui, std::format("engine.stat.{}.value", i))
-            .position(sx, statTop + 5.0f)
-            .size(statW, 19.0f)
-            .text(kStats[i].value)
-            .fontSize(12.0f)
-            .lineHeight(19.0f)
-            .color(theme.nameText)
-            .horizontalAlign(core::HorizontalAlign::Center)
-            .build();
-        components::text(ui, std::format("engine.stat.{}.label", i))
-            .position(sx, statTop + 26.0f)
-            .size(statW, 15.0f)
-            .text(kStats[i].label)
-            .fontSize(10.0f)
-            .lineHeight(15.0f)
-            .color(theme.metaText)
-            .horizontalAlign(core::HorizontalAlign::Center)
-            .build();
-        sx += statW + statGap;
-    }
-
-    // ---- 运行参数（daemon 启动时的关键选项摘要，读配置，排 2 列 x 3 行）----
-    const cfg::Aria2Config a2 = cfg::aria2Config();
-    const struct { const char* label; std::string value; } kParams[] = {
-        {tr("eng.split_conn"),
-         std::to_string(a2.split) + " / " + std::to_string(a2.maxConnectionPerServer)},
-        {tr("eng.max_concurrent"), std::to_string(a2.maxConcurrentDownloads)},
-        {tr("eng.per_task_limit"),
-         a2.maxDownloadLimit > 0 ? formatSpeed(static_cast<double>(a2.maxDownloadLimit))
-                                 : tr("eng.unlimited")},
-        {tr("eng.retry"),
-         std::to_string(a2.maxTries) + " (" + std::to_string(a2.retryWait) + "s)"},
-        {tr("eng.proxy"), a2.proxy.empty() ? tr("eng.none") : a2.proxy},
-        {tr("eng.cookie"), a2.loadCookies.empty() ? tr("eng.none") : a2.loadCookies},
-    };
-    const float paramsTop = statTop + 46.0f + 14.0f;
-    components::text(ui, "engine.params.header")
-        .position(infoX, paramsTop)
-        .size(innerW, 16.0f)
-        .text(tr("eng.runtime_opts"))
-        .fontSize(11.0f)
-        .lineHeight(16.0f)
-        .color(theme.statusText)
-        .build();
-    constexpr int kParamCols = 2;
-    constexpr int kParamRows = 3;
-    const float paramGap = 8.0f;
-    const float paramColW = (innerW - paramGap) / kParamCols;
-    const float paramRowH = 20.0f;
-    const float paramLabelW = 84.0f;
-    for (int i = 0; i < kParamCols * kParamRows; ++i) {
-        const int col = i % kParamCols;
-        const int r = i / kParamCols;
-        const float px = infoX + col * (paramColW + paramGap);
-        const float py = paramsTop + 18.0f + r * paramRowH;
-        components::text(ui, std::format("engine.params.{}.label", i))
-            .position(px, py)
-            .size(paramLabelW, paramRowH)
-            .text(kParams[i].label)
-            .fontSize(10.0f)
-            .lineHeight(paramRowH)
-            .color(theme.metaText)
-            .build();
-        components::text(ui, std::format("engine.params.{}.value", i))
-            .position(px + paramLabelW, py)
-            .size(paramColW - paramLabelW, paramRowH)
-            .text(kParams[i].value)
-            .fontSize(10.0f)
-            .lineHeight(paramRowH)
-            .color(theme.nameText)
-            .build();
-    }
-
-    // ---- 操作行（固定窗口底部）：立即检测 / 重启引擎 / 打开日志 ----
+    // ---- 操作行（固定窗口底部）：立即检测 / 重启引擎 / 打开日志 ---
+    // 先算出 actionY，scrollView 高度以此下界。
     constexpr float kActionH = 26.0f;
     const float actionY = islandTop + islandH - pad - kActionH;
 
+    // ---- 滚动内容区（标题 + 状态 + 体检 + 统计 + 参数）----
+    const float scrollTop = islandTop + pad;
+    const float scrollH = std::max(0.0f, actionY - scrollTop - 10.0f);
+
+    components::scrollView(ui, "engine.scroll")
+        .position(infoX, scrollTop)
+        .size(innerW, scrollH)
+        .theme(theme.components)
+        .step(52.0f)
+        .scrollbarWidth(8.0f)
+        .scrollbarGap(6.0f)
+        .content([&](eui::Ui& sv, float contentWidth, float) {
+            // 固定高度 canvas（内容总高 ~360，430 留底部余量，保证可滚动到底）
+            constexpr float kCanvasH = 430.0f;
+            sv.stack("engine.canvas")
+                .width(contentWidth)
+                .height(kCanvasH)
+                .content([&] {
+                    // canvas 内坐标相对（0, 0）
+                    const float cvX = 0.0f;
+                    const float cvW = contentWidth;
+
+                    components::text(sv, "engine.title")
+                        .position(cvX, 0.0f)
+                        .size(cvW, 24.0f)
+                        .text(tr("app.tab.monitor"))
+                        .fontSize(17.0f)
+                        .lineHeight(24.0f)
+                        .color(theme.titleText)
+                        .build();
+
+                    // ---- 健康快照 + 顶部状态（圆点 + 标签）----
+                    const dl::HealthInfo h = g_tasks.health();
+                    const char* statusLabel = tr("eng.checking");
+                    eui::Color statusColor = theme.metaText;
+                    if (h.checked) {
+                        if (!h.binaryFound) {
+                            statusLabel = tr("eng.missing");
+                            statusColor = theme.failed;
+                        } else if (h.rpcReachable) {
+                            statusLabel = tr("eng.healthy");
+                            statusColor = theme.done;
+                        } else if (h.daemonSpawned) {
+                            statusLabel = tr("eng.service_error");
+                            statusColor = theme.failed;
+                        } else {
+                            statusLabel = tr("eng.not_running");
+                            statusColor = theme.metaText;
+                        }
+                    }
+                    const float dotX = cvW - 140.0f;
+                    sv.rect("engine.status.dot")
+                        .position(dotX, 7.0f)
+                        .size(10.0f, 10.0f)
+                        .color(statusColor)
+                        .radius(5.0f)
+                        .build();
+                    components::text(sv, "engine.status.label")
+                        .position(dotX + 16.0f, 0.0f)
+                        .size(124.0f, 24.0f)
+                        .text(statusLabel)
+                        .fontSize(12.0f)
+                        .lineHeight(24.0f)
+                        .color(statusColor)
+                        .verticalAlign(core::VerticalAlign::Center)
+                        .build();
+
+                    // ---- 体检行：标签 + 值 ----
+                    float rowY = 30.0f;
+                    const auto statusRow = [&](const std::string& id, const char* label,
+                                               const std::string& value, const eui::Color& color) {
+                        components::text(sv, id + ".label")
+                            .position(cvX, rowY)
+                            .size(kLabelW, 22.0f)
+                            .text(label)
+                            .fontSize(11.0f)
+                            .lineHeight(22.0f)
+                            .color(theme.metaText)
+                            .build();
+                        components::text(sv, id + ".value")
+                            .position(cvX + kLabelW, rowY)
+                            .size(cvW - kLabelW, 22.0f)
+                            .text(value)
+                            .fontSize(11.0f)
+                            .lineHeight(22.0f)
+                            .color(color)
+                            .build();
+                        rowY += 22.0f;
+                    };
+
+                    const eui::Color okColor = theme.done;
+                    const eui::Color badColor = theme.failed;
+                    const eui::Color idleColor = theme.metaText;
+
+                    if (!h.checked) {
+                        statusRow("engine.bin", tr("eng.binary"),
+                                  tr("eng.checking"), idleColor);
+                    } else if (h.binaryFound) {
+                        statusRow("engine.bin", tr("eng.binary"),
+                                  tr("eng.binary_found"), okColor);
+                    } else {
+                        statusRow("engine.bin", tr("eng.binary"),
+                                  tr("eng.binary_not_found"), badColor);
+                    }
+
+                    if (h.daemonAlive) {
+                        statusRow("engine.daemon", tr("eng.daemon"),
+                                  tr("eng.running"), okColor);
+                    } else if (h.daemonSpawned) {
+                        statusRow("engine.daemon", tr("eng.daemon"),
+                                  tr("eng.process_exited"), badColor);
+                    } else if (!h.checked) {
+                        statusRow("engine.daemon", tr("eng.daemon"),
+                                  tr("eng.checking"), idleColor);
+                    } else {
+                        statusRow("engine.daemon", tr("eng.daemon"),
+                                  tr("eng.not_running"), idleColor);
+                    }
+
+                    if (h.rpcReachable) {
+                        statusRow("engine.rpc", tr("eng.rpc_service"),
+                                  tr("eng.ok"), okColor);
+                    } else if (h.daemonSpawned) {
+                        statusRow("engine.rpc", tr("eng.rpc_service"),
+                                  tr("eng.no_response"), badColor);
+                    } else if (!h.checked) {
+                        statusRow("engine.rpc", tr("eng.rpc_service"),
+                                  tr("eng.checking"), idleColor);
+                    } else {
+                        statusRow("engine.rpc", tr("eng.rpc_service"),
+                                  tr("eng.not_running"), idleColor);
+                    }
+
+                    if (h.wsConnected) {
+                        statusRow("engine.ws", tr("eng.ws_push"),
+                                  tr("eng.connected"), okColor);
+                    } else {
+                        statusRow("engine.ws", tr("eng.ws_push"),
+                                  tr("eng.disconnected_poll"), idleColor);
+                    }
+
+                    statusRow("engine.ver", tr("eng.version"),
+                              h.version.empty() ? tr("eng.unknown") : h.version, theme.nameText);
+
+                    statusRow("engine.port", tr("eng.rpc_endpoint"),
+                              h.rpcPort > 0 ? "127.0.0.1:" + std::to_string(h.rpcPort)
+                                            : tr("eng.dash"),
+                              theme.nameText);
+
+                    // ---- 最近错误（红字，仅当有）----
+                    if (!h.error.empty()) {
+                        components::text(sv, "engine.error")
+                            .position(cvX, rowY + 2.0f)
+                            .size(cvW, 20.0f)
+                            .text(std::string(tr("eng.error_prefix")) + h.error)
+                            .fontSize(11.0f)
+                            .lineHeight(20.0f)
+                            .color(theme.failed)
+                            .build();
+                        rowY += 24.0f;
+                    }
+
+                    // ---- 全局统计小卡 ----
+                    const struct { const char* label; std::string value; } kStats[] = {
+                        {tr("eng.speed_down"), formatBytes(h.downloadSpeedBps) + "/s"},
+                        {tr("eng.speed_up"), formatBytes(h.uploadSpeedBps) + "/s"},
+                        {tr("eng.active"), std::to_string(h.activeDownloads)},
+                        {tr("eng.waiting"), std::to_string(h.waitingDownloads)},
+                        {tr("eng.stopped"), std::to_string(h.stoppedDownloads)},
+                    };
+                    constexpr int kStatCount = 5;
+                    const float statGap = 8.0f;
+                    const float statW = (cvW - statGap * (kStatCount - 1)) / kStatCount;
+                    const float statTop = rowY + 10.0f;
+                    float sx = cvX;
+                    for (int i = 0; i < kStatCount; ++i) {
+                        sv.rect(std::format("engine.stat.{}.bg", i))
+                            .position(sx, statTop)
+                            .size(statW, 46.0f)
+                            .color(theme.components.surface)
+                            .radius(8.0f)
+                            .border(1.0f, components::theme::withOpacity(theme.components.border, 0.6f))
+                            .build();
+                        components::text(sv, std::format("engine.stat.{}.value", i))
+                            .position(sx, statTop + 5.0f)
+                            .size(statW, 19.0f)
+                            .text(kStats[i].value)
+                            .fontSize(12.0f)
+                            .lineHeight(19.0f)
+                            .color(theme.nameText)
+                            .horizontalAlign(core::HorizontalAlign::Center)
+                            .build();
+                        components::text(sv, std::format("engine.stat.{}.label", i))
+                            .position(sx, statTop + 26.0f)
+                            .size(statW, 15.0f)
+                            .text(kStats[i].label)
+                            .fontSize(10.0f)
+                            .lineHeight(15.0f)
+                            .color(theme.metaText)
+                            .horizontalAlign(core::HorizontalAlign::Center)
+                            .build();
+                        sx += statW + statGap;
+                    }
+
+                    // ---- 运行参数 ----
+                    const cfg::Aria2Config a2 = cfg::aria2Config();
+                    const struct { const char* label; std::string value; } kParams[] = {
+                        {tr("eng.split_conn"),
+                         std::to_string(a2.split) + " / " + std::to_string(a2.maxConnectionPerServer)},
+                        {tr("eng.max_concurrent"), std::to_string(a2.maxConcurrentDownloads)},
+                        {tr("eng.per_task_limit"),
+                         a2.maxDownloadLimit > 0 ? formatSpeed(static_cast<double>(a2.maxDownloadLimit))
+                                                 : tr("eng.unlimited")},
+                        {tr("eng.retry"),
+                         std::to_string(a2.maxTries) + " (" + std::to_string(a2.retryWait) + "s)"},
+                        {tr("eng.proxy"), a2.proxy.empty() ? tr("eng.none") : a2.proxy},
+                        {tr("eng.cookie"), a2.loadCookies.empty() ? tr("eng.none") : a2.loadCookies},
+                    };
+                    const float paramsTop = statTop + 46.0f + 14.0f;
+                    components::text(sv, "engine.params.header")
+                        .position(cvX, paramsTop)
+                        .size(cvW, 16.0f)
+                        .text(tr("eng.runtime_opts"))
+                        .fontSize(11.0f)
+                        .lineHeight(16.0f)
+                        .color(theme.statusText)
+                        .build();
+                    constexpr int kParamCols = 2;
+                    constexpr int kParamRows = 3;
+                    const float paramGap = 8.0f;
+                    const float paramColW = (cvW - paramGap) / kParamCols;
+                    const float paramRowH = 20.0f;
+                    const float paramLabelW = 84.0f;
+                    for (int i = 0; i < kParamCols * kParamRows; ++i) {
+                        const int col = i % kParamCols;
+                        const int r = i / kParamCols;
+                        const float px = cvX + col * (paramColW + paramGap);
+                        const float py = paramsTop + 18.0f + r * paramRowH;
+                        components::text(sv, std::format("engine.params.{}.label", i))
+                            .position(px, py)
+                            .size(paramLabelW, paramRowH)
+                            .text(kParams[i].label)
+                            .fontSize(10.0f)
+                            .lineHeight(paramRowH)
+                            .color(theme.metaText)
+                            .build();
+                        components::text(sv, std::format("engine.params.{}.value", i))
+                            .position(px + paramLabelW, py)
+                            .size(paramColW - paramLabelW, paramRowH)
+                            .text(kParams[i].value)
+                            .fontSize(10.0f)
+                            .lineHeight(paramRowH)
+                            .color(theme.nameText)
+                            .build();
+                    }
+                })
+                .build();
+        })
+        .build();
+
+    // ---- 操作行（固定窗口底部）：立即检测 / 重启引擎 / 打开日志 ----
     components::button(ui, "engine.check")
         .position(infoX, actionY)
         .size(76.0f, kActionH)
