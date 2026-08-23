@@ -18,4 +18,9 @@ if [ -z "$BIN" ] || [ ! -x "$BIN/tinynext" ]; then
     exit 1
 fi
 
-exec /lib64/ld-linux-x86-64.so.2 --library-path "/usr/lib64:$PWD/$BIN" "$PWD/$BIN/tinynext" "$@"
+# Note: --inhibit-rpath '' ignores the EXECUTABLE's DT_RPATH, which contains the
+# mcpp toolchain glibc (now 2.44 > system 2.43 — mixed load fails with
+# "undefined symbol: __pointer_chk_guard, GLIBC_PRIVATE"). With the executable
+# RPATH inhibited, everything resolves via --library-path: /usr/lib64 (system
+# glibc 2.43 + system Mesa) first, then $BIN for anything bundled.
+exec /lib64/ld-linux-x86-64.so.2 --inhibit-rpath '' --library-path "/usr/lib64:$PWD/$BIN" "$PWD/$BIN/tinynext" "$@"
