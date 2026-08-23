@@ -222,7 +222,7 @@ public:
 
     // 启动一个已解析好的视频下载（视频页在 resolveVideoUrl 成功后调用）。
     //   - rangeBootstrap（YouTube 等 googlevideo CDN）：yt-dlp 命令行原生下载
-    //     （--downloader aria2c，yt-dlp 自行处理 JS challenge 与 DASH 合并）；
+    //     （--downloader native，yt-dlp 自行处理 JS challenge 与 DASH 合并）；
     //   - bilibili DASH（音视频分离）：交给 MergeTracker 起两个 aria2 子任务，
     //     下完 ffmpeg 合并；
     //   - 合流单文件：单个 aria2 任务，带 format 的请求头。
@@ -241,7 +241,7 @@ public:
             video::MergeTracker::sanitizeFileName(info.title.empty() ? "video" : info.title);
 
         // YouTube 等 googlevideo CDN：aria2 直连分段 Range 会被 403，统一走 yt-dlp
-        // 命令行下载（内部 --downloader aria2c 委托分片，DASH 由 yt-dlp+ffmpeg 合并）。
+        // 命令行下载（--downloader native 单进程，DASH 由 yt-dlp+ffmpeg 合并）。
         // 注意：传 info.webpageUrl（原始 YouTube 页面）而非 format.videoUrl（直链）——
         // yt-dlp 需要网页 URL 来做 JS challenge + cookie 验证 + 选择最佳格式。
         if (format.rangeBootstrap) {

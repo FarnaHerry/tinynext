@@ -3,7 +3,8 @@
 // 两种任务类型：
 //   - Aria2Dash：bilibili 等站点的音视频分离 DASH → 两个 aria2 子任务 → ffmpeg 合并。
 //   - YtDlpNative：YouTube 等 googlevideo CDN 站点 → yt-dlp 命令行下载
-//     （--downloader aria2c 委托 aria2 分片，yt-dlp 自行 DASH 合并）。
+//     （--downloader native 单进程下载，yt-dlp 自行 DASH 合并；aria2c 委托
+//     已被证明对 googlevideo 不可用——开放式 Range 请求首包即 403）。
 //
 // 对外统一呈现为合成任务 id，UI 层无感知。领域层模块：不 import 任何 ui.*/eui。
 // 线程模型：UI 线程调 snapshot/命令，housekeep 后台线程调 pollMerges，ffmpeg 在
@@ -129,7 +130,7 @@ public:
         return job.visibleId;
     }
 
-    // 启动一个 yt-dlp 原生下载（YtDlpNative）：起 yt-dlp --downloader aria2c。
+    // 启动一个 yt-dlp 原生下载（YtDlpNative）：起 yt-dlp --downloader native。
     // 返回合成任务 id。失败返回 0。
     std::uint64_t startYtDlpJob(const std::string& url,
                                 const std::string& jsRuntime,
@@ -381,7 +382,9 @@ private:
                 const std::int64_t curTotal = prog->totalBytes.load();
                 view.totalBytes = curTotal > 0 ? phaseAcc + curTotal : phaseAcc;
                 view.speedBps = static_cast<double>(prog->speedBps.load());
-                view.connections = 1;   // yt-dlp 是单进程下载，算 1 连接
+                // yt-dlp 是单进程单流下载，没有 aria2 那样的「连接数」概念——
+                // 置 0 让卡片信息行跳过连接数（显示恒为 1 只是噪音）。
+                view.connections = 0;
                 view.state = ytDlpState(job, *prog);
                 view.fromSession = false;
                 if (view.error.empty() && !prog->error.empty() && prog->finished.load() && !prog->ok.load()) {

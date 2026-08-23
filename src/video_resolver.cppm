@@ -781,8 +781,8 @@ ResolveResult parseJson(const std::string& text) {
 // 前向声明（findEngineBinary 定义在后面，但 startYtDlpDownload 要先调用它）
 export std::string findEngineBinary(const char* baseName);
 
-// 启动 yt-dlp 下载（含 --downloader aria2c 委托 aria2 分片下载 + yt-dlp 自行 DASH
-// 合并）。进程跑在独立后台线程，进度实时写入 prog。返回 true 表示成功启动。
+// 启动 yt-dlp 下载（--downloader native 单进程下载 + yt-dlp 自行 DASH 合并）。
+// 进程跑在独立后台线程，进度实时写入 prog。返回 true 表示成功启动。
 export bool startYtDlpDownload(const std::string& url,
                                const std::string& jsRuntime,
                                const std::string& outName,

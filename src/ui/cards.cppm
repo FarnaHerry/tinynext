@@ -87,8 +87,8 @@ export std::string cardInfoText(const dl::TaskView& task) {
         push(formatBytes(task.downloadedBytes));
     }
     // 连接数 & 镜像恒常展示（即使没有进度/速度数据），避免信息行短暂空白。
-    // aria2 任务连接数 1-64 恒 > 0；yt-dlp 合成任务固定 1。只有非下载态
-    // （Queued/Merging/Paused/Done/Failed/Cancelled）在前面 switch 已提前返回。
+    // aria2 任务连接数 1-64 恒 > 0；yt-dlp 原生任务为 0（单进程无连接数概念，
+    // 自动跳过）。只有非下载态在前面 switch 已提前返回。
     const std::string speed = formatSpeed(task.speedBps);
     if (!speed.empty()) {
         push(speed);

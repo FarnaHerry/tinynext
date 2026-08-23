@@ -79,8 +79,8 @@ bilibili 等站点）；下载分两种走法：
   直接下载免合并。
 - **YouTube（googlevideo CDN）**：这类 CDN 拒绝第三方下载器的开放式 Range 请求
   （直连第一次请求即 403），所以 YouTube 走 **yt-dlp 命令行下载**（`--downloader
-  aria2c` 把分片下载委托给 aria2-next，yt-dlp 自行处理 JS challenge 与 DASH
-  合并），列表同样只显示一个任务。
+  native` 单进程下载，yt-dlp 自行处理 JS challenge 与 DASH 合并；委托 aria2c 分片
+  已实测不可用），列表同样只显示一个任务。
 
 - **Cookie 自动获取（默认开）**：「设置 → 视频 → Cookie 来源」默认是**默认浏览器**
   ——每次解析/下载 yt-dlp 都实时从浏览器 cookie 库读取（`--cookies-from-browser`），
