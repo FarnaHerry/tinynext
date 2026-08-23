@@ -95,6 +95,8 @@ export struct YtDlpProgress {
     std::atomic<std::int64_t> totalBytes{0};
     std::atomic<std::int64_t> phaseCompletedBytes{0};  // DASH 多阶段累积（前序阶段已下载字节）
     std::atomic<bool> cookieDbLockSeen{false};       // 日志中出现「cookie 数据库被锁」错误
+    std::atomic<bool> http403Seen{false};            // 日志中出现 HTTP 403（cookie 过期/会话被拒）
+    std::atomic<bool> cachePurgeRetried{false};      // 已做过一次「删缓存重试」（防重试死循环）
     std::string error;                   // 非原子：仅在 finished 后读
     std::string outputPath;              // 最终输出文件路径
 };
@@ -303,6 +305,22 @@ std::vector<std::string> withoutArgPair(const std::vector<std::string>& args,
     return out;
 }
 
+// 参数里是否含 <flag> <value> 参数对。
+bool hasArgPair(const std::vector<std::string>& args, const std::string& flag) {
+    for (auto it = args.begin(); it != args.end(); ++it) {
+        if (*it == flag && it + 1 != args.end()) return true;
+    }
+    return false;
+}
+
+// 取参数里 <flag> 后的 <value>；没有返回空串。
+std::string argPairValue(const std::vector<std::string>& args, const std::string& flag) {
+    for (auto it = args.begin(); it != args.end(); ++it) {
+        if (*it == flag && it + 1 != args.end()) return *(it + 1);
+    }
+    return {};
+}
+
 // 浏览器 cookie 自动缓存文件：浏览器模式下的 yt-dlp 调用都带上
 // `--cookies <此文件>`（yt-dlp 对该参数是「读+写」——启动时并入、退出时把含浏览器
 // cookie 的整个 jar 落盘）。这样浏览器关着的任何一次成功调用都会刷新缓存；
@@ -320,6 +338,14 @@ void parseProgressLine(const std::string& line, std::shared_ptr<YtDlpProgress> p
     // 文件，yt-dlp#7271，外部问题）——记下来，供进程失败后做无 Cookie 重试判定。
     if (isCookieDbLockedError(line)) {
         prog->cookieDbLockSeen.store(true);
+    }
+    // 「HTTP Error 403: Forbidden」——cookie 过期/会话被 CDN 拒绝的典型症状
+    // （yt-dlp 报 "unable to download video data: HTTP Error 403: Forbidden"）。
+    // 常见诱因：browser-cookie-cache.txt 里过期 cookie 覆盖了浏览器实时提取的新鲜
+    // cookie，污染整个会话 → 只给最低画质合流且连它也 403。供 403 重试链判定。
+    if (line.find("HTTP Error 403") != std::string::npos ||
+        line.find("403: Forbidden") != std::string::npos) {
+        prog->http403Seen.store(true);
     }
     // [download]  12.3% of  500.00MiB at  862.37KiB/s ETA 02:09:52
     // [download] 100.0% of   90.84MiB at    2.19MiB/s ETA 00:00
@@ -522,6 +548,32 @@ void runCaptureYtDlp(const std::string& exe,
     CloseHandle(readPipe);
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
+    // HTTP 403（cookie 过期污染会话，YouTube CDN 拒下）→ 重试链：
+    // ① --cookies 指向自动缓存 → 删掉过期缓存文件后用原参数重试（yt-dlp 退出时会
+    //    用浏览器新鲜 cookie 重建缓存，后续下载一并痊愈）；cachePurgeRetried 防死循环；
+    // ② 仍 403（浏览器 cookie 本身也过期，或手工 cookies 文件过期）→ 去全部 cookie
+    //    参数完全匿名兜底。匿名再 403 则不再重试（参数已无 cookie 对，链自然终止）。
+    if (code != 0 && !prog->canceled.load() && prog->http403Seen.load()) {
+        const std::string cookiesVal = argPairValue(args, "--cookies");
+        const bool isAutoCache = !cookiesVal.empty() &&
+            cookiesVal == utf8FromPath(browserCookieCachePath());
+        if (isAutoCache && !prog->cachePurgeRetried.exchange(true)) {
+            std::error_code ec;
+            std::filesystem::remove(browserCookieCachePath(), ec);
+            prog->error.clear();
+            prog->http403Seen.store(false);
+            runCaptureYtDlp(exe, args, logFile, prog, std::move(fallbacks));
+            return;
+        }
+        if (hasArgPair(args, "--cookies-from-browser") || hasArgPair(args, "--cookies")) {
+            const std::vector<std::string> anon = withoutArgPair(
+                withoutArgPair(args, "--cookies-from-browser"), "--cookies");
+            prog->error.clear();
+            prog->http403Seen.store(false);
+            runCaptureYtDlp(exe, anon, logFile, prog, {});
+            return;
+        }
+    }
     // cookie 库被锁（浏览器运行中）→ 依次用后备参数重试（缓存 → 匿名），
     // 在置 finished 前完成，避免轮询线程抢先看到「失败」把任务标记为 Failed。
     if (code != 0 && !prog->canceled.load() && prog->cookieDbLockSeen.load() &&
@@ -538,6 +590,8 @@ void runCaptureYtDlp(const std::string& exe,
     // 重试过仍失败 → 用可操作提示替代裸退出码。
     if (code != 0 && !prog->canceled.load() && prog->cookieDbLockSeen.load())
         prog->error = tr("vres.cookie_db_locked");
+    if (code != 0 && !prog->canceled.load() && prog->http403Seen.load())
+        prog->error = tr("vres.http_forbidden");
 #else
     int pipefd[2];
     if (pipe(pipefd) != 0) {
@@ -622,6 +676,28 @@ void runCaptureYtDlp(const std::string& exe,
 
     const bool exitedOk = exited && WIFEXITED(status);
     const bool runOk = exitedOk && WEXITSTATUS(status) == 0;
+    // HTTP 403（cookie 过期污染会话）→ 重试链（与 Windows 分支同构，详见上方注释）。
+    if (!runOk && !prog->canceled.load() && prog->http403Seen.load()) {
+        const std::string cookiesVal = argPairValue(args, "--cookies");
+        const bool isAutoCache = !cookiesVal.empty() &&
+            cookiesVal == utf8FromPath(browserCookieCachePath());
+        if (isAutoCache && !prog->cachePurgeRetried.exchange(true)) {
+            std::error_code ec;
+            std::filesystem::remove(browserCookieCachePath(), ec);
+            prog->error.clear();
+            prog->http403Seen.store(false);
+            runCaptureYtDlp(exe, args, logFile, prog, std::move(fallbacks));
+            return;
+        }
+        if (hasArgPair(args, "--cookies-from-browser") || hasArgPair(args, "--cookies")) {
+            const std::vector<std::string> anon = withoutArgPair(
+                withoutArgPair(args, "--cookies-from-browser"), "--cookies");
+            prog->error.clear();
+            prog->http403Seen.store(false);
+            runCaptureYtDlp(exe, anon, logFile, prog, {});
+            return;
+        }
+    }
     // cookie 库被锁（浏览器运行中）→ 依次用后备参数重试（缓存 → 匿名，见上）。
     if (!runOk && !prog->canceled.load() && prog->cookieDbLockSeen.load() &&
         !fallbacks.empty()) {
@@ -637,6 +713,8 @@ void runCaptureYtDlp(const std::string& exe,
     // 重试过仍失败 → 用可操作提示替代裸退出码。
     if (!runOk && !prog->canceled.load() && prog->cookieDbLockSeen.load())
         prog->error = tr("vres.cookie_db_locked");
+    if (!runOk && !prog->canceled.load() && prog->http403Seen.load())
+        prog->error = tr("vres.http_forbidden");
 #endif
 }
 

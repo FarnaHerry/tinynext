@@ -502,6 +502,12 @@ export constexpr Entry kEntries[] = {
           "——請完全關閉瀏覽器後重試，或在設定 → 影片中把 Cookie 來源改為「關閉」",
           "Cannot read browser cookies (browser is running and locked the database); cached and "
           "anonymous retries also failed — fully close the browser and retry, or set Cookie source to Off in Settings"},
+    Entry{"vres.http_forbidden",   "服务器拒绝下载（HTTP 403）：Cookie 已过期，清理缓存与匿名重试均失败"
+          "——请在浏览器中重新登录该网站后重试",
+          "伺服器拒絕下載（HTTP 403）：Cookie 已過期，清理快取與匿名重試均失敗"
+          "——請在瀏覽器中重新登入該網站後重試",
+          "Server rejected the download (HTTP 403): cookies expired; cache purge and anonymous "
+          "retries also failed — log in to the site again in your browser and retry"},
 };
 
 } // namespace i18n
