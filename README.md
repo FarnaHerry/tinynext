@@ -163,12 +163,12 @@ UI 只面向抽象 `dl::DownloadEngine` 接口（`src/download_engine.cppm`）�
 
 三平台都需把对应的 aria2-next 二进制放进 `engines/`（已 gitignore，`checksums.sha256` 保留）：
 
-| 平台 | release 资产（v2.5.6） | 放置为 |
+| 平台 | release 资产（v2.5.9） | 放置为 |
 |------|------------------------|--------|
-| Windows x64 | `aria2-next-2.5.6-windows-x86_64.exe` | `engines/aria2-next.exe` |
-| Linux x64 | `aria2-next-2.5.6-linux-x86_64` | `engines/aria2-next` |
-| macOS (Apple Silicon) | `aria2-next-2.5.6-macos-arm64` | `engines/aria2-next` |
-| macOS (Intel) | `aria2-next-2.5.6-macos-x86_64` | `engines/aria2-next` |
+| Windows x64 | `aria2-next-2.5.9-windows-x86_64.exe` | `engines/aria2-next.exe` |
+| Linux x64 | `aria2-next-2.5.9-linux-x86_64` | `engines/aria2-next` |
+| macOS (Apple Silicon) | `aria2-next-2.5.9-macos-arm64` | `engines/aria2-next` |
+| macOS (Intel) | `aria2-next-2.5.9-macos-x86_64` | `engines/aria2-next` |
 
 下载页：https://github.com/AnInsomniacy/aria2-next/releases
 
@@ -230,7 +230,7 @@ runner。）
 |------|-----|------|
 | 工具链 | LLVM/Clang（`mcpp.toml` 的 `[toolchain]` 固定） | 22.1.8 |
 | UI 框架 | `compat:eui-neo` | 0.5.6（feature: `app-main`；配方加 `-fno-char8_t` 修 C++23 构建） |
-| 下载引擎 | `aria2-next`（外部进程） | 2.5.6 |
+| 下载引擎 | `aria2-next`（外部进程） | 2.5.9 |
 | 配置 JSON | `nlohmann:json` | 3.12.0 |
 
 ### 架构
