@@ -49,8 +49,7 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
 
     // ---- 操作行（固定窗口底部）：立即检测 / 重启引擎 / 打开日志 ---
     // 先算出 actionY，scrollView 高度以此下界。
-    constexpr float kActionH = 26.0f;
-    const float actionY = islandTop + islandH - pad - kActionH;
+    const float actionY = islandTop + islandH - pad - kButtonHeight;
 
     // ---- 滚动内容区（标题 + 状态 + 体检 + 统计 + 参数）----
     const float scrollTop = islandTop + pad;
@@ -61,8 +60,8 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
         .size(innerW, scrollH)
         .theme(theme.components)
         .step(52.0f)
-        .scrollbarWidth(8.0f)
-        .scrollbarGap(6.0f)
+        .scrollbarWidth(kScrollbarWidth)
+        .scrollbarGap(kScrollbarGap)
         .content([&](eui::Ui& sv, float contentWidth, float) {
             // 固定高度 canvas（内容总高 ~360，430 留底部余量，保证可滚动到底）
             constexpr float kCanvasH = 430.0f;
@@ -315,9 +314,9 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
     // ---- 操作行（固定窗口底部）：立即检测 / 重启引擎 / 打开日志 ----
     components::button(ui, "engine.check")
         .position(infoX, actionY)
-        .size(76.0f, kActionH)
+        .size(76.0f, kButtonHeight)
         .text(g_checking.load() ? tr("eng.checking") : tr("eng.check_now"))
-        .fontSize(12.0f)
+        .fontSize(kButtonFontSize)
         .theme(theme.components, false)
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .disabled(g_checking.load())
@@ -332,10 +331,10 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
 
     const bool restarting = g_restartState.load() == 1;
     components::button(ui, "engine.restart")
-        .position(infoX + 76.0f + 8.0f, actionY)
-        .size(84.0f, kActionH)
+        .position(infoX + 76.0f + kButtonGap, actionY)
+        .size(84.0f, kButtonHeight)
         .text(restarting ? tr("eng.restarting") : tr("eng.restart"))
-        .fontSize(12.0f)
+        .fontSize(kButtonFontSize)
         .theme(theme.components, true)
         .textColor(onPrimaryColor(theme))
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -356,10 +355,10 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
         .build();
 
     components::button(ui, "engine.log")
-        .position(infoX + 76.0f + 8.0f + 84.0f + 8.0f, actionY)
-        .size(76.0f, kActionH)
+        .position(infoX + 76.0f + kButtonGap + 84.0f + kButtonGap, actionY)
+        .size(76.0f, kButtonHeight)
         .text(tr("eng.open_log"))
-        .fontSize(12.0f)
+        .fontSize(kButtonFontSize)
         .theme(theme.components, false)
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .onClick([] {
@@ -368,11 +367,11 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
         .build();
 
     components::text(ui, "engine.hint")
-        .position(infoX + 76.0f + 8.0f + 84.0f + 8.0f + 76.0f + 12.0f, actionY)
-        .size(innerW - (76.0f + 8.0f + 84.0f + 8.0f + 76.0f + 12.0f), kActionH)
+        .position(infoX + 76.0f + kButtonGap + 84.0f + kButtonGap + 76.0f + 12.0f, actionY)
+        .size(innerW - (76.0f + kButtonGap + 84.0f + kButtonGap + 76.0f + 12.0f), kButtonHeight)
         .text(tr("eng.restart_hint"))
         .fontSize(10.0f)
-        .lineHeight(kActionH)
+        .lineHeight(kButtonHeight)
         .color(theme.metaText)
         .verticalAlign(core::VerticalAlign::Center)
         .build();

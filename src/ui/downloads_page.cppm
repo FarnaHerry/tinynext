@@ -228,6 +228,8 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         .position(listX, listTop)
         .size(listW, listHeight)
         .gap(kCardGap)
+        .scrollbarWidth(kScrollbarWidth)
+        .scrollbarGap(kScrollbarGap)
         .theme(theme.components)
         .content([&](eui::Ui& sv, float width, float viewportHeight) {
             for (int index = start; index < end; ++index) {
@@ -239,7 +241,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     // ---- 翻页控件组：◀ 页码 ▶ [数字/页]，整组收进一张小卡片 ----
     // 简洁版：中间只显示当前页码数字（不再显示"第 X / Y 页"），分页大小是
     // 无边框的纯文本"数字/页"。整组控件包在一张圆角小卡里（岛内小岛）。
-    constexpr float kChevWidth = 20.0f;  // 正方形 → components::button 默认 radius 钳成纯圆
+    constexpr float kChevWidth = kStepperButtonSize;
     constexpr float kPageLabelWidth = 28.0f;   // 仅当前页码
     constexpr float kPageSizeWidth = 52.0f;    // "数字/页" 纯文本
     constexpr float kPagerGap = 4.0f;
@@ -281,7 +283,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .size(kChevWidth, kChevWidth)
                         .icon(0xF053)  // chevron-left
                         .text("")
-                        .iconSize(11.0f)
+                        .iconSize(kCompactButtonFontSize)
                         .theme(theme.components, false)
                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .disabled(g_page <= 1)
@@ -291,7 +293,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     components::text(ui, "pager.label")
                         .size(kPageLabelWidth, kPagerHeight)
                         .text(std::format("{}", g_page))
-                        .fontSize(11.0f)
+                        .fontSize(kCompactButtonFontSize)
                         .lineHeight(kPagerHeight)
                         .horizontalAlign(core::HorizontalAlign::Center)
                         .verticalAlign(core::VerticalAlign::Center)
@@ -302,7 +304,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .size(kChevWidth, kChevWidth)
                         .icon(0xF054)  // chevron-right
                         .text("")
-                        .iconSize(11.0f)
+                        .iconSize(kCompactButtonFontSize)
                         .theme(theme.components, false)
                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .disabled(g_page >= totalPages)
@@ -402,7 +404,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .position(labelX, tabY)
                     .size(tabW, tabH)
                     .text(tr("dl.tab.direct"))
-                    .fontSize(12.0f)
+                    .fontSize(kButtonFontSize)
                     .theme(theme.components, g_addTab == AddTab::Direct)
                     .textColor(onPrimaryColor(theme, g_addTab == AddTab::Direct))
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -412,7 +414,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .position(labelX + tabW + 8.0f, tabY)
                     .size(tabW, tabH)
                     .text(tr("dl.tab.torrent"))
-                    .fontSize(12.0f)
+                    .fontSize(kButtonFontSize)
                     .theme(theme.components, g_addTab == AddTab::Torrent)
                     .textColor(onPrimaryColor(theme, g_addTab == AddTab::Torrent))
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -505,9 +507,9 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .position(inputX + (dlgW - inputX - 16.0f - 60.0f - 8.0f) +
                                       8.0f,
                                   dirY - 2.0f)
-                        .size(60.0f, 26.0f)
+                        .size(60.0f, kButtonHeight)
                         .text(tr("dl.browse"))
-                        .fontSize(12.0f)
+                        .fontSize(kButtonFontSize)
                         .theme(theme.components, false)
                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] {
@@ -540,9 +542,9 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     components::button(ui, "add.torrent.browse")
                         .position(inputX + (dlgW - inputX - 16.0f - 60.0f - 8.0f) + 8.0f,
                                   torY - 2.0f)
-                        .size(60.0f, 26.0f)
+                        .size(60.0f, kButtonHeight)
                         .text(tr("dl.browse"))
-                        .fontSize(12.0f)
+                        .fontSize(kButtonFontSize)
                         .theme(theme.components, false)
                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] {
@@ -572,9 +574,9 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     components::button(ui, "add.torrent.dir.browse")
                         .position(inputX + (dlgW - inputX - 16.0f - 60.0f - 8.0f) + 8.0f,
                                   torDirY - 2.0f)
-                        .size(60.0f, 26.0f)
+                        .size(60.0f, kButtonHeight)
                         .text(tr("dl.browse"))
-                        .fontSize(12.0f)
+                        .fontSize(kButtonFontSize)
                         .theme(theme.components, false)
                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] {
@@ -595,9 +597,9 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
 
                 components::button(ui, "add.cancel")
                     .position(dlgW - 16.0f - 76.0f - 8.0f - 76.0f, btnY)
-                    .size(76.0f, 26.0f)
+                    .size(76.0f, kButtonHeight)
                     .text(tr("dl.cancel"))
-                    .fontSize(12.0f)
+                    .fontSize(kButtonFontSize)
                     .theme(theme.components, false)
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] { g_addOpen = false; })
@@ -605,9 +607,9 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
 
                 components::button(ui, "add.submit")
                     .position(dlgW - 16.0f - 76.0f, btnY)
-                    .size(76.0f, 26.0f)
+                    .size(76.0f, kButtonHeight)
                     .text(tr("dl.submit"))
-                    .fontSize(12.0f)
+                    .fontSize(kButtonFontSize)
                     .theme(theme.components, true)
                     .textColor(onPrimaryColor(theme))
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -694,7 +696,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                             .size(dlgW - 32.0f, 20.0f)
                             .checked(g_deleteIncludeFiles)
                             .text(tr("dl.delete_source_too"))
-                            .fontSize(11.0f)
+                            .fontSize(kCompactButtonFontSize)
                             .theme(theme.components)
                             .style(cbStyle)   // 覆盖 mark 颜色（其余同 theme）
                             .onChange([](bool v) { g_deleteIncludeFiles = v; })
@@ -703,7 +705,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .build();
 
                 // 底部按钮行：取消 | 删除（主按钮）。
-                const float btnH = 26.0f;
+                const float btnH = kCompactButtonHeight;
                 const float btnY = dlgH - 36.0f;
                 const float wCancel = 64.0f;
                 const float wDel = 76.0f;
@@ -715,7 +717,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .position(cancelX, btnY)
                     .size(wCancel, btnH)
                     .text(tr("dl.cancel"))
-                    .fontSize(11.0f)
+                    .fontSize(kCompactButtonFontSize)
                     .theme(theme.components, false)
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] { g_pendingDelete.reset(); })
@@ -725,7 +727,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .position(delX, btnY)
                     .size(wDel, btnH)
                     .text(tr("dl.delete"))
-                    .fontSize(11.0f)
+                    .fontSize(kCompactButtonFontSize)
                     .theme(theme.components, true)
                     .textColor(onPrimaryColor(theme))
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -973,9 +975,9 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
             // 关闭按钮。
             components::button(ui, "info.close")
                 .position(dlgW - pad - 76.0f, btnY)
-                .size(76.0f, 26.0f)
+                .size(76.0f, kButtonHeight)
                 .text(tr("about.close"))
-                .fontSize(11.0f)
+                .fontSize(kButtonFontSize)
                 .theme(theme.components, true)
                 .textColor(onPrimaryColor(theme))
                 .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -1056,6 +1058,8 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                 .position(16.0f, 58.0f)
                 .size(dlgW - 32.0f, 182.0f)
                 .gap(4.0f)
+                .scrollbarWidth(kScrollbarWidth)
+                .scrollbarGap(kScrollbarGap)
                 .theme(theme.components)
                 .content([&](eui::Ui& sv, float w, float) {
                     const auto drawSource = [&](int idx, const std::string& uri,
@@ -1093,9 +1097,9 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                                 if (active) {
                                     components::button(sv, rowId + ".rm")
                                         .position(w - 44.0f, 1.0f)
-                                        .size(38.0f, 24.0f)
+                                        .size(38.0f, kCompactButtonHeight)
                                         .text(tr("dl.remove"))
-                                        .fontSize(10.0f)
+                                        .fontSize(kCompactButtonFontSize)
                                         .theme(theme.components, false)
                                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                                         .onClick([id = task->id, uri] {
@@ -1141,7 +1145,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
             }
             components::text(ui, "mirror.add.label")
                 .position(16.0f, 250.0f)
-                .size(60.0f, 26.0f)
+                .size(60.0f, kButtonHeight)
                 .text(tr("dl.add_source"))
                 .fontSize(11.0f)
                 .lineHeight(26.0f)
@@ -1160,9 +1164,9 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
             if (active) {
                 components::button(ui, "mirror.add.btn")
                     .position(dlgW - 16.0f - 56.0f, 248.0f)
-                    .size(56.0f, 26.0f)
+                    .size(56.0f, kButtonHeight)
                     .text(tr("dl.add"))
-                    .fontSize(11.0f)
+                    .fontSize(kButtonFontSize)
                     .theme(theme.components, true)
                     .textColor(onPrimaryColor(theme))
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -1191,9 +1195,9 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
 
             components::button(ui, "mirror.close")
                 .position((dlgW - 76.0f) * 0.5f, dlgH - 34.0f)
-                .size(76.0f, 26.0f)
+                .size(76.0f, kButtonHeight)
                 .text(tr("about.close"))
-                .fontSize(12.0f)
+                .fontSize(kButtonFontSize)
                 .theme(theme.components, true)
                 .textColor(onPrimaryColor(theme))
                 .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})

@@ -188,7 +188,6 @@ export void drawToolbarIconButton(eui::Ui& ui, const std::string& id, float x, f
     const auto& tokens = theme.components;
     const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
     const core::Color transparent{0.0f, 0.0f, 0.0f, 0.0f};
-    // 完美正圆：半径 = 短边一半（调用方传正方形尺寸即可）。
     const float radius = std::min(w, h) * 0.5f;
 
     if (primary) {
@@ -197,7 +196,7 @@ export void drawToolbarIconButton(eui::Ui& ui, const std::string& id, float x, f
             .size(w, h)
             .icon(icon)
             .text("")
-            .iconSize(13.0f)
+            .iconSize(kToolbarIconSize)
             .theme(tokens, true)
             .iconColor(onPrimaryColor(theme))  // 深色白按钮 → 深色图标
             .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})  // 去掉投影，避免白按钮糊边
@@ -395,7 +394,7 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
                                const std::function<void(const std::string&)>& onChange,
                                int min, int max, int step) {
     // -/+ 按钮做成正方形 → 纯圆（radius = 边长/2），垂直居中于输入框高度。
-    const float btnSize = std::min(20.0f, height);
+    const float btnSize = std::min(kStepperButtonSize, height);
     const float btnY = y + (height - btnSize) * 0.5f;
     const float gap = 3.0f;
     const float inputW = width - btnSize * 2.0f - gap * 2.0f;
@@ -407,7 +406,7 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
         .radius(btnSize * 0.5f)
         .icon(0xF068)  // fa-minus
         .text("")
-        .iconSize(9.0f)
+        .iconSize(kStepperIconSize)
         .theme(tokens, false)
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .onClick([value, onChange, min, max, step] {
@@ -438,7 +437,7 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
         .radius(btnSize * 0.5f)
         .icon(0xF067)  // fa-plus
         .text("")
-        .iconSize(9.0f)
+        .iconSize(kStepperIconSize)
         .theme(tokens, false)
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .onClick([value, onChange, min, max, step] {
@@ -653,10 +652,10 @@ export void drawCardAction(eui::Ui& ui, const std::string& id, float x, float y,
                            std::function<void()> onClick) {
     components::button(ui, id)
         .position(x, y)
-        .size(kCardIconW, kCardIconW)
+        .size(kCardActionSize, kCardActionSize)
         .icon(icon)
         .text("")
-        .iconSize(11.0f)
+        .iconSize(kCardActionIconSize)
         .theme(theme.components, primary)
         .iconColor(onPrimaryColor(theme, primary))  // 白底主按钮 → 深色图标
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})

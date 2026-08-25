@@ -276,8 +276,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     // ---- 布局常量 ----
     constexpr float kLabelW = 90.0f;
     constexpr float kFieldH = 26.0f;
-    constexpr float kActionH = 26.0f;
-    const float actionY = islandTop + islandH - pad - kActionH;
+    const float actionY = islandTop + islandH - pad - kButtonHeight;
     const float scrollTop = titleY + 24.0f + 12.0f;
     const float scrollHeight = std::max(0.0f, actionY - 10.0f - scrollTop);
 
@@ -287,6 +286,8 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         .position(infoX, scrollTop)
         .size(innerW, scrollHeight)
         .gap(6.0f)
+        .scrollbarWidth(kScrollbarWidth)
+        .scrollbarGap(kScrollbarGap)
         .theme(theme.components)
         .content([&](eui::Ui& sv, float width, float) {
             const float rowW = width;
@@ -463,9 +464,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .build();
                     components::button(r, "st.path.browse")
                         .position(kLabelW + pathInputW + 8.0f, -2.0f)
-                        .size(60.0f, 26.0f)
+                        .size(60.0f, kButtonHeight)
                         .text(tr("dl.browse"))
-                        .fontSize(12.0f)
+                        .fontSize(kButtonFontSize)
                         .theme(theme.components, false)
                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] {
@@ -934,9 +935,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     // ---- 操作行（固定窗口底部）：恢复默认路径 / 保存全部设置 / 放弃修改 ----
     components::button(ui, "settings.path.reset")
         .position(infoX + kLabelW, actionY)
-        .size(76.0f, 26.0f)
+        .size(76.0f, kButtonHeight)
         .text(tr("settings.reset"))
-        .fontSize(12.0f)
+        .fontSize(kButtonFontSize)
         .theme(theme.components, false)
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .onClick([] {
@@ -992,10 +993,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         .build();
 
     components::button(ui, "settings.save")
-        .position(infoX + kLabelW + 8.0f + 76.0f, actionY)
-        .size(76.0f, 26.0f)
+        .position(infoX + kLabelW + kButtonGap + 76.0f, actionY)
+        .size(76.0f, kButtonHeight)
         .text(tr("settings.save"))
-        .fontSize(12.0f)
+        .fontSize(kButtonFontSize)
         .theme(theme.components, true)
         .textColor(onPrimaryColor(theme))
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
@@ -1188,10 +1189,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         .build();
 
     components::button(ui, "settings.discard")
-        .position(infoX + kLabelW + 8.0f + 76.0f + 8.0f + 76.0f, actionY)
-        .size(76.0f, 26.0f)
+        .position(infoX + kLabelW + kButtonGap + 76.0f + kButtonGap + 76.0f, actionY)
+        .size(76.0f, kButtonHeight)
         .text(tr("settings.discard"))
-        .fontSize(12.0f)
+        .fontSize(kButtonFontSize)
         .theme(theme.components, false)
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .onClick([] {

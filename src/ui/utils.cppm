@@ -29,6 +29,30 @@ export constexpr float kCardPad = 10.0f;
 export constexpr float kCardGap = 6.0f;
 export constexpr float kCardIconW = 22.0f;          // 卡片操作图标按钮边长
 export constexpr float kCardIconGap = 4.0f;
+
+// ---- 按钮设计令牌（设计逻辑像素）----
+// 宽度继续由文案和具体场景决定；高度、字号、间距和图标尺寸集中管理，
+// 让页面级操作、弹窗操作、工具栏和卡片按钮保持同一套视觉节奏。
+export constexpr float kButtonHeight = 26.0f;
+export constexpr float kButtonFontSize = 12.0f;
+export constexpr float kCompactButtonHeight = 24.0f;
+export constexpr float kCompactButtonFontSize = 11.0f;
+export constexpr float kDialogButtonHeight = 28.0f;
+export constexpr float kDialogButtonFontSize = 12.0f;
+export constexpr float kButtonGap = 8.0f;
+export constexpr float kToolbarButtonSize = 26.0f;
+export constexpr float kToolbarIconSize = 13.0f;
+export constexpr float kCardActionSize = 22.0f;
+export constexpr float kCardActionIconSize = 11.0f;
+export constexpr float kStepperButtonSize = 20.0f;
+export constexpr float kStepperIconSize = 9.0f;
+
+// ---- 滚动条设计令牌（设计逻辑像素）----
+// 所有 TinyNext scrollView 显式使用这组值，避免依赖 EUI 默认的 8px 宽度
+// 和 18px 间距；uiScale(kUI) 会负责原生缩放。
+export constexpr float kScrollbarWidth = 4.0f;
+export constexpr float kScrollbarGap = 6.0f;
+
 export constexpr float kRailWidth = 40.0f;          // 大侧边栏（图标栏）宽
 export constexpr float kSubSidebarWidth = 96.0f;    // 下载页内任务列表子侧边栏宽
 // 岛屿卡片布局：外层"岛"卡片之间的间距 / 大卡内边距 / 岛卡片圆角。

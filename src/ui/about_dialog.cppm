@@ -122,9 +122,9 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
             for (const auto& link : kLinks) {
                 components::button(ui, std::format("about.link.{}", link.label))
                     .position(16.0f, linkY)
-                    .size(180.0f, 24.0f)
+                    .size(180.0f, kCompactButtonHeight)
                     .text(link.label)
-                    .fontSize(11.0f)
+                    .fontSize(kCompactButtonFontSize)
                     .theme(theme.components, false)
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([url = std::string(link.url)] { openUrl(url); })
@@ -134,9 +134,9 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
 
             components::button(ui, "about.close")
                 .position((dlgW - 76.0f) * 0.5f, dlgH - 30.0f)
-                .size(76.0f, 24.0f)
+                .size(76.0f, kDialogButtonHeight)
                 .text(tr("about.close"))
-                .fontSize(12.0f)
+                .fontSize(kDialogButtonFontSize)
                 .theme(theme.components, true)
                 .textColor(onPrimaryColor(theme))
                 .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
