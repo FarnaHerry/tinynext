@@ -318,6 +318,7 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
         .text(g_checking.load() ? tr("eng.checking") : tr("eng.check_now"))
         .fontSize(kButtonFontSize)
         .theme(theme.components, false)
+        .radius(kButtonRadius)
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .disabled(g_checking.load())
         .onClick([] {
@@ -336,6 +337,7 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
         .text(restarting ? tr("eng.restarting") : tr("eng.restart"))
         .fontSize(kButtonFontSize)
         .theme(theme.components, true)
+        .radius(kButtonRadius)
         .textColor(onPrimaryColor(theme))
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .disabled(restarting)
@@ -360,6 +362,7 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
         .text(tr("eng.open_log"))
         .fontSize(kButtonFontSize)
         .theme(theme.components, false)
+        .radius(kButtonRadius)
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .onClick([] {
             openFile(cfg::configDir() / "tinynext-aria2.log");

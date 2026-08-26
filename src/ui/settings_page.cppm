@@ -468,6 +468,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .text(tr("dl.browse"))
                         .fontSize(kButtonFontSize)
                         .theme(theme.components, false)
+                        .radius(kButtonRadius)
                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] {
                             // 只填待提交值，点「保存」才写入配置。
@@ -939,6 +940,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         .text(tr("settings.reset"))
         .fontSize(kButtonFontSize)
         .theme(theme.components, false)
+        .radius(kButtonRadius)
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .onClick([] {
             // 全部设置回默认：主题回「跟随系统」（并即时预览）、路径回系统下载目录、
@@ -998,6 +1000,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         .text(tr("settings.save"))
         .fontSize(kButtonFontSize)
         .theme(theme.components, true)
+        .radius(kButtonRadius)
         .textColor(onPrimaryColor(theme))
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .onClick([] {
@@ -1194,6 +1197,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         .text(tr("settings.discard"))
         .fontSize(kButtonFontSize)
         .theme(theme.components, false)
+        .radius(kButtonRadius)
         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
         .onClick([] {
             // 回滚到已保存值。

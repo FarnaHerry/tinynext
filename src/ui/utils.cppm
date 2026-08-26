@@ -39,6 +39,7 @@ export constexpr float kCompactButtonHeight = 24.0f;
 export constexpr float kCompactButtonFontSize = 11.0f;
 export constexpr float kDialogButtonHeight = 28.0f;
 export constexpr float kDialogButtonFontSize = 12.0f;
+export constexpr float kButtonRadius = 8.0f;
 export constexpr float kButtonGap = 8.0f;
 export constexpr float kToolbarButtonSize = 26.0f;
 export constexpr float kToolbarIconSize = 13.0f;

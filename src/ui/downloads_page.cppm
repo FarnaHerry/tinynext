@@ -406,6 +406,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .text(tr("dl.tab.direct"))
                     .fontSize(kButtonFontSize)
                     .theme(theme.components, g_addTab == AddTab::Direct)
+                    .radius(kButtonRadius)
                     .textColor(onPrimaryColor(theme, g_addTab == AddTab::Direct))
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] { g_addTab = AddTab::Direct; })
@@ -416,6 +417,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .text(tr("dl.tab.torrent"))
                     .fontSize(kButtonFontSize)
                     .theme(theme.components, g_addTab == AddTab::Torrent)
+                    .radius(kButtonRadius)
                     .textColor(onPrimaryColor(theme, g_addTab == AddTab::Torrent))
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] { g_addTab = AddTab::Torrent; })
@@ -511,6 +513,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .text(tr("dl.browse"))
                         .fontSize(kButtonFontSize)
                         .theme(theme.components, false)
+                        .radius(kButtonRadius)
                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] {
                             const auto picked = pickDownloadFolder();
@@ -546,6 +549,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .text(tr("dl.browse"))
                         .fontSize(kButtonFontSize)
                         .theme(theme.components, false)
+                        .radius(kButtonRadius)
                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] {
                             const auto picked = pickTorrentFile();
@@ -578,6 +582,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .text(tr("dl.browse"))
                         .fontSize(kButtonFontSize)
                         .theme(theme.components, false)
+                        .radius(kButtonRadius)
                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                         .onClick([] {
                             const auto picked = pickDownloadFolder();
@@ -601,6 +606,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .text(tr("dl.cancel"))
                     .fontSize(kButtonFontSize)
                     .theme(theme.components, false)
+                    .radius(kButtonRadius)
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] { g_addOpen = false; })
                     .build();
@@ -611,6 +617,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .text(tr("dl.submit"))
                     .fontSize(kButtonFontSize)
                     .theme(theme.components, true)
+                    .radius(kButtonRadius)
                     .textColor(onPrimaryColor(theme))
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] { if (addDownloadAuto()) g_addOpen = false; })
@@ -719,6 +726,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .text(tr("dl.cancel"))
                     .fontSize(kCompactButtonFontSize)
                     .theme(theme.components, false)
+                    .radius(kButtonRadius)
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] { g_pendingDelete.reset(); })
                     .build();
@@ -729,6 +737,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .text(tr("dl.delete"))
                     .fontSize(kCompactButtonFontSize)
                     .theme(theme.components, true)
+                    .radius(kButtonRadius)
                     .textColor(onPrimaryColor(theme))
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] {
@@ -979,6 +988,7 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
                 .text(tr("about.close"))
                 .fontSize(kButtonFontSize)
                 .theme(theme.components, true)
+                .radius(kButtonRadius)
                 .textColor(onPrimaryColor(theme))
                 .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                 .onClick([] { g_pendingInfo.reset(); })
@@ -1101,6 +1111,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                                         .text(tr("dl.remove"))
                                         .fontSize(kCompactButtonFontSize)
                                         .theme(theme.components, false)
+                                        .radius(kButtonRadius)
                                         .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                                         .onClick([id = task->id, uri] {
                                             // 移除走后台 RPC，结果经状态信箱回 UI
@@ -1168,6 +1179,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                     .text(tr("dl.add"))
                     .fontSize(kButtonFontSize)
                     .theme(theme.components, true)
+                    .radius(kButtonRadius)
                     .textColor(onPrimaryColor(theme))
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                     .onClick([] {
@@ -1199,6 +1211,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                 .text(tr("about.close"))
                 .fontSize(kButtonFontSize)
                 .theme(theme.components, true)
+                .radius(kButtonRadius)
                 .textColor(onPrimaryColor(theme))
                 .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
                 .onClick([] { g_mirrorOpen = false; })
