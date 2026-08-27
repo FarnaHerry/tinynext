@@ -3,7 +3,7 @@
 #
 #   * `mcpp` is installed from the official one-line script (→ ~/.mcpp).
 #   * The aria2-next engine binary is downloaded per-platform from the
-#     AnInsomniacy/aria2-next v2.6.2 release and verified against
+#     AnInsomniacy/aria2-next v2.6.6 release and verified against
 #     engines/checksums.sha256 before packaging.
 #   * Packaging: Windows → make-win-pkg.ps1 (zip + NSIS setup.exe), Linux →
 #     make-linux-pkg.sh (tar.gz + .deb + .rpm), macOS → make-dist.sh (tar.gz).
@@ -222,7 +222,7 @@ jobs:
             os: windows-latest
             os_id: win
             arch: win64
-            engine_asset: aria2-next-2.6.2-windows-x86_64.exe
+            engine_asset: aria2-next-2.6.6-windows-x86_64.exe
             engine_file: engines/aria2-next.exe
             ytdlp_asset: yt-dlp.exe
             ytdlp_file: engines/yt-dlp.exe
@@ -231,7 +231,7 @@ jobs:
             os: ubuntu-latest
             os_id: linux
             arch: x86_64
-            engine_asset: aria2-next-2.6.2-linux-x86_64
+            engine_asset: aria2-next-2.6.6-linux-x86_64
             engine_file: engines/aria2-next
             ytdlp_asset: yt-dlp_linux
             ytdlp_file: engines/yt-dlp
@@ -240,7 +240,7 @@ jobs:
             os: macos-latest
             os_id: macos
             arch: arm64
-            engine_asset: aria2-next-2.6.2-macos-arm64
+            engine_asset: aria2-next-2.6.6-macos-arm64
             engine_file: engines/aria2-next
             ytdlp_asset: yt-dlp_macos
             ytdlp_file: engines/yt-dlp
@@ -266,7 +266,7 @@ jobs:
           mkdir -p engines
           asset="engines/${{ matrix.engine_asset }}"
           curl -fL --retry 3 -o "$asset" \
-            "https://github.com/AnInsomniacy/aria2-next/releases/download/v2.6.2/${{ matrix.engine_asset }}"
+            "https://github.com/AnInsomniacy/aria2-next/releases/download/v2.6.6/${{ matrix.engine_asset }}"
           # Verify upstream filename before renaming it to TinyNext's stable runtime name.
           python -c 'import hashlib, pathlib, sys; asset = pathlib.Path(sys.argv[1]); manifest = pathlib.Path(sys.argv[2]); expected = next((line.split()[0] for line in manifest.read_text().splitlines() if line.split() and line.split()[-1] == asset.name), None); actual = hashlib.sha256(asset.read_bytes()).hexdigest(); assert expected, f"no checksum for {asset.name}"; assert actual == expected, f"checksum mismatch for {asset.name}: {actual}"' \
             "$asset" engines/checksums.sha256
