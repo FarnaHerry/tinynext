@@ -303,24 +303,56 @@ export bool osDark() {
         ::pclose(pipe);
         return out;
     };
-    // 1. GNOME 42+ / 多数现代桌面：gsettings color-scheme
-    //    （"prefer-dark" / "default" / "prefer-light"）。注意很多新系统不写
-    //    settings.ini，只有这个 key，所以必须先查。
+    auto lower = [](std::string s) {
+        for (char& c : s) {
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+        }
+        return s;
+    };
+    const auto hasDark = [&](const std::string& value) {
+        return lower(value).find("dark") != std::string::npos;
+    };
+    const auto hasLight = [&](const std::string& value) {
+        return lower(value).find("light") != std::string::npos;
+    };
+
+    // KDE Plasma：优先读取原生 ColorScheme，避免 GTK 的 prefer-dark 设置
+    // 覆盖 Plasma 实际方案（如 BreezeLight / EvernightDark）。
+    std::string desktop;
+    if (const char* current = std::getenv("XDG_CURRENT_DESKTOP")) desktop += current;
+    if (const char* session = std::getenv("DESKTOP_SESSION")) {
+        if (!desktop.empty()) desktop += ':';
+        desktop += session;
+    }
+    const std::string desktopLower = lower(desktop);
+    const bool isKde = desktopLower.find("kde") != std::string::npos ||
+                       desktopLower.find("plasma") != std::string::npos;
+    if (isKde) {
+        std::string kde = shellOut(
+            "kreadconfig6 --file kdeglobals --group General --key ColorScheme 2>/dev/null");
+        if (kde.empty()) {
+            kde = shellOut(
+                "kreadconfig5 --file kdeglobals --group General --key ColorScheme 2>/dev/null");
+        }
+        if (hasDark(kde)) return true;
+        if (hasLight(kde)) return false;
+    }
+
+    // GNOME 42+ / 多数现代桌面：gsettings color-scheme
+    // （"prefer-dark" / "default" / "prefer-light"）。
     const std::string gs = shellOut(
         "gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null");
     if (gs.find("prefer-dark") != std::string::npos) return true;
     if (gs.find("prefer-light") != std::string::npos) return false;
-    // 2. gsettings 不可用（无 schema / 非 GNOME）时试 KDE Plasma 6：ColorScheme
-    //    值如 "BreezeDark" / "BreezeLight"。GNOME 上 gs="default" 表示未显式设置，
-    //    不需要再试 KDE。
-    if (gs.empty()) {
+    // 未识别桌面，或 KDE 没有可用的 kreadconfig 时，再试 KDE 配置。
+    if (!isKde) {
         const std::string kde = shellOut(
             "kreadconfig6 --file kdeglobals --group General --key ColorScheme 2>/dev/null");
-        if (kde.find("Dark") != std::string::npos) return true;
-        if (kde.find("Light") != std::string::npos) return false;
+        if (hasDark(kde)) return true;
+        if (hasLight(kde)) return false;
     }
-    // 3. 旧 GTK：settings.ini 的 gtk-application-prefer-dark-theme=1，或
-    //    gtk-theme-name 含 "dark"（如 Adwaita-dark）。
+    // 旧 GTK：settings.ini 的 gtk-application-prefer-dark-theme=1，或
+    // gtk-theme-name 含 "dark"（如 Adwaita-dark）。
     if (const char* home = std::getenv("HOME")) {
         for (const char* sub : {"/.config/gtk-3.0/settings.ini",
                                 "/.config/gtk-4.0/settings.ini"}) {
