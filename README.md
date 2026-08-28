@@ -47,7 +47,7 @@ mcpp run            # 启动 GUI 窗口
 
 ## UI 缩放
 
-eui-neo 0.5.6 起提供**原生全局缩放**：`DslAppConfig::uiScale(scale)` 把整个逻辑
+eui-neo 0.5.7 起提供**原生全局缩放**：`DslAppConfig::uiScale(scale)` 把整个逻辑
 坐标系（布局 + 字号）按 `dpiScale × uiScale` 放大，高 DPI 屏自动清晰。TinyNext
 用 `DslAppConfig::uiScale(kUI)`（`kUI = 1.4f`）做整体缩放；所有尺寸 / 字号 / 间距
 按**设计逻辑像素**直接书写，不再自乘系数。想整体改大改小，只调 `kUI` 一个数即可。
@@ -107,6 +107,8 @@ bilibili 等站点）；下载分两种走法：
   普通 `.m4s` 任务，不会自动合并（重新在视频页下载即可）；YouTube 原生任务重启后
   同样不会再合并。
 
+- **Linux 系统托盘**：EUI-NEO 0.5.7 起通过 freedesktop SNI 提供系统托盘；桌面环境需运行兼容 StatusNotifierItem 的托盘服务。
+
 ## 暂停/继续与断点续传
 
 暂停 / 继续走 aria2 RPC（`aria2.pause` / `aria2.unpause`）：是**真正的中断**，
@@ -163,12 +165,12 @@ UI 只面向抽象 `dl::DownloadEngine` 接口（`src/download_engine.cppm`）�
 
 三平台都需把对应的 aria2-next 二进制放进 `engines/`（已 gitignore，`checksums.sha256` 保留）：
 
-| 平台 | release 资产（v2.6.6） | 放置为 |
+| 平台 | release 资产（v2.6.7） | 放置为 |
 |------|------------------------|--------|
-| Windows x64 | `aria2-next-2.6.6-windows-x86_64.exe` | `engines/aria2-next.exe` |
-| Linux x64 | `aria2-next-2.6.6-linux-x86_64` | `engines/aria2-next` |
-| macOS (Apple Silicon) | `aria2-next-2.6.6-macos-arm64` | `engines/aria2-next` |
-| macOS (Intel) | `aria2-next-2.6.6-macos-x86_64` | `engines/aria2-next` |
+| Windows x64 | `aria2-next-2.6.7-windows-x86_64.exe` | `engines/aria2-next.exe` |
+| Linux x64 | `aria2-next-2.6.7-linux-x86_64` | `engines/aria2-next` |
+| macOS (Apple Silicon) | `aria2-next-2.6.7-macos-arm64` | `engines/aria2-next` |
+| macOS (Intel) | `aria2-next-2.6.7-macos-x86_64` | `engines/aria2-next` |
 
 下载页：https://github.com/AnInsomniacy/aria2-next/releases
 
@@ -229,8 +231,8 @@ runner。）
 | 组件 | 包 | 版本 |
 |------|-----|------|
 | 工具链 | LLVM/Clang（`mcpp.toml` 的 `[toolchain]` 固定） | 22.1.8 |
-| UI 框架 | `compat:eui-neo` | 0.5.6（feature: `app-main`；配方加 `-fno-char8_t` 修 C++23 构建） |
-| 下载引擎 | `aria2-next`（外部进程） | 2.6.6 |
+| UI 框架 | `compat:eui-neo` | 0.5.7（feature: `app-main`；Linux 支持 SNI 系统托盘；配方加 `-fno-char8_t` 修 C++23 构建） |
+| 下载引擎 | `aria2-next`（外部进程） | 2.6.7 |
 | 配置 JSON | `nlohmann:json` | 3.12.0 |
 
 ### 架构
