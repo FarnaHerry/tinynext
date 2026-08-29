@@ -14,6 +14,7 @@ import tinynext.ui.utils;
 import tinynext.ui.widgets;   // drawPanel（设置页大卡背景）
 import tinynext.store.tasks;  // g_tasks.engineActive（保存 daemon 参数时提示重启）
 import tinynext.store.ui;     // showStatus
+import tinynext.store.dialogs;  // g_restartPromptOpen（关闭行为变更的重启提示弹窗）
 import tinynext.ui.platform;
 
 // ---- 设置页私有待提交状态（本模块自用，store 化后不再全局导出）----
@@ -1179,10 +1180,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_videoCookiesBrowserIdx = cookiesBrowserIdxOf(vc.cookiesBrowser);
 
             // 汇总提示：aria2 daemon 已启动时，参数保存后需重启才生效。
+            // 关闭行为改动弹「需要重启」对话框（eui 只在启动时读一次 .tray()，
+            // 4s 的状态条太容易错过，曾被认为是"切换没用"）；对话框提供立即重启。
             if (trayChanged) {
-                showStatus(a2Changed && g_tasks.engineActive()
-                    ? tr("settings.saved_restart")
-                    : tr("settings.close_behavior_restart"));
+                g_restartPromptOpen = true;
             } else if (a2Changed && g_tasks.engineActive()) {
                 showStatus(tr("settings.aria2_restart"));
             } else {
@@ -1250,4 +1251,102 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             showStatus(tr("settings.changes_discarded"));
         })
         .build();
+
+    // ---- 「需要重启」弹窗（关闭时缩到托盘改动保存后）----
+    // eui-neo 0.5.7 只在启动时读一次 .tray() 开关（WindowState::trayAvailable 此后
+    // 不变），close_to_tray 改动必须重启进程才生效——原来只有一条 4s 自动消失的
+    // 状态条提示"重启后生效"，用户注意不到、认为开关没用。改为模态弹窗：可
+    // 「立即重启」（platform::restartApp 拉起 --restart 替换实例后退出），或
+    // 「稍后」自行重启。找不到重启入口的环境（Linux 无 run.sh/启动器）只显示稍后。
+    if (g_restartPromptOpen) {
+        const float dlgW = 340.0f;
+        const float dlgH = 148.0f;
+        const float dlgX = (screen.width - dlgW) * 0.5f;
+        const float dlgY = (screen.height - dlgH) * 0.5f;
+
+        // 半透明遮罩，点击空白处关闭（=稍后）。
+        ui.rect("restart.backdrop")
+            .position(0, 0)
+            .size(screen.width, screen.height)
+            .zIndex(100)
+            .color({0.0f, 0.0f, 0.0f, 0.32f})
+            .onClick([] { g_restartPromptOpen = false; })
+            .build();
+
+        ui.stack("restart.dialog")
+            .position(dlgX, dlgY)
+            .size(dlgW, dlgH)
+            .zIndex(101)
+            .content([&] {
+                ui.rect("restart.dialog.bg")
+                    .position(0, 0)
+                    .size(dlgW, dlgH)
+                    .blur(10.0f)
+                    .color(glassFill(theme, 0.52f))
+                    .radius(10.0f)
+                    .border(1.0f,
+                            components::theme::withOpacity(
+                                theme.components.border, 0.6f))
+                    .onClick([] {})  // 吞掉弹窗内部空白点击，避免穿透到遮罩关闭弹窗
+                    .build();
+
+                components::text(ui, "restart.title")
+                    .position(16.0f, 12.0f)
+                    .size(dlgW - 32.0f, 20.0f)
+                    .text(tr("settings.restart_title"))
+                    .fontSize(14.0f)
+                    .lineHeight(20.0f)
+                    .color(theme.titleText)
+                    .build();
+
+                // 正文可能换行（英文较长）：留两行高度（eui 文本超长会换行不省略）。
+                components::text(ui, "restart.body")
+                    .position(16.0f, 36.0f)
+                    .size(dlgW - 32.0f, 36.0f)
+                    .text(tr("settings.restart_body"))
+                    .fontSize(12.0f)
+                    .lineHeight(18.0f)
+                    .color(theme.nameText)
+                    .build();
+
+                // 底部按钮行：[稍后] [立即重启]（无重启入口时只有稍后）。
+                const float btnH = kCompactButtonHeight;
+                const float btnY = dlgH - 36.0f;
+                const float gap = 8.0f;
+                const float wLater = 64.0f;
+                const bool canRestart = restartSupported();
+                const float wNow = canRestart ? 88.0f : 0.0f;
+                const float laterX = dlgW - 16.0f - wNow
+                    - (canRestart ? gap : 0.0f) - wLater;
+
+                components::button(ui, "restart.later")
+                    .position(laterX, btnY)
+                    .size(wLater, btnH)
+                    .text(tr("settings.restart_later"))
+                    .fontSize(kCompactButtonFontSize)
+                    .theme(theme.components, false)
+                    .radius(kButtonRadius)
+                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
+                    .onClick([] { g_restartPromptOpen = false; })
+                    .build();
+
+                if (canRestart) {
+                    components::button(ui, "restart.now")
+                        .position(dlgW - 16.0f - wNow, btnY)
+                        .size(wNow, btnH)
+                        .text(tr("settings.restart_now"))
+                        .fontSize(kCompactButtonFontSize)
+                        .theme(theme.components, true)
+                        .radius(kButtonRadius)
+                        .textColor(onPrimaryColor(theme))
+                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
+                        .onClick([] {
+                            // 配置已在「保存」里落盘；拉起替换实例并退出本进程。
+                            restartApp();
+                        })
+                        .build();
+                }
+            })
+            .build();
+    }
 }

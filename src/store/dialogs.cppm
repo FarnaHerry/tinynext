@@ -18,6 +18,9 @@ import tinynext.utils; // isLikelyVideoPageUrl
 
 export bool g_addOpen = false;   // “添加下载”弹窗是否打开
 export bool g_aboutOpen = false; // “关于”弹窗是否打开
+// “需要重启”弹窗：设置页改了「关闭时缩到托盘」并保存后弹出（eui 只在启动时
+// 读一次 .tray() 开关，改动必须重启进程才生效）。由 settings_page 渲染。
+export bool g_restartPromptOpen = false;
 export std::string g_urlText;    // 添加弹窗的 URL 输入（直链 tab；可多行配镜像）
 
 // ---- 镜像源管理弹窗 ----

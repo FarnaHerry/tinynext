@@ -208,9 +208,9 @@ export void setThemeMode(ThemeMode mode) {
     saveConfig(j);
 }
 
-// 关闭窗口行为：true = 缩到系统托盘（eui .tray()，Windows/macOS 生效；Linux 因
-// eui-neo 配方托盘为 stub 无实际效果，X 仍直接退出）。启动时由 dslAppConfig()
-// 读取，改后重启生效。
+// 关闭窗口行为：true = 缩到系统托盘（eui .tray()，三平台生效；Linux 自 eui-neo
+// 0.5.7 起走 SNI 注册真实托盘，KDE/GNOME 可用）。eui 只在启动时读一次开关，
+// 改后重启生效——设置页保存时弹「需要重启」对话框（可一键立即重启）。
 export bool closeToTray() {
     const auto j = loadConfig();
     if (j.contains("close_to_tray") && j["close_to_tray"].is_boolean()) {

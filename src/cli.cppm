@@ -300,6 +300,19 @@ export bool commandLineMirrorMode() {
     return cached;
 }
 
+// `tinynext --restart`：设置页「立即重启」（platform::restartApp）拉起的替换实例
+// 的内部标记。抢单实例锁时重试等待旧实例退出（引擎 shutdown 可能数秒），而不是
+// 一次失败就转发退出。不是下载源，commandLineUrls/isDownloadableSource 已过滤。
+export bool commandLineRestartMode() {
+    static const bool cached = [] {
+        for (const auto& a : commandLineArgs()) {
+            if (a == "--restart") return true;
+        }
+        return false;
+    }();
+    return cached;
+}
+
 namespace {
 
 // 镜像只能合并且只能合并普通 URL（magnet / .torrent 没有"多源"概念）。
@@ -402,31 +415,66 @@ TROUBLESHOOTING
 // single-instance lock. The lock (mutex / flock fd) is intentionally never
 // released — the OS frees it when the process exits, and keeping it open is
 // exactly what holds the single-instance guarantee.
-export bool acquireSingleInstance() {
-    static const bool primary = [] {
+namespace {
+
+// 锁状态（模块级、非 static 函数内缓存）：--restart 重试成功后要能把结果回写，
+// 函数内 static const 写不回。
+bool g_lockAttempted = false;
+bool g_primaryInstance = false;
+
+// 单次尝试抢锁（非缓存）：成功则持有锁直到进程结束（故意不释放）；失败时
+// 清理本次尝试的句柄/fd（Windows 失败句柄若不关会泄漏——旧实现只调一次无所谓，
+// --restart 重试循环必须关）。
+bool tryAcquireLockOnce() {
 #ifdef _WIN32
-        // "Local\" scope: only the same logged-in session sees it.
-        HANDLE m = CreateMutexW(nullptr, FALSE, L"Local\\TinyNext_SingleInstance");
-        if (!m) return true;  // 创建失败按主实例继续，别把应用挡在门外
-        return GetLastError() != ERROR_ALREADY_EXISTS;
+    // "Local\" scope: only the same logged-in session sees it.
+    HANDLE m = CreateMutexW(nullptr, FALSE, L"Local\\TinyNext_SingleInstance");
+    if (!m) return true;  // 创建失败按主实例继续，别把应用挡在门外
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        CloseHandle(m);   // 主实例在跑；本进程不当主实例，句柄不必留
+        return false;
+    }
+    return true;
 #else
-        std::error_code ec;
-        const std::filesystem::path lockPath =
-            std::filesystem::temp_directory_path() / "tinynext.lock";
-        const int fd = ::open(lockPath.string().c_str(), O_CREAT | O_RDWR, 0600);
-        if (fd < 0) return true;
-        // 不遗传给子进程：否则主实例被杀后，继承了该 fd 的 aria2 daemon 仍持有
-        // flock，新实例 acquireSingleInstance 永远失败 → 静默退出、窗口起不来。
-        ::fcntl(fd, F_SETFD, FD_CLOEXEC);
-        if (::flock(fd, LOCK_EX | LOCK_NB) != 0) {
-            ::close(fd);
-            return false;  // 已有一份在跑
-        }
-        (void)ec;
-        return true;  // fd 故意不关：持锁到进程结束
+    const std::filesystem::path lockPath =
+        std::filesystem::temp_directory_path() / "tinynext.lock";
+    const int fd = ::open(lockPath.string().c_str(), O_CREAT | O_RDWR, 0600);
+    if (fd < 0) return true;
+    // 不遗传给子进程：否则主实例被杀后，继承了该 fd 的 aria2 daemon 仍持有
+    // flock，新实例 acquireSingleInstance 永远失败 → 静默退出、窗口起不来。
+    ::fcntl(fd, F_SETFD, FD_CLOEXEC);
+    if (::flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        ::close(fd);
+        return false;  // 已有一份在跑
+    }
+    return true;  // fd 故意不关：持锁到进程结束
 #endif
-    }();
-    return primary;
+}
+
+} // namespace
+
+export bool acquireSingleInstance() {
+    if (!g_lockAttempted) {
+        g_lockAttempted = true;
+        g_primaryInstance = tryAcquireLockOnce();
+    }
+    return g_primaryInstance;
+}
+
+// --restart（设置页「立即重启」）：旧实例退出前要跑引擎 shutdown（saveSession +
+// forceShutdown，可能耗时数秒），锁要等它进程完全退出才释放。新实例因此轮询
+// 重试抢锁（默认 50×200ms=10s），拿到即升级为主实例；超时仍拿不到才退回
+// 转发并退出（此时旧实例大概率卡死，静默退出比闪双窗口好）。
+export bool acquireSingleInstanceWithRetry(int maxAttempts = 50, int intervalMs = 200) {
+    if (acquireSingleInstance()) return true;
+    for (int i = 0; i < maxAttempts; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(intervalMs));
+        if (tryAcquireLockOnce()) {
+            g_primaryInstance = true;
+            return true;
+        }
+    }
+    return false;
 }
 
 // Best-effort hand-off to a running primary instance. 首选 TCP loopback socket
@@ -549,7 +597,12 @@ struct CliBoot {
         if (headless::videoDlRequested()) {
             std::exit(headless::runVideoDownload());
         }
-        if (!acquireSingleInstance()) {
+        // --restart（设置页「立即重启」拉起的替换实例）：旧实例退出要跑引擎
+        // shutdown，锁释放有延迟 → 重试等锁；普通启动一次抢不到即转发退出。
+        const bool primary = commandLineRestartMode()
+            ? acquireSingleInstanceWithRetry()
+            : acquireSingleInstance();
+        if (!primary) {
             forwardToRunningInstance(downloadLines());
             std::exit(0);
         }

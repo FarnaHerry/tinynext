@@ -23,6 +23,12 @@ extern "C" const char* glfwGetClipboardString(GLFWwindow* window);
 extern "C" HWND glfwGetWin32Window(GLFWwindow* window);
 #endif
 #include <cstdio>  // popen/fgets/pclose (POSIX) — before import std
+#ifndef _WIN32
+#include <unistd.h>  // fork/setsid/execv/_exit（restartApp 的自重启）
+#ifdef __APPLE__
+#include <mach-o/dyld.h>  // _NSGetExecutablePath
+#endif
+#endif
 
 export module tinynext.ui.platform;
 
@@ -329,6 +335,130 @@ export void openUrl(const std::string& url) {
         std::system(("xdg-open \"" + u + "\" >/dev/null 2>&1 &").c_str());
 #endif
     });
+}
+
+// ---- 应用自重启（设置页「关闭行为」变更后的「立即重启」）----
+//
+// eui-neo 0.5.7 只在启动时读一次 .tray() 开关（WindowState::trayAvailable 此后
+// 不再变化），close_to_tray 的改动必须重启进程才生效。restartApp 拉起一个带
+// --restart 的替换实例（cli 的 CliBoot 对它重试抢单实例锁、等本进程退出），
+// 然后 std::exit(0)——静态析构链与正常关窗退出一致（g_tasks → 引擎
+// saveSession + forceShutdown，会话不丢）。
+
+namespace {
+
+// 自身可执行文件路径：Windows GetModuleFileNameW；Linux /proc/self/exe；
+// macOS _NSGetExecutablePath。
+std::filesystem::path selfExePath() {
+#ifdef _WIN32
+    std::wstring buf(32768, L'\0');  // long-path 感知清单下路径可超 MAX_PATH
+    const DWORD n = GetModuleFileNameW(nullptr, buf.data(),
+                                       static_cast<DWORD>(buf.size()));
+    if (n == 0 || n >= buf.size()) return {};
+    buf.resize(n);
+    return std::filesystem::path(buf);
+#elif defined(__APPLE__)
+    std::string buf(4096, '\0');
+    std::uint32_t size = static_cast<std::uint32_t>(buf.size());
+    if (_NSGetExecutablePath(buf.data(), &size) != 0) {
+        buf.resize(size);  // 返回 -1 时 size 是所需大小
+        if (_NSGetExecutablePath(buf.data(), &size) != 0) return {};
+    }
+    std::error_code ec;
+    return std::filesystem::weakly_canonical(buf.data(), ec);  // 解析 .app 内的 symlink
+#else
+    std::error_code ec;
+    const std::filesystem::path p = std::filesystem::read_symlink("/proc/self/exe", ec);
+    return ec ? std::filesystem::path{} : p;
+#endif
+}
+
+#ifndef _WIN32
+// 拉起 detached 子进程执行 argv（fork + setsid + execv）：setsid 脱离会话，
+// 父进程随后退出时子进程由 init 收养、独立存活。fork/exec 之间只用
+// async-signal-safe 调用。
+bool spawnDetached(const std::vector<std::string>& argv) {
+    if (argv.empty()) return false;
+    const pid_t pid = ::fork();
+    if (pid < 0) return false;
+    if (pid == 0) {
+        ::setsid();
+        std::vector<char*> args;
+        args.reserve(argv.size() + 1);
+        for (const auto& s : argv) {
+            args.push_back(const_cast<char*>(s.c_str()));
+        }
+        args.push_back(nullptr);
+        ::execv(args[0], args.data());
+        ::_exit(127);  // exec 失败：子进程静默消失，父流程照常退出
+    }
+    return true;
+}
+
+#ifndef __APPLE__
+// Linux 的重启动入口不是裸 exe：mcpp 工具链把 PT_INTERP 指向私有 glibc，
+// 裸起在「系统 Mesa 需要更新 GLIBC」的机器上会静默起不来（见仓库根 run.sh
+// 的说明）。依次找：exe 旁 run.sh（免安装 tar.gz 布局）→ 开发仓库根 run.sh
+// （exe 在 target/<triple>/<hash>/bin，上四级即仓库根）→ /usr/bin/tinynext
+// （deb/rpm 安装的系统启动器）。都找不到则不支持一键重启（按钮不显示）。
+std::filesystem::path linuxRelauncher(const std::filesystem::path& exe) {
+    const std::filesystem::path exeDir = exe.parent_path();
+    std::error_code ec;
+    const std::filesystem::path candidates[] = {
+        exeDir / "run.sh",
+        (exeDir / "../../../../run.sh").lexically_normal(),
+        std::filesystem::path("/usr/bin/tinynext"),
+    };
+    for (const auto& cand : candidates) {
+        if (std::filesystem::exists(cand, ec)) return cand;
+    }
+    return {};
+}
+#endif  // !__APPLE__
+#endif  // !_WIN32
+
+} // namespace
+
+// 当前环境能否一键重启（决定设置页「立即重启」按钮是否显示）：Windows 直接
+// 拉起自身 exe；macOS 重 exec 自身；Linux 需要找到启动器脚本（裸 exe 起不来）。
+export bool restartSupported() {
+#ifdef _WIN32
+    return !selfExePath().empty();
+#elif defined(__APPLE__)
+    return !selfExePath().empty();
+#else
+    const std::filesystem::path exe = selfExePath();
+    return !exe.empty() && !linuxRelauncher(exe).empty();
+#endif
+}
+
+// 拉起带 --restart 的替换实例并退出本进程。调用方负责先落盘配置（设置页
+// 保存按钮里已做）。
+export void restartApp() {
+#ifdef _WIN32
+    const std::wstring exe = selfExePath().wstring();
+    if (!exe.empty()) {
+        if (const ShellExecuteFn shellExec = shellExecFn(); shellExec) {
+            // 异步拉起（立即返回）；新实例带 --restart 重试抢锁等本进程退出。
+            shellExec(nullptr, L"open", exe.c_str(), L"--restart", nullptr,
+                      SW_SHOWNORMAL);
+        }
+    }
+    std::exit(0);
+#else
+    const std::filesystem::path exe = selfExePath();
+#ifdef __APPLE__
+    const std::filesystem::path launcher = exe;  // macOS 无 glibc loader 问题，直接重 exec
+#else
+    const std::filesystem::path launcher = exe.empty()
+        ? std::filesystem::path{} : linuxRelauncher(exe);
+#endif
+    if (!launcher.empty()) {
+        spawnDetached({launcher.string(), "--restart"});
+    }
+    // 没找到启动器也照常退出：配置已落盘，用户手动重启同样生效。
+    std::exit(0);
+#endif
 }
 
 // 把文件/目录移到系统回收站（默认删除方式：可恢复，不永久删除）。best-effort。
