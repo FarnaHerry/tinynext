@@ -53,6 +53,8 @@ namespace app {
 // 启动预热结果（后台线程 → UI 线程）：warmup 失败时置位，compose 下一帧消费并
 // 弹状态消息（showStatus 只能 UI 线程写，所以走原子标志中转）。
 std::atomic<bool> g_warmupFailed{false};
+// 预热完成（无论成败）：compose 消费后按配置对恢复出的失败任务自动重试。
+std::atomic<bool> g_warmupDone{false};
 
 const DslAppConfig& dslAppConfig() {
     static const DslAppConfig config = DslAppConfig{}
@@ -101,6 +103,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
         std::thread([] {
             g_tasks.warmup();
             if (!g_tasks.engineActive()) g_warmupFailed.store(true);
+            g_warmupDone.store(true);
             // 顺手探测 yt-dlp/ffmpeg 版本（关于页展示；各一次进程启动，可能数秒，
             // 所以在预热线程而非 UI 线程做）。
             video::probeVideoToolVersions();
@@ -113,6 +116,15 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
         const std::string err = g_tasks.lastError();
         showStatus(err.empty() ? tr("app.startup.no_history")
                                : trf("app.startup.failed", err));
+    }
+
+    // 预热完成 + 引擎可用 + 开了「启动时自动重试失败任务」：对恢复出来的
+    // Failed 任务自动续传（与卡片 ↻ 同路径），有触发才提示。
+    if (g_warmupDone.exchange(false) && cfg::autoRetryFailed() &&
+        g_tasks.engineActive()) {
+        if (const int n = g_tasks.retryFailedTasks(); n > 0) {
+            showStatus(trf("app.startup.retried_failed", n));
+        }
     }
 
     // 事件驱动的杂务消费（取代旧的根 onFrame；onFrame 会让 eui 每帧强制重绘）。

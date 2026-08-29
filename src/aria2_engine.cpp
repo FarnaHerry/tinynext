@@ -583,10 +583,11 @@ std::string Aria2Engine::lastError() const {
     return lastError_;
 }
 
-void Aria2Engine::warmup() {
+void Aria2Engine::warmup(bool restoreFailed) {
     // 启动时后台拉起 daemon + 恢复上次会话历史任务（ensureDaemon 首次 spawn 时
     // 内部调 recoverSession + 启动 WS 监听）。与 UI 线程的 start()/retry() 经
     // daemonMutex_ 互斥，先到者完成 spawn，后到者直接复用。
+    restoreFailedOnRecover_ = restoreFailed;
     ensureDaemon();
 }
 
@@ -1330,10 +1331,22 @@ void Aria2Engine::recoverSession() const {
                                       nlohmann::json::array({0, 1000}))) {
             if (!st.is_object()) continue;
             const std::string status = st.value("status", "");
-            if (status == "error" || status == "removed") {
-                // 失败/已移除的任务不再重挂，从 daemon 清掉避免下次会话又载入。
+            if (status == "error" && restoreFailedOnRecover_) {
+                // 「启动时自动重试失败任务」开启：失败记录恢复为 Failed 任务
+                // （fromSession 不通知），上层随后 retry 换新 gid。旧 gid 从
+                // daemon 清掉，避免会话文件里同一 URL 的失败记录逐次累积。
+                addFrom(st);
                 try {
-                    rpcCall(port_, secret_, "aria2.remove",
+                    rpcCall(port_, secret_, "aria2.removeDownloadResult",
+                            nlohmann::json::array({st.value("gid", "")}));
+                } catch (...) {}
+            } else if (status == "error" || status == "removed") {
+                // 失败/已移除的任务不再重挂，从 daemon 清掉避免下次会话又载入。
+                // 注意必须是 removeDownloadResult：aria2.remove 只接受活动/等待/
+                // 暂停中的 gid，对 stopped 结果会抛错（曾在此被静默吞掉，导致
+                // "清掉"从未生效，失败记录一直在会话文件里累积）。
+                try {
+                    rpcCall(port_, secret_, "aria2.removeDownloadResult",
                             nlohmann::json::array({st.value("gid", "")}));
                 } catch (...) {}
             }

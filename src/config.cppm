@@ -225,6 +225,23 @@ export void setCloseToTray(bool value) {
     saveConfig(j);
 }
 
+// 启动时自动重试上次会话的失败任务：true = 预热恢复会话后，对状态为 Failed 的
+// 任务自动 retry（复用原 URL+路径续传）。默认关闭（失败任务只列在列表里，由
+// 用户手动 ↻）。下次启动生效，无需重启提示。
+export bool autoRetryFailed() {
+    const auto j = loadConfig();
+    if (j.contains("auto_retry_failed") && j["auto_retry_failed"].is_boolean()) {
+        return j["auto_retry_failed"].get<bool>();
+    }
+    return false;  // 默认关闭
+}
+
+export void setAutoRetryFailed(bool value) {
+    auto j = loadConfig();
+    j["auto_retry_failed"] = value;
+    saveConfig(j);
+}
+
 // ---- language / UI locale ----
 
 export enum class Lang { ZhCN, ZhTW, En };

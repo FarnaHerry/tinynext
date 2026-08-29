@@ -171,7 +171,10 @@ public:
     // 启动预热：拉起引擎运行时并恢复上次会话的历史任务（否则首次 start() 才
     // 懒惰初始化，重启后历史记录要等下一次下载才出现）。可从后台线程调用
     // （实现须自行与 UI 线程的 start() 等调用互斥）。默认空实现。
-    virtual void warmup() {}
+    // restoreFailed=true 时，上次会话的失败任务也恢复为 Failed 记录（供
+    // 「启动时自动重试失败任务」随后逐个 retry）；false 维持原样：失败/已移除
+    // 记录直接丢弃。
+    virtual void warmup(bool restoreFailed) {}
 
     // Cancel everything and release engine resources.
     virtual void shutdown() = 0;

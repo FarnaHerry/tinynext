@@ -97,7 +97,9 @@ public:
     // ---- 生命周期 ----
     // 启动预热：拉起 daemon + 恢复上次会话历史任务（可后台线程调用，引擎内部
     // 有 daemonMutex_ 与 UI 线程互斥）。见 app.cpp 的预热线程。
-    void warmup() { engine_->warmup(); }
+    // 「启动时自动重试失败任务」开启时（cfg::autoRetryFailed），失败记录也恢复
+    // 为 Failed 任务，由 app.cpp 预热完成后经 retryFailedTasks() 逐个续传。
+    void warmup() { engine_->warmup(cfg::autoRetryFailed()); }
     void shutdown() { engine_->shutdown(); }
 
     // ---- 任务命令（UI 线程）----
@@ -108,6 +110,21 @@ public:
     void pauseAll() { engine_->pauseAll(); }
     void resumeAll() { engine_->resumeAll(); }
     void retry(std::uint64_t id) { if (videoMerge_.retry(*engine_, id)) return; engine_->retry(id); }
+
+    // 启动自动重试（「启动时自动重试失败任务」开启时，由 app.cpp 在预热完成后
+    // 调用）：对快照中所有 Failed 任务逐个 retry（aria2 复用原 URL+路径
+    // continue 续传；视频合成任务经 MergeTracker 映射到子任务）。返回触发重试
+    // 的任务数。UI 线程调用（与卡片 ↻ 同路径，无线程问题）。
+    int retryFailedTasks() {
+        int n = 0;
+        for (const auto& t : snapshot()) {
+            if (t.state == dl::State::Failed) {
+                retry(t.id);
+                ++n;
+            }
+        }
+        return n;
+    }
     void addMirror(std::uint64_t id, const std::string& url,
                    std::function<void(bool)> onDone) {
         engine_->addMirror(id, url, std::move(onDone));

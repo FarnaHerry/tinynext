@@ -57,7 +57,7 @@ public:
     bool busy() const override;
     bool engineActive() const override;
     std::string lastError() const override;
-    void warmup() override;
+    void warmup(bool restoreFailed) override;
     void shutdown() override;
 
 private:
@@ -87,6 +87,10 @@ private:
     mutable std::mutex tasksMutex_;
     mutable std::uint64_t nextId_ = 1;
     mutable bool daemonSpawned_ = false;
+    // warmup(restoreFailed) 记录「启动时自动重试失败任务」开关：recoverSession
+    // 据此决定失败记录是恢复成 Failed 任务（供上层随后 retry）还是丢弃。
+    // 进程生命周期内只在 warmup 写一次（daemon 未 spawn 前），此后只读。
+    bool restoreFailedOnRecover_ = false;
     mutable int port_ = 0;
     mutable std::string secret_;
     mutable std::string lastError_;   // 最近一次 daemon 启动失败原因（仅 UI 线程）

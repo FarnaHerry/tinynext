@@ -34,6 +34,8 @@ export constexpr Entry kEntries[] = {
           "下載引擎啟動失敗：歷史任務未恢復", "Engine startup failed: history not restored"},
     Entry{"app.startup.failed",     "下载引擎启动失败：{}", "下載引擎啟動失敗：{}",
           "Engine startup failed: {}"},
+    Entry{"app.startup.retried_failed", "已自动重试 {} 个失败任务",
+          "已自動重試 {} 個失敗任務", "Auto-retried {} failed task(s)"},
 
     // ---- aria2 / engine error ----
     Entry{"err.engine_binary_not_found",
@@ -308,6 +310,8 @@ export constexpr Entry kEntries[] = {
     Entry{"settings.theme.dark",  "深色", "深色", "Dark"},
     Entry{"settings.theme.light", "浅色", "淺色", "Light"},
     Entry{"settings.close_to_tray", "关闭时缩到托盘", "關閉時縮到系統匣", "Close to tray"},
+    Entry{"settings.auto_retry_failed", "启动时自动重试失败任务",
+          "啟動時自動重試失敗任務", "Auto-retry failed tasks on startup"},
     Entry{"settings.language",    "语言", "語言", "Language"},
 
     // ---- settings：下载 tab ----

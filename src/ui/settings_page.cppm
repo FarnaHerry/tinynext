@@ -29,6 +29,9 @@ enum class SettingsTab { General, Download, Video, BitTorrent, Ed2k, Network, Ad
 SettingsTab g_settingsTab = SettingsTab::General;
 // 下载目录待提交值（默认保存目录；点「保存」才写入配置）。
 std::string g_downloadDirText = cfg::downloadDir().string();
+// 「启动时自动重试失败任务」待提交值（默认关闭；点「保存」才写入配置，
+// 下次启动生效）。
+bool g_autoRetryFailed = cfg::autoRetryFailed();
 bool g_langOpen = false;  // 语言下拉是否展开
 bool g_themeOpen = false;  // 主题下拉是否展开
 
@@ -392,8 +395,8 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .build();
             }, 200);  // 行 zIndex：高于语言行（100），弹出下拉不被盖
 
-            // ---- 关闭时缩到托盘（Windows/macOS 生效；Linux 的 eui 托盘为 stub
-            //      无效果）。改后重启生效（dslAppConfig 启动时读取）。----
+            // ---- 关闭时缩到托盘（三平台生效；Linux 自 eui 0.5.7 走 SNI 真实
+            //      托盘）。eui 只在启动时读一次开关，保存后弹「需要重启」对话框。----
             row("close.tray", kFieldH, [&](eui::Ui& r, float) {
                 components::text(r, "st.close.tray.label")
                     .position(0, 0)
@@ -406,6 +409,22 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 buildToggleSwitch(r, "st.close.tray.toggle", kLabelW, 3.0f,
                                   36.0f, 20.0f, g_closeToTray, theme,
                                   [](bool v) { g_closeToTray = v; });
+            });
+
+            // ---- 启动时自动重试失败任务（默认关闭，下次启动生效）。标签较长，
+            //      90px 标签列会折成两行：行高给到 40，行高 13 两行正好放下。----
+            row("auto.retry", 40.0f, [&](eui::Ui& r, float) {
+                components::text(r, "st.auto.retry.label")
+                    .position(0, 1.0f)
+                    .size(kLabelW, 40.0f)
+                    .text(tr("settings.auto_retry_failed"))
+                    .fontSize(11.0f)
+                    .lineHeight(13.0f)
+                    .color(theme.metaText)
+                    .build();
+                buildToggleSwitch(r, "st.auto.retry.toggle", kLabelW, 10.0f,
+                                  36.0f, 20.0f, g_autoRetryFailed, theme,
+                                  [](bool v) { g_autoRetryFailed = v; });
             });
 
             // ---- 语言（下拉框，立即生效 + 持久化）----
@@ -1088,6 +1107,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             const bool trayChanged = cfg::closeToTray() != g_closeToTray;
             cfg::setCloseToTray(g_closeToTray);
 
+            // 启动自动重试失败任务：落盘即生效（下次启动读取），无需重启提示。
+            cfg::setAutoRetryFailed(g_autoRetryFailed);
+
             // aria2 参数：用已校验值落盘。
             const cfg::Aria2Config cur = cfg::aria2Config();
             cfg::Aria2Config a2;
@@ -1207,6 +1229,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_themeMode = g_pendingTheme;
             g_dark = cfg::effectiveDark();
             g_closeToTray = cfg::closeToTray();
+            g_autoRetryFailed = cfg::autoRetryFailed();
             const cfg::Aria2Config a2 = cfg::aria2Config();
             g_aria2SplitText = std::to_string(a2.split);
             g_aria2ConnText = std::to_string(a2.maxConnectionPerServer);
