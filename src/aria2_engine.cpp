@@ -424,6 +424,26 @@ std::vector<std::pair<std::string, std::string>> daemonExtraOpts(
     add("bt-save-metadata", "true");
     add("enable-dht", "true");
     add("enable-peer-exchange", "true");
+#ifndef _WIN32
+    // CA bundle：aria2-next 内置 OpenSSL 的默认证书路径在部分发行版上不存在
+    // （如实测本机 /usr/lib/ssl/certs 为空目录），导致所有 HTTPS 下载报
+    // "SSL peer certificate or SSH remote key was not OK"。按常见发行版路径
+    // 显式指定第一个存在的 bundle；都不存在则不加（保持默认行为）。
+    static const char* kCaBundles[] = {
+        "/etc/ssl/certs/ca-bundle.crt",          // openSUSE / 部分 Fedora
+        "/etc/ssl/certs/ca-certificates.crt",    // Debian/Ubuntu
+        "/etc/pki/tls/certs/ca-bundle.crt",      // RHEL/Fedora
+        "/etc/ssl/ca-bundle.pem",                // openSUSE 旧版
+        "/etc/ssl/cert.pem",                     // macOS
+    };
+    for (const char* bundle : kCaBundles) {
+        std::error_code caEc;
+        if (std::filesystem::exists(bundle, caEc)) {
+            add("ca-certificate", bundle);
+            break;
+        }
+    }
+#endif
     return opts;
 }
 
