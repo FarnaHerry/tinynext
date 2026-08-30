@@ -101,15 +101,15 @@ export struct YtDlpProgress {
     std::string outputPath;              // 最终输出文件路径
 };
 
-namespace {
-
-// 进程捕获结果。
-struct CapturedProc {
+// 进程捕获结果。导出给 component_updater（组件版本探测）复用。
+export struct CapturedProc {
     int exitCode = -1;
     std::string out;        // stdout（JSON）
     bool timedOut = false;
     bool canceled = false;  // 用户主动取消
 };
+
+namespace {
 
 #ifdef _WIN32
 std::wstring utf8ToWide(const std::string& s) {
@@ -132,10 +132,12 @@ std::wstring quoteArg(const std::string& s) {
 }
 #endif
 
+} // namespace
+
 // spawn 进程并捕获 stdout（stderr 重定向到 stderrFile 供报错）。带超时：轮询
 // 管道 + 进程退出，超时则强杀。cancel 非空时轮询其中置位即主动终止进程（供取消
-// 操作用）。返回 stdout 全文与退出码。
-CapturedProc runCapture(const std::string& exe,
+// 操作用）。返回 stdout 全文与退出码。导出给 component_updater 复用。
+export CapturedProc runCapture(const std::string& exe,
                         const std::vector<std::string>& args,
                         const std::filesystem::path& stderrFile,
                         int timeoutSec,
@@ -279,6 +281,8 @@ CapturedProc runCapture(const std::string& exe,
     return result;
 #endif
 }
+
+namespace {
 
 // 错误文本是否为「浏览器 cookie 数据库被锁/不可读」。两种形态：
 //   - Windows：Chrome 运行中独占 Cookies 文件 → "Could not copy Chrome cookie

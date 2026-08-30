@@ -45,6 +45,7 @@ import tinynext.ui.platform;
 import tinynext.ui.housekeep;
 import tinynext.store.tasks;    // g_tasks（启动预热 warmup）
 import tinynext.video_resolver; // 启动预热时探测 yt-dlp/ffmpeg 版本（关于页）
+import tinynext.component_updater;  // 组件更新（设置页「组件」分组）
 import tinynext.store.ui;       // 状态消息 / 页面
 import tinynext.store.dialogs;  // g_aboutOpen
 
@@ -97,6 +98,8 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
         housekeepingStarted = true;
         cli::startCliIpc();
         housekeep::startHousekeeping();
+        // 组件更新（领域层无 eui）：注入 UI 唤醒，工作线程状态变化才能刷新界面。
+        updater::setWakeUi([] { core::platform::requestUiUpdate(); });
         // 启动即后台拉起引擎并恢复上次会话的历史任务（此前是懒惰拉取：首次
         // 下载才 spawn daemon，历史记录要等下一次下载才出现）。与 UI 线程的
         // start() 经引擎内部 daemonMutex_ 互斥；完成后唤醒 UI 渲染任务列表。
@@ -105,8 +108,11 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
             if (!g_tasks.engineActive()) g_warmupFailed.store(true);
             g_warmupDone.store(true);
             // 顺手探测 yt-dlp/ffmpeg 版本（关于页展示；各一次进程启动，可能数秒，
-            // 所以在预热线程而非 UI 线程做）。
+            // 所以在预热线程而非 UI 线程做）。组件更新页的当前版本也在此填充：
+            // yt-dlp 用上面的探测结果，aria2-next 单独跑 --version。
             video::probeVideoToolVersions();
+            updater::setCurrentVersion(updater::Component::YtDlp, video::ytDlpVersion());
+            updater::probeAria2Version();
             core::platform::requestUiUpdate();
         }).detach();
     }

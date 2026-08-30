@@ -90,6 +90,9 @@ public:
     void refreshHealth(std::function<void(const dl::HealthInfo&)> onDone) {
         engine_->refreshHealth(std::move(onDone));
     }
+    // 引擎本体访问（组件更新需要 downloadFile 静默下载 / restartEngine 换二进制
+    // 的底层通道）。
+    dl::DownloadEngine& engine() { return *engine_; }
     void restartEngine(std::function<void(bool)> onDone) {
         engine_->restartEngine(std::move(onDone));
     }

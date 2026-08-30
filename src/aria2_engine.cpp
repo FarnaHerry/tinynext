@@ -591,6 +591,83 @@ void Aria2Engine::warmup(bool restoreFailed) {
     ensureDaemon();
 }
 
+void Aria2Engine::downloadFile(const std::string& url,
+                               const std::filesystem::path& dest,
+                               std::function<void(int)> onProgress,
+                               std::function<void(bool, std::string)> onDone) {
+    // 组件更新专用静默下载：不进任务表、不出卡片。独立 detached 线程轮询
+    // tellStatus（不占命令队列，避免大文件下载期间阻塞任务命令）；中途引擎
+    // shutdown 杀死 daemon 后 rpcCall 抛错，自然走失败回调。this 由模块级
+    // g_tasks 静态持有、与进程同寿。
+    std::thread([this, url, dest, onProgress = std::move(onProgress),
+                 onDone = std::move(onDone)]() mutable {
+        auto fail = [&onDone](const std::string& err) {
+            if (onDone) onDone(false, err);
+        };
+        if (!ensureDaemon()) {
+            fail(lastError_.empty() ? tr("err.engine_unavailable") : lastError_);
+            return;
+        }
+        // 文件名必须精确（校验文件按资产名取 hash）：关自动改名、允许覆盖残留。
+        nlohmann::json optionsJ = nlohmann::json::object();
+        optionsJ["dir"] = utf8FromPath(dest.parent_path());
+        optionsJ["out"] = utf8FromPath(dest.filename());
+        optionsJ["allow-overwrite"] = "true";
+        optionsJ["auto-file-renaming"] = "false";
+        optionsJ["max-tries"] = "3";
+        optionsJ["retry-wait"] = "1";
+        optionsJ["connect-timeout"] = "15";
+        std::string gid;
+        try {
+            gid = rpcCall(port_, secret_, "aria2.addUri",
+                          nlohmann::json::array({nlohmann::json::array({url}),
+                                                 optionsJ}))
+                      .get<std::string>();
+        } catch (const std::exception& e) {
+            fail(e.what());
+            return;
+        }
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            nlohmann::json st;
+            try {
+                st = rpcCall(port_, secret_, "aria2.tellStatus",
+                             nlohmann::json::array({gid}));
+            } catch (const std::exception& e) {
+                fail(e.what());
+                return;
+            }
+            const auto strI64 = [&st](const char* key) -> std::int64_t {
+                try { return std::stoll(st.value(key, "0")); } catch (...) { return 0; }
+            };
+            const std::int64_t total = strI64("totalLength");
+            const std::int64_t done = strI64("completedLength");
+            if (onProgress && total > 0) {
+                onProgress(static_cast<int>(done * 100 / total));
+            }
+            const std::string status = st.value("status", "");
+            if (status == "complete") {
+                try {
+                    rpcCall(port_, secret_, "aria2.removeDownloadResult",
+                            nlohmann::json::array({gid}));
+                } catch (...) {}
+                if (onProgress) onProgress(100);
+                if (onDone) onDone(true, {});
+                return;
+            }
+            if (status == "error" || status == "removed") {
+                const std::string err = st.value("errorMessage", "download error");
+                try {
+                    rpcCall(port_, secret_, "aria2.removeDownloadResult",
+                            nlohmann::json::array({gid}));
+                } catch (...) {}
+                fail(err);
+                return;
+            }
+        }
+    }).detach();
+}
+
 bool Aria2Engine::ensureDaemon() const {
     // daemon 生命周期与 UI 线程并发（warmup 在后台线程调本方法），全程持
     // daemonMutex_ 串行化 spawn / RPC 就绪等待 / recoverSession / WS 启动。
@@ -1555,8 +1632,9 @@ void Aria2Engine::refreshHealth(std::function<void(const HealthInfo&)> onDone) {
 // 从 --input-file 重建，不清会重复）→ ensureDaemon 重新拉起（内部 recoverSession
 // + 新 WS）。进行中的下载经 .aria2 控制文件续传，不丢。锁纪律与 retryOnWorker
 // 一致：ensureDaemon 在释放 daemonMutex_ 后调用（避免非递归互斥量死锁）。
-void Aria2Engine::restartEngine(std::function<void(bool)> onDone) {
-    enqueue([this, onDone] {
+void Aria2Engine::restartEngine(std::function<void(bool)> onDone,
+                                std::function<bool()> beforeRespawn) {
+    enqueue([this, onDone, beforeRespawn = std::move(beforeRespawn)]() mutable {
         {
             std::lock_guard<std::mutex> lock(daemonMutex_);
             if (daemonSpawned_) {
@@ -1584,6 +1662,13 @@ void Aria2Engine::restartEngine(std::function<void(bool)> onDone) {
         {
             std::lock_guard<std::mutex> lock(tasksMutex_);
             tasks_.clear();
+        }
+        // daemon 已停、尚未重拉起：组件更新在此窗口替换引擎二进制（Windows 上
+        // 运行中的 exe 被文件锁占用，只有此刻能换）。失败则中止重启。
+        if (beforeRespawn && !beforeRespawn()) {
+            if (onDone) onDone(false);
+            core::platform::requestUiUpdate();
+            return;
         }
         const bool ok = ensureDaemon();
         if (onDone) onDone(ok);

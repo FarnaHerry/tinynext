@@ -136,8 +136,11 @@ public:
 
     // 重启引擎运行时：保存会话 → 优雅退出 → 重新拉起（进行中任务经会话恢复
     // --input-file 重载，不会丢）。结果经 onDone(bool) 回传（后台线程调用）。
-    // 默认实现直接回调 true（无运行时可重启）。
-    virtual void restartEngine(std::function<void(bool)> onDone) {
+    // beforeRespawn 非空时，在 daemon 已停、尚未重拉起的窗口里执行（组件更新
+    // 借此替换引擎二进制——Windows 运行中的 exe 被锁定，必须停 daemon 后才能
+    // 换文件）；返回 false 中止重启并报失败。默认实现直接回调 true。
+    virtual void restartEngine(std::function<void(bool)> onDone,
+                               std::function<bool()> beforeRespawn = nullptr) {
         if (onDone) onDone(true);
     }
 
@@ -175,6 +178,17 @@ public:
     // 「启动时自动重试失败任务」随后逐个 retry）；false 维持原样：失败/已移除
     // 记录直接丢弃。
     virtual void warmup(bool restoreFailed) {}
+
+    // 静默后台下载一个文件到 dest（不进任务表、不显示卡片；组件更新拉取
+    // GitHub API JSON / 新二进制用）。onProgress(0-100) 与 onDone(ok, error)
+    // 在引擎内部线程触发（不得直接操作 UI）。默认实现直接报未实现。
+    virtual void downloadFile(const std::string& url,
+                              const std::filesystem::path& dest,
+                              std::function<void(int)> onProgress,
+                              std::function<void(bool, std::string)> onDone) {
+        (void)url; (void)dest; (void)onProgress;
+        if (onDone) onDone(false, "downloadFile not implemented");
+    }
 
     // Cancel everything and release engine resources.
     virtual void shutdown() = 0;

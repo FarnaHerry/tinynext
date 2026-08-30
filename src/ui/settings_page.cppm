@@ -15,6 +15,8 @@ import tinynext.ui.widgets;   // drawPanel（设置页大卡背景）
 import tinynext.store.tasks;  // g_tasks.engineActive（保存 daemon 参数时提示重启）
 import tinynext.store.ui;     // showStatus
 import tinynext.store.dialogs;  // g_restartPromptOpen（关闭行为变更的重启提示弹窗）
+import tinynext.component_updater;  // 组件更新（aria2-next / yt-dlp）
+import tinynext.video_resolver;     // ffmpegVersion（组件页 ffmpeg 行）
 import tinynext.ui.platform;
 
 // ---- 设置页私有待提交状态（本模块自用，store 化后不再全局导出）----
@@ -25,7 +27,7 @@ import tinynext.ui.platform;
 // 设置页左侧配置分组：每组一个独立"子页面"，避免全部参数挤在一屏滚动过长。
 // 分组对齐 MotrixNext：通用 / 下载 / BitTorrent / ED2K / 网络 / 高级（MotrixNext
 // 同为 aria2-next 引擎，其分组是此类下载器的标准布局）。
-enum class SettingsTab { General, Download, Video, BitTorrent, Ed2k, Network, Advanced };
+enum class SettingsTab { General, Download, Video, BitTorrent, Ed2k, Network, Advanced, Components };
 SettingsTab g_settingsTab = SettingsTab::General;
 // 下载目录待提交值（默认保存目录；点「保存」才写入配置）。
 std::string g_downloadDirText = cfg::downloadDir().string();
@@ -253,6 +255,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 {tr("settings.tab.ed2k"), "ed2k", 0xF0C0, SettingsTab::Ed2k},
                 {tr("settings.tab.network"), "network", 0xF0D7, SettingsTab::Network},
                 {tr("settings.tab.advanced"), "advanced", 0xF085, SettingsTab::Advanced},
+                {tr("settings.tab.components"), "components", 0xF1B2, SettingsTab::Components},
             };
             const float itemW = kSubSidebarWidth - 12.0f;
             float itemY = 28.0f;
@@ -950,6 +953,130 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                           tr("settings.checksum_hint"));
                 });
             }  // 高级 tab 结束
+
+            // ---- 组件 tab：aria2-next / yt-dlp 在线检查+更新（下载走引擎静默
+            //      通道 + sha256 校验）；ffmpeg 需编译随应用版本，只显示版本。----
+            if (g_settingsTab == SettingsTab::Components) {
+                // 组件行：名称 + 版本/错误行 + 右侧操作按钮（状态决定文案；
+                // busy 中的重复点击由 updater 内部忽略）。
+                auto compRow = [&](const char* rowId, updater::Component comp,
+                                   const char* name) {
+                    const updater::ComponentSnapshot snap = updater::snapshot(comp);
+                    row(rowId, 44.0f, [&](eui::Ui& r, float w) {
+                        const std::string base = std::string("st.") + rowId + ".";
+                        components::text(r, base + "name")
+                            .position(0, 0)
+                            .size(160.0f, 16.0f)
+                            .text(name)
+                            .fontSize(12.0f)
+                            .lineHeight(16.0f)
+                            .color(theme.titleText)
+                            .build();
+
+                        const bool failed =
+                            snap.status == updater::CompStatus::Failed ||
+                            snap.status == updater::CompStatus::CheckFailed;
+                        std::string line;
+                        if (failed && !snap.error.empty()) {
+                            line = snap.error;
+                        } else {
+                            const std::string cur =
+                                snap.current.empty() ? "—" : snap.current;
+                            const std::string lat =
+                                snap.latest.empty() ? "—" : snap.latest;
+                            line = std::string(tr("settings.comp.current")) + " " + cur +
+                                   " · " + tr("settings.comp.latest") + " " + lat;
+                        }
+                        components::text(r, base + "ver")
+                            .position(0, 18.0f)
+                            .size(std::max(60.0f, w - 90.0f), 22.0f)
+                            .text(line)
+                            .fontSize(11.0f)
+                            .lineHeight(13.0f)
+                            .color(failed ? theme.failed : theme.metaText)
+                            .build();
+
+                        std::string btnText;
+                        bool primary = false;
+                        switch (snap.status) {
+                            case updater::CompStatus::UpdateAvailable:
+                                btnText = tr("settings.comp.update"); primary = true; break;
+                            case updater::CompStatus::Checking:
+                                btnText = tr("settings.comp.checking"); break;
+                            case updater::CompStatus::Downloading:
+                                btnText = trf("settings.comp.downloading", snap.progress);
+                                break;
+                            case updater::CompStatus::Verifying:
+                            case updater::CompStatus::Replacing:
+                                btnText = tr("settings.comp.replacing"); break;
+                            case updater::CompStatus::UpToDate:
+                                btnText = tr("settings.comp.uptodate"); break;
+                            case updater::CompStatus::Done:
+                                btnText = tr("settings.comp.done"); break;
+                            case updater::CompStatus::Failed:
+                            case updater::CompStatus::CheckFailed:
+                                btnText = tr("settings.comp.retry"); break;
+                            default:
+                                btnText = tr("settings.comp.check"); break;
+                        }
+                        if (primary) {
+                            components::button(r, base + "btn")
+                                .position(w - 76.0f, 10.0f)
+                                .size(76.0f, kCompactButtonHeight)
+                                .text(btnText)
+                                .fontSize(kCompactButtonFontSize)
+                                .theme(theme.components, true)
+                                .radius(kButtonRadius)
+                                .textColor(onPrimaryColor(theme))
+                                .shadow(0.0f, 0.0f, 0.0f,
+                                        core::Color{0.0f, 0.0f, 0.0f, 0.0f})
+                                .onClick([comp] {
+                                    updater::startUpdate(g_tasks.engine(), comp);
+                                })
+                                .build();
+                        } else {
+                            components::button(r, base + "btn")
+                                .position(w - 76.0f, 10.0f)
+                                .size(76.0f, kCompactButtonHeight)
+                                .text(btnText)
+                                .fontSize(kCompactButtonFontSize)
+                                .theme(theme.components, false)
+                                .radius(kButtonRadius)
+                                .shadow(0.0f, 0.0f, 0.0f,
+                                        core::Color{0.0f, 0.0f, 0.0f, 0.0f})
+                                .onClick([comp] {
+                                    updater::checkLatest(g_tasks.engine(), comp);
+                                })
+                                .build();
+                        }
+                    });
+                };
+                compRow("comp.aria2", updater::Component::Aria2, "aria2-next");
+                compRow("comp.ytdlp", updater::Component::YtDlp, "yt-dlp");
+
+                // ffmpeg 行：版本 + 「随应用版本更新」说明（无按钮）。
+                row("comp.ffmpeg", 44.0f, [&](eui::Ui& r, float w) {
+                    components::text(r, "st.comp.ffmpeg.name")
+                        .position(0, 0)
+                        .size(160.0f, 16.0f)
+                        .text("ffmpeg")
+                        .fontSize(12.0f)
+                        .lineHeight(16.0f)
+                        .color(theme.titleText)
+                        .build();
+                    const std::string ver = video::ffmpegVersion();
+                    components::text(r, "st.comp.ffmpeg.ver")
+                        .position(0, 18.0f)
+                        .size(std::max(60.0f, w - 90.0f), 22.0f)
+                        .text(std::string(tr("settings.comp.current")) + " " +
+                              (ver.empty() ? "—" : ver) + " · " +
+                              tr("settings.comp.ffmpeg_note"))
+                        .fontSize(11.0f)
+                        .lineHeight(13.0f)
+                        .color(theme.metaText)
+                        .build();
+                });
+            }  // 组件 tab 结束
         })
         .build();
 

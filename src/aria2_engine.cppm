@@ -53,11 +53,15 @@ public:
     void pollProgress() override;
     HealthInfo health() const override;
     void refreshHealth(std::function<void(const HealthInfo&)> onDone) override;
-    void restartEngine(std::function<void(bool)> onDone) override;
+    void restartEngine(std::function<void(bool)> onDone,
+                       std::function<bool()> beforeRespawn = nullptr) override;
     bool busy() const override;
     bool engineActive() const override;
     std::string lastError() const override;
     void warmup(bool restoreFailed) override;
+    void downloadFile(const std::string& url, const std::filesystem::path& dest,
+                      std::function<void(int)> onProgress,
+                      std::function<void(bool, std::string)> onDone) override;
     void shutdown() override;
 
 private:
