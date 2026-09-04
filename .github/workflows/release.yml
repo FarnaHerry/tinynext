@@ -121,7 +121,11 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          curl -fsSL https://github.com/mcpp-community/mcpp/releases/latest/download/install.sh | bash
+          # 钉 2026.9.4.1（本地验证可装 eui-neo 0.5.9 的 glib 依赖）：
+          # 2026.9.4.3 装 xim:glib 报 "installed but registered none of its
+          # declared programs"，v0.5.20 的 linux-x64 job 因此挂掉（win/mac 无
+          # glib 依赖不受影响）。上游修复后再回 latest。
+          curl -fsSL https://github.com/mcpp-community/mcpp/releases/latest/download/install.sh | MCPP_VERSION=2026.9.4.1 bash
           echo "$HOME/.mcpp/bin" >> "$GITHUB_PATH"
 
       - name: Install mcpp (Windows)
