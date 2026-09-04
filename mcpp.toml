@@ -50,7 +50,10 @@ description       = "TinyNext 下载器"
 original-filename = "tinynext.exe"
 internal-name     = "tinynext"
 
-# eui-neo 0.5.8：新增 ImageStream 动态纹理（CPU 像素上传，GPU YUV→RGB）与
+# eui-neo 0.5.9：渲染缓存加固（脏矩形合并估算修正、清屏时作废 backdrop 捕获、
+# 文本批/背景模糊统计），CORE_SOURCES 与 0.5.8 逐字节一致；上游移除 xmake 集成
+# （compat 配方直接编源码，不受影响）与 eui_neo.h 里的 EUI_APP_RUNNER 残留。
+# 0.5.8 引入 ImageStream 动态纹理（CPU 像素上传，GPU YUV→RGB）与
 # eui_app_run() 库模式入口（EUI_APP_RUNNER_LIBRARY，默认 off 无影响）；
 # 托盘/窗口/输入后端与 0.5.7 完全一致，compat 配方仅多编译 image_stream.cpp。
 # compat 配方加包级 -fno-char8_t（修 u8string() 返回 char8_t 赋给
@@ -59,7 +62,7 @@ internal-name     = "tinynext"
 # glfw_app_main.cpp 内部），app.cpp 只需提供 app::dslAppConfig() + app::compose()。
 # 版本决策见 docs/roadmap.md。
 [dependencies.compat]
-eui-neo = { version = "0.5.8", features = ["app-main"] }
+eui-neo = { version = "0.5.9", features = ["app-main"] }
 # 包装 IXWebSocket（client-only、零依赖）：aria2 RPC 的 WebSocket 事件推送
 # （onDownloadStart/Complete/Error/...），让状态迁移/完成通知即时，进度轮询降到 1s。
 websocket = "12.0.1"

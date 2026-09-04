@@ -111,6 +111,20 @@ aria2），让 mcpp / xlings 等其他包管理器「直接复用 TinyNext 作�
 - 仍无应用侧关闭钩子（`WindowState` 私有、close 回调固定在 app-main 内部），
   关窗缩托盘开关的「重启生效」弹窗方案（v0.5.17）保持不变。
 
+### eui-neo 升 0.5.9（2026-09，已实现）
+
+- 上游 0.5.9 是**渲染缓存加固 + 构建系统收敛**：脏矩形合并估算只统计真正省略的
+  render pass（避免零散小区域被错误合并成大面积重绘）；OpenGL/Vulkan 清屏时作废
+  backdrop 捕获（修背景模糊复用过期数据）；标题栏统计新增文本批 flush/顶点数与
+  backdrop 捕获/复用计数；xmake 集成与 `eui_neo.h` 里的 `EUI_APP_RUNNER` 残留
+  全部移除，CMake 成为唯一官方构建；外部 CMake 工程用 `eui_neo_configure_app()`
+  一行接入。
+- 对本项目影响为 0：CORE_SOURCES 与 0.5.8 **逐字节一致**（compat 配方直接编源码，
+  xmake 移除无感）；`glfw_app_main.cpp`/`tray_bridge.c`/`platform.cpp` 不变，
+  `app_runner.h` 只加了统计字段。全量构建 + GUI/daemon/托盘冒烟通过。
+-  backdrop 捕获作废修复对我们相关：设置页/弹窗用 `glassFill` 背景模糊，0.5.8
+  及之前在清屏帧可能复用过期模糊底。
+
 ### 根 onFrame 导致空闲 90 FPS 全量重绘（2026-08 发现并修复）
 
 - **症状**：挂机时 GPU 占用持续跳动（标题栏 `90 FPS / GPU 9% / Full 100%`）。
