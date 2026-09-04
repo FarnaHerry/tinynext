@@ -124,24 +124,6 @@ jobs:
           curl -fsSL https://github.com/mcpp-community/mcpp/releases/latest/download/install.sh | bash
           echo "$HOME/.mcpp/bin" >> "$GITHUB_PATH"
 
-      - name: Patch glib recipe (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          # xim-pkgindex 2026-09-03 起 glib 配方无条件 `programs = {...15 个工具}`
-          # （为 2.88.3 的完整 bin/ 而加），但 eui-neo 钉的 2.80.0 是裁剪版、没有
-          # bin/——config() 按实际负载注册 0 个程序，xlings 安装后校验
-          # 「声明的 programs 一个都没注册」直接 E_INTERNAL（新旧 xlings 同挂，
-          # 本地沙盒复现）。2.88.3 注释自称"一条配方兼容两个版本"，但 programs
-          # 声明是无条件的——上游 bug。本地索引旧（无此行）所以无感。
-          # 这里删掉该行：2.80.0 反正没有这些工具可注册，配方注释也说明 config()
-          # 按 bin/ 是否存在守卫。上游修复后可移除本步骤。
-          mcpp --version  # 首次调用触发 registry 种子化（xim-pkgindex 落地）
-          GLIB_LUA="$HOME/.mcpp/registry/data/xim-pkgindex/pkgs/g/glib.lua"
-          [ -f "$GLIB_LUA" ] || { echo "glib.lua not found at $GLIB_LUA"; exit 1; }
-          sed -i '/^    programs = {"gapplication"/d' "$GLIB_LUA"
-          ! grep -q '^    programs = ' "$GLIB_LUA" || { echo "patch failed"; exit 1; }
-          echo "patched $GLIB_LUA (dropped unconditional programs declaration)"
 
       - name: Install mcpp (Windows)
         if: runner.os == 'Windows'
@@ -176,6 +158,25 @@ jobs:
           else
             echo "xlings not found — skipping index refresh"
           fi
+
+      - name: Patch glib recipe (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          # xim-pkgindex 2026-09-03 起 glib 配方无条件 `programs = {...15 个工具}`
+          # （为 2.88.3 的完整 bin/ 而加），但 eui-neo 钉的 2.80.0 是裁剪版、没有
+          # bin/——config() 按实际负载注册 0 个程序，xlings 安装后校验
+          # 「声明的 programs 一个都没注册」直接 E_INTERNAL（新旧 xlings 同挂，
+          # 本地沙盒复现）。2.88.3 注释自称"一条配方兼容两个版本"，但 programs
+          # 声明是无条件的——上游 bug。本地索引旧（无此行）所以无感。
+          # 这里删掉该行：2.80.0 反正没有这些工具可注册，配方注释也说明 config()
+          # 按 bin/ 是否存在守卫。上游修复后可移除本步骤。
+          mcpp index status >/dev/null  # 首次索引相关调用触发 registry 种子化（--version 不触发）
+          GLIB_LUA="$HOME/.mcpp/registry/data/xim-pkgindex/pkgs/g/glib.lua"
+          [ -f "$GLIB_LUA" ] || { echo "glib.lua not found at $GLIB_LUA"; exit 1; }
+          sed -i '/^    programs = {"gapplication"/d' "$GLIB_LUA"
+          ! grep -q '^    programs = ' "$GLIB_LUA" || { echo "patch failed"; exit 1; }
+          echo "patched $GLIB_LUA (dropped unconditional programs declaration)"
 
       - name: Install NSIS (Windows packaging)
         if: runner.os == 'Windows'
