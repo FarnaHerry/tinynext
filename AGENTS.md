@@ -13,7 +13,7 @@ mcpp run            # 启动 GUI（Linux 用 run.sh）
 ```
 
 - 工具链在 `mcpp.toml` 里固定为 `llvm@22.1.8`，不要改。
-- eui-neo 锁在 **0.5.6**（配方加 `-fno-char8_t` 修 C++23 构建 + 补 `-ldwmapi`，见 `docs/roadmap.md`），不要乱升。
+- eui-neo 锁在 **0.5.8**（配方加 `-fno-char8_t` 修 C++23 构建 + 补 `-ldwmapi`，见 `docs/roadmap.md`），不要乱升。
 - Windows 发行打包：`.\make-dist.ps1`；Linux/macOS：`bash make-dist.sh <os> <arch>`。
 - CI：`.github/workflows/release.yml`，push `v*` 标签自动三平台构建 + 发布。
 

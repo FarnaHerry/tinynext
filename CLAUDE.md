@@ -18,7 +18,7 @@ mcpp run            # 启动 GUI（Linux 用 ./run.sh，见下）
 bash make-dist.sh <os> <arch>   # Linux / macOS 打包 → tar.gz
 ```
 
-- 工具链固定 `llvm@22.1.8`、eui-neo 锁 **0.5.6**、websocket（IXWebSocket 包装）
+- 工具链固定 `llvm@22.1.8`、eui-neo 锁 **0.5.8**、websocket（IXWebSocket 包装）
   **12.0.1**、nlohmann::json **3.12.0**（都在 `mcpp.toml` / `mcpp.lock`，不要乱升）。
 - **版本只在 mcpp.toml 维护**：应用版本 `[package].version` 与 eui/websocket/json 依赖
   版本由 `scripts/gen-versions.ps1`（或 `.sh`）生成 `src/versions.generated.h`，

@@ -91,6 +91,26 @@ aria2），让 mcpp / xlings 等其他包管理器「直接复用 TinyNext 作�
   就没有 `main()`），`mcpp.lock` 重新解析。Windows 本地构建 + `tinynext agent`
   冒烟通过。
 
+### eui-neo 升 0.5.8（2026-09，已实现；0.5.7 同期带过）
+
+- 上游 0.5.8 新增：**`core/render/image_stream.cpp`**（`eui::ImageStream` 动态纹理——
+  CPU 侧像素上传 RGBA8/BGRA8/NV12/I420/P010，GPU YUV→RGB，官方示例是 FFmpeg 视频
+  播放器；配方只需把这一个 TU 加进 CORE_SOURCES，无新依赖）；`main()` 拆出
+  `eui_app_run()` 库模式入口（`EUI_APP_RUNNER_LIBRARY`，默认 off，对本项目无影响）；
+  retained-layer/dirty-rect 渲染性能优化。托盘桥（SNI/gio）、窗口/输入后端与 0.5.7
+  **逐字节一致**。
+- 对本项目影响为 0：无 API 变动，`mcpp.toml` 升版本 + `gen-versions.sh` 重生成即可，
+  全量构建通过，GUI/主题/下载冒烟正常。
+- **排查记录（虚惊一场）**：升级后 `busctl --user list | grep -i notifieritem` 看不到
+  TinyNext，一度怀疑 xmake-repo 配方「Linux 托盘默认关」同步到了 compat 配方。实际
+  SNI 后端就用**唯一连接名**（`:1.653/org/freedesktop/StatusNotifierItem`）向
+  watcher 注册，从不占有 `org.kde.StatusNotifierItem-<pid>-N` 这种 well-known 名，
+  grep 自然不中。验证托盘要看 watcher 的 `RegisteredStatusNotifierItems` 属性：
+  `busctl --user get-property org.kde.StatusNotifierWatcher /StatusNotifierWatcher
+  org.kde.StatusNotifierWatcher RegisteredStatusNotifierItems`。
+- 仍无应用侧关闭钩子（`WindowState` 私有、close 回调固定在 app-main 内部），
+  关窗缩托盘开关的「重启生效」弹窗方案（v0.5.17）保持不变。
+
 ### 根 onFrame 导致空闲 90 FPS 全量重绘（2026-08 发现并修复）
 
 - **症状**：挂机时 GPU 占用持续跳动（标题栏 `90 FPS / GPU 9% / Full 100%`）。
