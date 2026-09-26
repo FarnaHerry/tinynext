@@ -59,7 +59,9 @@ const DslAppConfig& dslAppConfig() {
     static const DslAppConfig config = DslAppConfig{}
         .title("TinyNext 下载器")
         .pageId("tinynext")
-        .clearColor({0.04f, 0.04f, 0.05f, 1.0f})
+        // 起底色 = M3 dark surface（#10131A）；运行期背景由 compose 的全屏矩形覆盖，
+        // 主题切换即时生效，这里只是启动瞬间防白闪。
+        .clearColor({0.063f, 0.075f, 0.102f, 1.0f})
         // 原生全局缩放（eui-neo 0.5.6）：uiScale 按 dpiScale*uiScale 放大整个逻辑
         // 坐标系（布局+字号），所有尺寸按设计逻辑像素书写、不再 S() 自乘。窗口
         // 物理尺寸 = 设计尺寸 * kUI（eui 创建窗口时按物理像素，不会自动乘 uiScale）。
@@ -195,50 +197,48 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 .zIndex(5)
                 .content([&] {
 
-                    // 应用 logo：项目名缩写 "TN"（TinyNext），主色圆角块特例。
-                    // 水平居中于图标栏（rail 加宽后不能写死 4，要按 kRailWidth 计算）。
+                    // 应用 logo：项目名缩写 "TN"（TinyNext）。M3 风：primaryContainer
+                    // 圆角色块 + onPrimaryContainer 字，水平居中于 rail。
                     ui.rect("sidebar.logo.bg")
-                        .position((kRailWidth - 18.0f) * 0.5f, 10.0f)
-                        .size(18.0f, 18.0f)
-                        .color(theme.components.primary)
-                        .radius(5.0f)
+                        .position((kRailWidth - 20.0f) * 0.5f, 10.0f)
+                        .size(20.0f, 20.0f)
+                        .color(theme.primaryContainer)
+                        .radius(6.0f)
                         .build();
                     ui.text("sidebar.logo")
                         .position(0, 10.0f)
-                        .size(kRailWidth, 18.0f)
+                        .size(kRailWidth, 20.0f)
                         .text("TN")
-                        .fontSize(8.0f)
-                        .lineHeight(18.0f)
-                        .color(theme.dark ? theme.components.surface
-                                          : theme.components.background)
+                        .fontSize(9.0f)
+                        .lineHeight(20.0f)
+                        .color(theme.onPrimaryContainer)
                         .horizontalAlign(core::HorizontalAlign::Center)
                         .verticalAlign(core::VerticalAlign::Center)
                         .build();
 
-                    // 应用页导航：下载列表（默认第一页）/ 设置 / 引擎监控。
-                    float railY = 40.0f;
+                    // 应用页导航（M3 Navigation Rail：图标 pill + 标签）：下载 / 设置 /
+                    // 引擎监控。项块高 kNavItemH，y 步进 64。
+                    float railY = 44.0f;
                     drawRailItem(ui, "nav.downloads", railY, kRailWidth, 0xF03A,
-                                 g_page_view == Page::Downloads, theme,
-                                 [] { g_page_view = Page::Downloads; },
-                                 tr("app.tab.downloads"));
-                    railY += 30.0f;
+                                 tr("app.tab.downloads"), g_page_view == Page::Downloads,
+                                 theme,
+                                 [] { g_page_view = Page::Downloads; });
+                    railY += 64.0f;
                     drawRailItem(ui, "nav.settings", railY, kRailWidth, 0xF013,
-                                 g_page_view == Page::Settings, theme,
-                                 [] { g_page_view = Page::Settings; },
-                                 tr("app.tab.settings"));
-                    railY += 30.0f;
+                                 tr("app.tab.settings"), g_page_view == Page::Settings,
+                                 theme,
+                                 [] { g_page_view = Page::Settings; });
+                    railY += 64.0f;
                     drawRailItem(ui, "nav.engine", railY, kRailWidth, 0xF233,  // fa-server
-                                 g_page_view == Page::Monitor, theme,
-                                 [] { g_page_view = Page::Monitor; },
-                                 tr("app.tab.monitor"));
+                                 tr("app.tab.monitor"), g_page_view == Page::Monitor,
+                                 theme,
+                                 [] { g_page_view = Page::Monitor; });
 
-                    // 关于：信息图标（circle-info）排在导航最后一项下方，顺列排列。
-                    // 左下角不再放任何东西（深色模式切换已删除，主题在设置页选）。
-                    railY += 30.0f;
-                    drawRailInfoButton(ui, "rail.info", (kRailWidth - 22.0f) * 0.5f,
-                                       railY + 2.0f, 22.0f, 22.0f, 0xF05A,  // circle-info
-                                       kRailWidth, tr("app.nav.about"), theme,
-                                       [] { g_aboutOpen = true; });
+                    // 关于：信息图标（circle-info）排在导航下方，同列同风格。
+                    railY += 64.0f;
+                    drawRailItem(ui, "rail.info", railY, kRailWidth, 0xF05A,  // circle-info
+                                 tr("app.nav.about"), false, theme,
+                                 [] { g_aboutOpen = true; });
                 })
                 .build();
 

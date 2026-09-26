@@ -246,13 +246,13 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         })
         .build();
 
-    // 标题距卡片顶留足空间（避免被顶部圆角/窗口边缘截到第一行）。
+    // 标题距卡片顶留足空间（避免被顶部圆角/窗口边缘截到第一行）。M3 title-large。
     const float titleY = islandTop + 16.0f;
     components::text(ui, "settings.title")
         .position(infoX, titleY)
         .size(innerW, 24.0f)
         .text(tr("app.tab.settings"))
-        .fontSize(17.0f)
+        .fontSize(20.0f)
         .lineHeight(24.0f)
         .color(theme.titleText)
         .build();
@@ -462,22 +462,15 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .theme(theme.components)
                         .onChange([](const std::string& value) { g_downloadDirText = value; })
                         .build();
-                    components::button(r, "st.path.browse")
-                        .position(kLabelW + pathInputW + 8.0f, -2.0f)
-                        .size(60.0f, kButtonHeight)
-                        .text(tr("dl.browse"))
-                        .fontSize(kButtonFontSize)
-                        .theme(theme.components, false)
-                        .radius(kButtonRadius)
-                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                        .onClick([] {
+                    drawTextButton(r, "st.path.browse", kLabelW + pathInputW + 8.0f, -2.0f,
+                                   60.0f, kButtonHeight, tr("dl.browse"), theme,
+                                   [] {
                             // 只填待提交值，点「保存」才写入配置。
                             const auto picked = pickDownloadFolder();
                             if (!picked.empty()) {
                                 g_downloadDirText = picked.string();
                             }
-                        })
-                        .build();
+                        });
                 });
                 row("a.split", kFieldH, [&](eui::Ui& r, float) {
                     numericField(r, "a.split", tr("dl.splits"), 0, kInputW, g_aria2SplitText,
@@ -653,7 +646,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .text("BitTorrent")
                         .fontSize(11.0f)
                         .lineHeight(18.0f)
-                        .color(theme.statusText)
+                        .color(theme.titleText)
                         .build();
                 });
                 row("bt.seedtime", kFieldH, [&](eui::Ui& r, float) {
@@ -723,7 +716,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .text(tr("settings.ed2k_section"))
                         .fontSize(11.0f)
                         .lineHeight(18.0f)
-                        .color(theme.statusText)
+                        .color(theme.titleText)
                         .build();
                 });
                 row("ed2k.listen", kFieldH, [&](eui::Ui& r, float) {
@@ -758,7 +751,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .text(tr("settings.file_handling"))
                         .fontSize(11.0f)
                         .lineHeight(18.0f)
-                        .color(theme.statusText)
+                        .color(theme.titleText)
                         .build();
                 });
                 row("beh.rename", kFieldH, [&](eui::Ui& r, float) {
@@ -813,7 +806,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .text(tr("settings.integrity_check"))
                         .fontSize(11.0f)
                         .lineHeight(18.0f)
-                        .color(theme.statusText)
+                        .color(theme.titleText)
                         .build();
                 });
                 row("chk.integrity", kFieldH, [&](eui::Ui& r, float) {
@@ -916,19 +909,11 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                 })
                                 .build();
                         } else {
-                            components::button(r, base + "btn")
-                                .position(w - 76.0f, 10.0f)
-                                .size(76.0f, kCompactButtonHeight)
-                                .text(btnText)
-                                .fontSize(kCompactButtonFontSize)
-                                .theme(theme.components, false)
-                                .radius(kButtonRadius)
-                                .shadow(0.0f, 0.0f, 0.0f,
-                                        core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                                .onClick([] {
+                            drawTextButton(r, base + "btn", w - 76.0f, 10.0f,
+                                           76.0f, kCompactButtonHeight, btnText, theme,
+                                           [] {
                                     updater::checkLatest(g_tasks.engine());
-                                })
-                                .build();
+                                });
                         }
                     });
                 };
@@ -937,16 +922,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         })
         .build();
 
-    // ---- 操作行（固定窗口底部）：恢复默认路径 / 保存全部设置 / 放弃修改 ----
-    components::button(ui, "settings.path.reset")
-        .position(infoX + kLabelW, actionY)
-        .size(76.0f, kButtonHeight)
-        .text(tr("settings.reset"))
-        .fontSize(kButtonFontSize)
-        .theme(theme.components, false)
-        .radius(kButtonRadius)
-        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-        .onClick([] {
+    // ---- 操作行（固定窗口底部）：恢复默认路径（text）/ 保存（filled）/ 放弃（text）----
+    drawTextButton(ui, "settings.path.reset", infoX + kLabelW, actionY,
+                   76.0f, kButtonHeight, tr("settings.reset"), theme,
+                   [] {
             // 全部设置回默认：主题回「跟随系统」（并即时预览）、路径回系统下载目录、
             // aria2 参数回默认值。仍需点「保存」才落盘（与放弃/保存语义一致）。
             g_pendingTheme = cfg::ThemeMode::System;
@@ -988,8 +967,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_ed2kUdpPortText = d.ed2kUdpListenPort;
             g_ed2kUploadSlotsText = std::to_string(d.ed2kUploadSlots);
             showStatus(tr("settings.reset_done"));
-        })
-        .build();
+        });
 
     components::button(ui, "settings.save")
         .position(infoX + kLabelW + kButtonGap + 76.0f, actionY)
@@ -1175,15 +1153,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         })
         .build();
 
-    components::button(ui, "settings.discard")
-        .position(infoX + kLabelW + kButtonGap + 76.0f + kButtonGap + 76.0f, actionY)
-        .size(76.0f, kButtonHeight)
-        .text(tr("settings.discard"))
-        .fontSize(kButtonFontSize)
-        .theme(theme.components, false)
-        .radius(kButtonRadius)
-        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-        .onClick([] {
+    drawTextButton(ui, "settings.discard",
+                   infoX + kLabelW + kButtonGap + 76.0f + kButtonGap + 76.0f, actionY,
+                   76.0f, kButtonHeight, tr("settings.discard"), theme,
+                   [] {
             // 回滚到已保存值。
             g_pendingTheme = cfg::themeMode();
             g_downloadDirText = cfg::downloadDir().string();
@@ -1226,8 +1199,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_ed2kUdpPortText = a2.ed2kUdpListenPort;
             g_ed2kUploadSlotsText = std::to_string(a2.ed2kUploadSlots);
             showStatus(tr("settings.changes_discarded"));
-        })
-        .build();
+        });
 
     // ---- 「需要重启」弹窗（关闭时缩到托盘改动保存后）----
     // eui-neo 0.5.7 只在启动时读一次 .tray() 开关（WindowState::trayAvailable 此后
@@ -1241,12 +1213,12 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         const float dlgX = (screen.width - dlgW) * 0.5f;
         const float dlgY = (screen.height - dlgH) * 0.5f;
 
-        // 半透明遮罩，点击空白处关闭（=稍后）。
+        // 遮罩（M3 scrim），点击空白处关闭（=稍后）。
         ui.rect("restart.backdrop")
             .position(0, 0)
             .size(screen.width, screen.height)
             .zIndex(100)
-            .color({0.0f, 0.0f, 0.0f, 0.32f})
+            .color(theme.scrim)
             .onClick([] { g_restartPromptOpen = false; })
             .build();
 
@@ -1258,21 +1230,20 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 ui.rect("restart.dialog.bg")
                     .position(0, 0)
                     .size(dlgW, dlgH)
-                    .blur(10.0f)
-                    .color(glassFill(theme, 0.52f))
-                    .radius(10.0f)
-                    .border(1.0f,
-                            components::theme::withOpacity(
-                                theme.components.border, 0.6f))
+                    .color(theme.surfaceContainerHigh)
+                    .radius(kDialogRadius)
+                    .shadow(24.0f, 8.0f,
+                            theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.38f}
+                                       : core::Color{0.10f, 0.14f, 0.22f, 0.18f})
                     .onClick([] {})  // 吞掉弹窗内部空白点击，避免穿透到遮罩关闭弹窗
                     .build();
 
                 components::text(ui, "restart.title")
-                    .position(16.0f, 12.0f)
-                    .size(dlgW - 32.0f, 20.0f)
+                    .position(16.0f, 14.0f)
+                    .size(dlgW - 32.0f, 22.0f)
                     .text(tr("settings.restart_title"))
-                    .fontSize(14.0f)
-                    .lineHeight(20.0f)
+                    .fontSize(16.0f)
+                    .lineHeight(22.0f)
                     .color(theme.titleText)
                     .build();
 
@@ -1286,7 +1257,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .color(theme.nameText)
                     .build();
 
-                // 底部按钮行：[稍后] [立即重启]（无重启入口时只有稍后）。
+                // 底部按钮行：[稍后 text] [立即重启 filled]（无重启入口时只有稍后）。
                 const float btnH = kCompactButtonHeight;
                 const float btnY = dlgH - 36.0f;
                 const float gap = 8.0f;
@@ -1296,16 +1267,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 const float laterX = dlgW - 16.0f - wNow
                     - (canRestart ? gap : 0.0f) - wLater;
 
-                components::button(ui, "restart.later")
-                    .position(laterX, btnY)
-                    .size(wLater, btnH)
-                    .text(tr("settings.restart_later"))
-                    .fontSize(kCompactButtonFontSize)
-                    .theme(theme.components, false)
-                    .radius(kButtonRadius)
-                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                    .onClick([] { g_restartPromptOpen = false; })
-                    .build();
+                drawTextButton(ui, "restart.later", laterX, btnY, wLater, btnH,
+                               tr("settings.restart_later"), theme,
+                               [] { g_restartPromptOpen = false; });
 
                 if (canRestart) {
                     components::button(ui, "restart.now")

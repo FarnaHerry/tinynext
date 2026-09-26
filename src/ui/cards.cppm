@@ -151,24 +151,23 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
         .width(cardWidth)
         .height(kCardHeight)
         .content([&] {
-            // 卡片底：圆角表面 + 细边框 + 柔和投影（岛屿卡片风：与内容大卡分层）。
-            // 任务卡不做 backdrop blur：它糊的本来就是已糊过的岛卡，视觉无差，却要
-            // 每张多一次全卡 blur（性能杀手）。半透明玻璃色即可叠在磨砂岛面上。
+            // M3 elevated card：不透明 cardBg + 12dp 圆角 + 一级投影，
+            // 无描边（层级靠表面分层表达，玻璃拟态/描边已退役）。不做 backdrop blur。
             ui.rect(fid + ".bg")
                 .position(0, 0)
                 .size(cardWidth, kCardHeight)
-                .color(glassFill(theme, 0.6f))
-                .radius(8.0f)
-                .border(1.0f, components::theme::withOpacity(theme.components.border, 0.55f))
-                .shadow(8.0f, 2.0f,
+                .color(theme.cardBg)
+                .radius(kCardRadius)
+                .shadow(6.0f, 2.0f,
                         theme.components.dark
-                            ? core::Color{0.0f, 0.0f, 0.0f, 0.18f}
-                            : core::Color{0.10f, 0.14f, 0.22f, 0.08f})
+                            ? core::Color{0.0f, 0.0f, 0.0f, 0.28f}
+                            : core::Color{0.10f, 0.14f, 0.22f, 0.10f})
                 .build();
 
-            // ---- 第 1 行：文件名 + 状态 ----（文件名超长用省略号截断成单行）
-            const float stateW = 46.0f;
-            const float nameW = inner - stateW - 6.0f;
+            // ---- 第 1 行：文件名 + 状态 chip ----（文件名超长用省略号截断成单行）
+            const float chipW = 54.0f;
+            const float stateW = chipW - 8.0f;
+            const float nameW = inner - chipW - 6.0f;
             components::text(ui, fid + ".name")
                 .position(kCardPad, 9.0f)
                 .size(nameW, 15.0f)
@@ -178,23 +177,30 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .maxWidth(nameW)
                 .color(theme.nameText)
                 .build();
+            // M3 assist chip 风状态标签：状态色 @12% 底 + 状态色字。
+            ui.rect(fid + ".state.bg")
+                .position(cardWidth - kCardPad - chipW, 8.0f)
+                .size(chipW, 16.0f)
+                .color(components::theme::withAlpha(stateColor(task.state), 0.12f))
+                .radius(kChipRadius)
+                .build();
             components::text(ui, fid + ".state")
-                .position(cardWidth - kCardPad - stateW, 9.0f)
-                .size(stateW, 15.0f)
+                .position(cardWidth - kCardPad - chipW, 8.0f)
+                .size(chipW, 16.0f)
                 .text(stateLabel(task.state))
                 .fontSize(10.0f)
-                .lineHeight(15.0f)
-                .horizontalAlign(core::HorizontalAlign::Right)
+                .lineHeight(16.0f)
+                .horizontalAlign(core::HorizontalAlign::Center)
                 .color(stateColor(task.state))
                 .build();
 
-            // ---- 第 2 行：进度条 ----
+            // ---- 第 2 行：进度条（M3 linear：4dp 高，active=primary）----
             ui.stack(fid + ".progress.slot")
-                .position(kCardPad, 28.0f)
-                .size(inner, 6.0f)
+                .position(kCardPad, 29.0f)
+                .size(inner, 4.0f)
                 .content([&] {
                     components::progress(ui, fid + ".progress")
-                        .size(inner, 6.0f)
+                        .size(inner, 4.0f)
                         .value(progress)
                         .theme(theme.components)
                         .build();
@@ -283,13 +289,13 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                       [path = task.destPath] { openContainingFolder(path); });
             }
             if (showOpen) {
-                // 放最后 → 最左：下载完成后的「打开文件」主入口。
-                place("open", 0xF08E, false,  // fa-external-link
+                // 放最后 → 最左：下载完成后的「打开文件」主入口（主色图标）。
+                place("open", 0xF08E, true,  // fa-external-link
                       [path = task.destPath] { openFile(path); });
             }
             if (showResume) {
-                // 放最后 → 最左：进行中任务的主操作；普通颜色与同类一致。
-                place("resume", 0xF04B, false,  // fa-play
+                // 放最后 → 最左：进行中任务的主操作（主色图标，M3 主行动强调）。
+                place("resume", 0xF04B, true,  // fa-play
                       [id = task.id] { g_tasks.resume(id); });
             }
             if (showPause) {

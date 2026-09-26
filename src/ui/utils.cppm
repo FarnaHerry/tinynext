@@ -39,7 +39,8 @@ export constexpr float kCompactButtonHeight = 24.0f;
 export constexpr float kCompactButtonFontSize = 11.0f;
 export constexpr float kDialogButtonHeight = 28.0f;
 export constexpr float kDialogButtonFontSize = 12.0f;
-export constexpr float kButtonRadius = 8.0f;
+// Material 3：按钮一律全圆角 pill（999 = 半径钳制为短边一半）。
+export constexpr float kButtonRadius = 999.0f;
 export constexpr float kButtonGap = 8.0f;
 export constexpr float kToolbarButtonSize = 26.0f;
 export constexpr float kToolbarIconSize = 13.0f;
@@ -54,13 +55,19 @@ export constexpr float kStepperIconSize = 9.0f;
 export constexpr float kScrollbarWidth = 4.0f;
 export constexpr float kScrollbarGap = 6.0f;
 
-export constexpr float kRailWidth = 40.0f;          // 大侧边栏（图标栏）宽
+export constexpr float kRailWidth = 64.0f;          // M3 Navigation Rail 宽（图标+标签）
 export constexpr float kSubSidebarWidth = 96.0f;    // 下载页内任务列表子侧边栏宽
 // 岛屿卡片布局：外层"岛"卡片之间的间距 / 大卡内边距 / 岛卡片圆角。
 export constexpr float kIslandGap = 2.0f;
 export constexpr float kIslandVInset = 6.0f;   // 岛卡距窗口上/下的空隙（卡片感）
 export constexpr float kPanelPad = 10.0f;
-export constexpr float kIslandRadius = 10.0f;
+export constexpr float kIslandRadius = 16.0f;  // M3 大表面圆角
+
+// ---- Material 3 形状令牌 ----
+export constexpr float kCardRadius = 12.0f;    // 任务卡/统计卡
+export constexpr float kDialogRadius = 20.0f;  // 弹窗
+export constexpr float kChipRadius = 8.0f;     // 状态 chip/小标签
+export constexpr float kNavItemH = 56.0f;      // rail 导航项块高（图标+标签）
 
 namespace {
 // s 里的码点数（UTF-8）。
