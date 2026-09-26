@@ -101,7 +101,9 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
     `std::system("explorer …")`**——explorer 会让调用方同步等窗口关闭，卡 UI 线程。
 14. **下拉点击外部收起**：`buildListPicker` 展开时铺一层全屏透明拦截层（吞掉点击），
     点击弹层外即收起。弹层宽度可用 `popupWidth` 参数（图标字段的弹层要加宽容纳文字）。
-15. **提交**：本地 commit 后由用户自行 push（不要代 push）。
+15. **提交**：feature 分支本地 commit，release build 全绿后由助手直接
+    merge 到 main 并 push（含发布 `v*` tag）。「用户自行 push」的旧惯例已于
+    2026-09 作废。
 16. **资源一律 RAII 包裹**（全项目强制）：fd / socket / Windows HANDLE / 管道 /
     进程句柄 / CoTaskMem / LocalFree 等原生资源，**获取点即交给所有者**——
     析构即释放的守卫（`aria2_engine.cpp` 的 `LocalSocket`、`cli.cppm` 的
