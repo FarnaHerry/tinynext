@@ -14,7 +14,6 @@ import tinynext.ui.utils;
 import tinynext.ui.widgets;     // glassFill（毛玻璃填充色）
 import tinynext.store.dialogs;  // g_aboutOpen
 import tinynext.store.tasks;    // g_tasks.health()（引擎真实版本）
-import tinynext.video_resolver; // yt-dlp/ffmpeg 真实版本
 import tinynext.ui.platform;
 
 // ---- 关于弹窗：软件信息（所有页面可见）----
@@ -61,8 +60,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
 
             // 版本全部来自实际运行中的组件，不硬编码：应用/eui 版本由
             // mcpp.toml 生成（versions.generated.h → config.cppm）；aria2-next
-            // 版本来自 daemon 的 getVersion RPC（预热时缓存进 health）；
-            // yt-dlp/ffmpeg 版本来自预热线程对二进制的 --version 探测。
+            // 版本来自 daemon 的 getVersion RPC（预热时缓存进 health）。
             // 探测完成前/守护未起时返回空串，降级只显示组件名。
             const std::string appVersion(cfg::kAppVersion);
             const std::string uiVersion =
@@ -76,8 +74,6 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
                 {tr("about.version"), appVersion},
                 {tr("about.ui_framework"), uiVersion},
                 {tr("about.engine"), toolRow("aria2-next", g_tasks.health().version)},
-                {tr("about.video_tool"), toolRow("yt-dlp", video::ytDlpVersion())},
-                {tr("about.merge_tool"), toolRow("ffmpeg", video::ffmpegVersion())},
                 {tr("about.transport"), tr("about.transport_value")},
                 {tr("about.build_tool"), "mcpp（C++23）"},
             };

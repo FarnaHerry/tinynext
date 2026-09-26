@@ -1,6 +1,6 @@
 [package]
 name        = "tinynext"
-version     = "0.5.20"
+version     = "0.5.21"
 description = "A GUI downloader: EUI-NEO frontend + aria2-next download engine"
 license     = "MIT"
 
@@ -32,9 +32,8 @@ bmi_schedule = "on"
 # otherwise demand a WinMain that doesn't exist.
 # -lws2_32 links winsock for aria2_engine.cpp's LocalSocket (tinyhttps used to
 # pull ws2_32 in as its dependency; with it removed we link it explicitly).
-# -ladvapi32: RegGetValueW（video_resolver 读注册表探测系统默认浏览器）。
 [target.'cfg(windows)'.build]
-ldflags = ["-Wl,-subsystem:windows", "-Wl,-entry:mainCRTStartup", "-lws2_32", "-ldwmapi", "-ladvapi32"]
+ldflags = ["-Wl,-subsystem:windows", "-Wl,-entry:mainCRTStartup", "-lws2_32", "-ldwmapi"]
 
 # exe 图标 + 版本信息：mcpp 2026.8.7.1 原生 [resources]（取代旧的 resources.rc /
 # windres workaround，已删除）。仅 PE/Windows 目标实际嵌入；Linux/macOS 只校验路径、
@@ -50,19 +49,19 @@ description       = "TinyNext 下载器"
 original-filename = "tinynext.exe"
 internal-name     = "tinynext"
 
-# eui-neo 0.5.9：渲染缓存加固（脏矩形合并估算修正、清屏时作废 backdrop 捕获、
-# 文本批/背景模糊统计），CORE_SOURCES 与 0.5.8 逐字节一致；上游移除 xmake 集成
-# （compat 配方直接编源码，不受影响）与 eui_neo.h 里的 EUI_APP_RUNNER 残留。
-# 0.5.8 引入 ImageStream 动态纹理（CPU 像素上传，GPU YUV→RGB）与
-# eui_app_run() 库模式入口（EUI_APP_RUNNER_LIBRARY，默认 off 无影响）；
-# 托盘/窗口/输入后端与 0.5.7 完全一致，compat 配方仅多编译 image_stream.cpp。
-# compat 配方加包级 -fno-char8_t（修 u8string() 返回 char8_t 赋给
-# std::string 的 C++23 编译错，上游仍未修）+ 补 -ldwmapi（glfw win32 深色标题栏）。
-# 0.5.6 起 eui_neo.h 不再包含 eui/detail/dsl_app_impl.h（入口机制挪进 app-main 的
-# glfw_app_main.cpp 内部），app.cpp 只需提供 app::dslAppConfig() + app::compose()。
-# 版本决策见 docs/roadmap.md。
+# eui-neo 0.6.0：新增 core::audio::Player 流式音频子系统（miniaudio：MP3/WAV/FLAC/OGG）
+# 与 GpuImage 零拷贝外部纹理（OpenGL/Vulkan interop，ImageBuilder 可直接绑外部 GPU
+# 纹理；0.5.8 的 ImageStream 是 CPU 像素上传版）；DslAppConfig 新增
+# resizable/decorated/alwaysOnTop/maximized/highDpi 窗口配置与 onShutdown 退出回调；
+# 多行 Input 加 .scrollbar() 与 IME preedit 展示、段落级增量排版；VirtualList 滚动
+# 仅在可见槽范围变化时 recompose；Color 支持 "#RGB/#RGBA/#RRGGBB/#RRGGBBAA" 串与
+# fromHex 构造。0.5.9 渲染缓存加固、0.5.8 eui_app_run() 库模式入口沿用；compat 配方
+# 加包级 -fno-char8_t（修 u8string() 返回 char8_t 赋给 std::string 的 C++23 编译错，
+# 上游仍未修）+ 补 -ldwmapi（glfw win32 深色标题栏）。0.5.6 起 eui_neo.h 不再包含
+# eui/detail/dsl_app_impl.h（入口机制挪进 app-main 的 glfw_app_main.cpp 内部），
+# app.cpp 只需提供 app::dslAppConfig() + app::compose()。版本决策见 docs/roadmap.md。
 [dependencies.compat]
-eui-neo = { version = "0.5.9", features = ["app-main"] }
+eui-neo = { version = "0.6.0", features = ["app-main"] }
 # 包装 IXWebSocket（client-only、零依赖）：aria2 RPC 的 WebSocket 事件推送
 # （onDownloadStart/Complete/Error/...），让状态迁移/完成通知即时，进度轮询降到 1s。
 websocket = "12.0.1"

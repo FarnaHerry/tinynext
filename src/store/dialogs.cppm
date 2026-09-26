@@ -12,7 +12,7 @@ import tinynext.download_engine;
 import tinynext.i18n;   // tr（提交动作里的提示文案）
 import tinynext.store.tasks;
 import tinynext.store.ui;
-import tinynext.utils; // isLikelyVideoPageUrl
+import tinynext.utils; // trimText
 
 // ---- 弹窗开关 / 通用 ----
 
@@ -95,61 +95,6 @@ export bool addDownload() {
     return r.ok;
 }
 
-// 添加下载弹窗提交（视频页自动路由版）。UI 层在 g_addMirror 时走旧 startFromUrl
-// （镜像多源不适用视频解析），否则检测视频页走 startVideoFromUrl。
-export bool addDownloadAuto() {
-    dl::StartOptions opts;
-    if (g_addTab == AddTab::Torrent) {
-        const std::string torrent = trimText(g_addTorrentPath);
-        if (torrent.empty()) {
-            showStatus(tr("store.select_torrent_first"));
-            return false;
-        }
-        opts.torrentPath = torrent;
-        opts.dirOverride = trimText(g_addDirText);
-        const auto r = g_tasks.startFromUrl(torrent, opts);
-        showStatus(r.message);
-        return r.ok;
-    }
-
-    std::string t = g_addConnectionsText;
-    if (!t.empty()) {
-        try {
-            opts.connections = std::clamp(std::stoi(trimText(t)), 0, 64);
-        } catch (...) {
-            opts.connections = 0;
-        }
-    }
-    opts.outputName = trimText(g_addRenameText);
-    opts.dirOverride = trimText(g_addDirText);
-    std::string url = trimText(g_urlText);
-    if (url.empty()) {
-        showStatus(tr("store.enter_download_url"));
-        return false;
-    }
-    if (g_addMirror) {
-        // 镜像多源：走普通 startFromUrl（视频解析不支持镜像）。
-        std::vector<std::string> lines;
-        std::istringstream ss(g_urlText);
-        std::string line;
-        while (std::getline(ss, line)) {
-            const std::string lt = trimText(line);
-            if (!lt.empty()) lines.push_back(lt);
-        }
-        if (lines.size() > 1) {
-            url = lines[0];
-            opts.mirrors.assign(lines.begin() + 1, lines.end());
-        }
-        const auto r = g_tasks.startFromUrl(url, opts);
-        showStatus(r.message);
-        return r.ok;
-    }
-    // 非镜像模式：检测视频页自动走解析 + 下载
-    const auto r = g_tasks.startVideoFromUrl(url, opts);
-    showStatus(r.message);
-    return r.ok;
-}
-
 // ---- 删除任务确认弹窗 ----
 // 已完成任务删除前弹框选择；未完成任务直接删记录+清缓存。
 // g_pendingDelete 非空时，下载页渲染删除确认弹窗。
@@ -170,7 +115,7 @@ export void requestDelete(const dl::TaskView& task) {
 //
 // 用纯值快照而非直接引用 dl::TaskView：渲染弹窗时（跨 compose 帧）直接读
 // TaskView 的 std::filesystem::path/std::string 字段，可能踩到已被释放的底层缓冲
-// （实测 native 视频任务的 destPath 在快照里带 UAF，.string() 触栈溢出崩溃）。这里
+// （实测 native 任务的 destPath 在快照里带 UAF，.string() 触栈溢出崩溃）。这里
 // 在点击那一刻把要展示的字段提取成普通 std::string + 标量，渲染只读纯值。
 export struct TaskInfoSnapshot {
     std::string name;      // 标题/文件名

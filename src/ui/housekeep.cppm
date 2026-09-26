@@ -52,8 +52,7 @@ void checkDownloadNotifications() {
             const dl::State prev = it->second;
             const bool wasActive = prev == dl::State::Queued ||
                                    prev == dl::State::Downloading ||
-                                   prev == dl::State::Paused ||
-                                   prev == dl::State::Merging;  // 视频合并中→完成也通知
+                                   prev == dl::State::Paused;
             if (wasActive && prev != t.state) {
                 const std::string name = taskDisplayName(t);
                 if (t.state == dl::State::Done) {
@@ -103,7 +102,7 @@ void housekeepLoop() {
         // 只在 RPC 间隙跳过 RPC，不代表进度没变，但 snapshot 是纯读缓存，每帧读取
         // 最新数据就够。把 requestUiUpdate 移出 {} 确保 busy 为 true 时每 500ms 都
         // 唤醒，解决之前 aria2 进度刷新断断续续、信息行间歇空白的问题。
-        if (g_tasks.busy() || g_tasks.pollVideoMerges()) {
+        if (g_tasks.busy()) {
             core::platform::requestUiUpdate();
         }
         // 引擎监控页打开时 ~2s 刷新一次健康信息（getVersion/getGlobalStat RPC 在

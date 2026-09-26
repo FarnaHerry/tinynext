@@ -15,8 +15,7 @@ import tinynext.ui.widgets;   // drawPanel（设置页大卡背景）
 import tinynext.store.tasks;  // g_tasks.engineActive（保存 daemon 参数时提示重启）
 import tinynext.store.ui;     // showStatus
 import tinynext.store.dialogs;  // g_restartPromptOpen（关闭行为变更的重启提示弹窗）
-import tinynext.component_updater;  // 组件更新（aria2-next / yt-dlp）
-import tinynext.video_resolver;     // ffmpegVersion（组件页 ffmpeg 行）
+import tinynext.component_updater;  // 组件更新（aria2-next）
 import tinynext.ui.platform;
 
 // ---- 设置页私有待提交状态（本模块自用，store 化后不再全局导出）----
@@ -27,7 +26,7 @@ import tinynext.ui.platform;
 // 设置页左侧配置分组：每组一个独立"子页面"，避免全部参数挤在一屏滚动过长。
 // 分组对齐 MotrixNext：通用 / 下载 / BitTorrent / ED2K / 网络 / 高级（MotrixNext
 // 同为 aria2-next 引擎，其分组是此类下载器的标准布局）。
-enum class SettingsTab { General, Download, Video, BitTorrent, Ed2k, Network, Advanced, Components };
+enum class SettingsTab { General, Download, BitTorrent, Ed2k, Network, Advanced, Components };
 SettingsTab g_settingsTab = SettingsTab::General;
 // 下载目录待提交值（默认保存目录；点「保存」才写入配置）。
 std::string g_downloadDirText = cfg::downloadDir().string();
@@ -94,27 +93,6 @@ std::string g_ed2kListenPortText = cfg::aria2Config().ed2kListenPort;
 std::string g_ed2kUdpPortText = cfg::aria2Config().ed2kUdpListenPort;
 std::string g_ed2kUploadSlotsText =
     std::to_string(cfg::aria2Config().ed2kUploadSlots);
-// cookiesBrowser 配置串 ↔ picker 下标映射（下标即 labels 数组顺序）。
-constexpr std::string_view kCookiesBrowserKeys[] = {
-    "off", "default", "chrome", "firefox", "edge",
-    "chromium", "brave", "opera", "vivaldi", "safari",
-};
-int cookiesBrowserIdxOf(const std::string& key) {
-    for (int i = 0; i < static_cast<int>(std::size(kCookiesBrowserKeys)); ++i) {
-        if (kCookiesBrowserKeys[i] == key) return i;
-    }
-    return 1;  // 未知值按「默认浏览器」显示
-}
-
-// ---- 视频解析配置项（VideoConfig，独立于 aria2 daemon，保存即生效）----
-std::string g_videoCookieText = cfg::videoConfig().bilibiliCookie;
-std::string g_videoQualityText = cfg::videoConfig().defaultQuality;
-bool g_videoKeepParts = cfg::videoConfig().keepM4sParts;
-std::string g_videoJsRuntimeText = cfg::videoConfig().jsRuntime;
-std::string g_videoCookiesFileText = cfg::videoConfig().cookiesFile;
-int g_videoCookiesBrowserIdx = cookiesBrowserIdxOf(cfg::videoConfig().cookiesBrowser);
-bool g_videoCookiesBrowserOpen = false;  // Cookie 来源下拉是否展开
-
 namespace {
 
 // 两个 Aria2Config 是否等价：用于判断保存后 daemon 级参数是否真的变了，
@@ -250,7 +228,6 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             const TabItem kTabs[] = {
                 {tr("settings.tab.general"), "general", 0xF013, SettingsTab::General},
                 {tr("settings.tab.download"), "download", 0xF0AC, SettingsTab::Download},
-                {tr("settings.tab.video"), "video", 0xF03D, SettingsTab::Video},
                 {tr("settings.tab.bittorrent"), "bittorrent", 0xF0E7, SettingsTab::BitTorrent},
                 {tr("settings.tab.ed2k"), "ed2k", 0xF0C0, SettingsTab::Ed2k},
                 {tr("settings.tab.network"), "network", 0xF0D7, SettingsTab::Network},
@@ -612,103 +589,6 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 });
             }  // 下载 tab 结束
 
-            // ============== 视频 tab（Cookie 来源 / 解析 cookie / 默认画质 / 保留分片）==============
-            if (g_settingsTab == SettingsTab::Video) {
-                // ---- Cookie 来源（下拉）：关闭 / 默认浏览器 / 各浏览器 ----
-                // 选中非「关闭」时下面的 SESSDATA 与 Cookies 文件行隐藏（被忽略）。
-                // 行 zIndex 200：下拉弹出向下盖过后续行（同 theme 行的处理）。
-                row("video.ckbrowser", kFieldH, [&](eui::Ui& r, float) {
-                    components::text(r, "st.video.ckbrowser.label")
-                        .position(0, 0)
-                        .size(kLabelW, kFieldH)
-                        .text(tr("settings.cookies_browser"))
-                        .fontSize(12.0f)
-                        .lineHeight(kFieldH)
-                        .color(theme.metaText)
-                        .build();
-                    r.stack("st.video.ckbrowser.pick")
-                        .position(kLabelW, -2.0f)
-                        .size(110.0f, 26.0f)
-                        .zIndex(30)
-                        .content([&] {
-                            const char* labels[] = {
-                                tr("settings.cookies_browser_off"),
-                                tr("settings.cookies_browser_default"),
-                                "Chrome", "Firefox", "Edge", "Chromium",
-                                "Brave", "Opera", "Vivaldi", "Safari",
-                            };
-                            buildListPicker(r, "video.ckbrowser", 110.0f, 26.0f, theme,
-                                            g_videoCookiesBrowserOpen, labels, 10,
-                                            g_videoCookiesBrowserIdx, false,
-                                            PickerField::Text,
-                                            [](int i) { g_videoCookiesBrowserIdx = i; });
-                        })
-                        .build();
-                }, 200);
-                if (g_videoCookiesBrowserIdx != 0) {
-                    row("video.ckbrowser.hint", 18.0f, [&](eui::Ui& r, float w) {
-                        components::text(r, "st.video.ckbrowser.hint")
-                            .position(kLabelW, 0)
-                            .size(std::max(160.0f, w - 16.0f - kLabelW), 18.0f)
-                            .text(tr("settings.cookies_browser_hint"))
-                            .fontSize(10.0f)
-                            .lineHeight(18.0f)
-                            .color(theme.metaText)
-                            .build();
-                    });
-                }
-                // SESSDATA / Cookies 文件：仅 Cookie 来源 = 关闭 时的手动方案。
-                if (g_videoCookiesBrowserIdx == 0) {
-                row("video.cookie", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "video.cookie", "SESSDATA", 0, fullW, g_videoCookieText,
-                          [](const std::string& v) { g_videoCookieText = v; },
-                          tr("settings.bili_cookie_hint"));
-                });
-                row("video.cookie.hint", 18.0f, [&](eui::Ui& r, float w) {
-                    components::text(r, "st.video.cookie.hint")
-                        .position(kLabelW, 0)
-                        .size(std::max(160.0f, w - 16.0f - kLabelW), 18.0f)
-                        .text(tr("settings.bili_cookie_how"))
-                        .fontSize(10.0f)
-                        .lineHeight(18.0f)
-                        .color(theme.metaText)
-                        .build();
-                });
-                }  // Cookie 来源 = 关闭 才显示 SESSDATA
-                row("video.quality", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "video.quality", tr("settings.default_quality"), 0, fullW,
-                          g_videoQualityText,
-                          [](const std::string& v) { g_videoQualityText = v; },
-                          tr("settings.quality_hint"));
-                });
-                row("video.keep", kFieldH, [&](eui::Ui& r, float) {
-                    components::text(r, "st.video.keep.label")
-                        .position(0, 0)
-                        .size(kLabelW, kFieldH)
-                        .text(tr("settings.keep_m4s"))
-                        .fontSize(11.0f)
-                        .lineHeight(kFieldH)
-                        .color(theme.metaText)
-                        .build();
-                    buildToggleSwitch(r, "st.video.keep.toggle", kLabelW, 3.0f,
-                                      36.0f, 20.0f, g_videoKeepParts, theme,
-                                      [](bool v) { g_videoKeepParts = v; });
-                });
-                row("video.jsruntime", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "video.jsruntime", tr("settings.js_runtime"), 0, fullW,
-                          g_videoJsRuntimeText,
-                          [](const std::string& v) { g_videoJsRuntimeText = v; },
-                          tr("settings.js_runtime_hint"));
-                });
-                if (g_videoCookiesBrowserIdx == 0) {
-                row("video.cookiesfile", kFieldH, [&](eui::Ui& r, float) {
-                    field(r, "video.cookiesfile", tr("settings.cookies_file"), 0, fullW,
-                          g_videoCookiesFileText,
-                          [](const std::string& v) { g_videoCookiesFileText = v; },
-                          tr("settings.cookies_file_hint"));
-                });
-                }  // Cookie 来源 = 关闭 才显示 Cookies 文件
-            }  // 视频 tab 结束
 
             // ============== 网络 tab（代理 / UA / Referer / 请求头 / Cookie）==============
             if (g_settingsTab == SettingsTab::Network) {
@@ -744,6 +624,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .position(kLabelW, -2.0f)
                         .size(std::max(160.0f, w - 16.0f - kLabelW - 8.0f), 52.0f)
                         .multiline(true)
+                        .scrollbar()   // eui 0.6.0：多行溢出时出垂直滚动条
                         .placeholder(tr("settings.headers_hint"))
                         .value(g_headerText)
                         .fontFamily("")
@@ -823,6 +704,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .position(kLabelW, -2.0f)
                         .size(std::max(160.0f, w - 16.0f - kLabelW - 8.0f), 52.0f)
                         .multiline(true)
+                        .scrollbar()   // eui 0.6.0：多行溢出时出垂直滚动条
                         .placeholder(tr("settings.tracker_hint"))
                         .value(g_btTrackerText)
                         .fontFamily("")
@@ -954,14 +836,13 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 });
             }  // 高级 tab 结束
 
-            // ---- 组件 tab：aria2-next / yt-dlp 在线检查+更新（下载走引擎静默
-            //      通道 + sha256 校验）；ffmpeg 需编译随应用版本，只显示版本。----
+            // ---- 组件 tab：aria2-next 在线检查+更新（下载走引擎静默通道 +
+            //      sha256 校验）。----
             if (g_settingsTab == SettingsTab::Components) {
                 // 组件行：名称 + 版本/错误行 + 右侧操作按钮（状态决定文案；
                 // busy 中的重复点击由 updater 内部忽略）。
-                auto compRow = [&](const char* rowId, updater::Component comp,
-                                   const char* name) {
-                    const updater::ComponentSnapshot snap = updater::snapshot(comp);
+                auto compRow = [&](const char* rowId, const char* name) {
+                    const updater::ComponentSnapshot snap = updater::snapshot();
                     row(rowId, 44.0f, [&](eui::Ui& r, float w) {
                         const std::string base = std::string("st.") + rowId + ".";
                         components::text(r, base + "name")
@@ -1030,8 +911,8 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                 .textColor(onPrimaryColor(theme))
                                 .shadow(0.0f, 0.0f, 0.0f,
                                         core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                                .onClick([comp] {
-                                    updater::startUpdate(g_tasks.engine(), comp);
+                                .onClick([] {
+                                    updater::startUpdate(g_tasks.engine());
                                 })
                                 .build();
                         } else {
@@ -1044,38 +925,14 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                 .radius(kButtonRadius)
                                 .shadow(0.0f, 0.0f, 0.0f,
                                         core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                                .onClick([comp] {
-                                    updater::checkLatest(g_tasks.engine(), comp);
+                                .onClick([] {
+                                    updater::checkLatest(g_tasks.engine());
                                 })
                                 .build();
                         }
                     });
                 };
-                compRow("comp.aria2", updater::Component::Aria2, "aria2-next");
-                compRow("comp.ytdlp", updater::Component::YtDlp, "yt-dlp");
-
-                // ffmpeg 行：版本 + 「随应用版本更新」说明（无按钮）。
-                row("comp.ffmpeg", 44.0f, [&](eui::Ui& r, float w) {
-                    components::text(r, "st.comp.ffmpeg.name")
-                        .position(0, 0)
-                        .size(160.0f, 16.0f)
-                        .text("ffmpeg")
-                        .fontSize(12.0f)
-                        .lineHeight(16.0f)
-                        .color(theme.titleText)
-                        .build();
-                    const std::string ver = video::ffmpegVersion();
-                    components::text(r, "st.comp.ffmpeg.ver")
-                        .position(0, 18.0f)
-                        .size(std::max(60.0f, w - 90.0f), 22.0f)
-                        .text(std::string(tr("settings.comp.current")) + " " +
-                              (ver.empty() ? "—" : ver) + " · " +
-                              tr("settings.comp.ffmpeg_note"))
-                        .fontSize(11.0f)
-                        .lineHeight(13.0f)
-                        .color(theme.metaText)
-                        .build();
-                });
+                compRow("comp.aria2", "aria2-next");
             }  // 组件 tab 结束
         })
         .build();
@@ -1130,13 +987,6 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_ed2kListenPortText = d.ed2kListenPort;
             g_ed2kUdpPortText = d.ed2kUdpListenPort;
             g_ed2kUploadSlotsText = std::to_string(d.ed2kUploadSlots);
-            const cfg::VideoConfig vd;  // 视频配置回默认
-            g_videoCookieText = vd.bilibiliCookie;
-            g_videoQualityText = vd.defaultQuality;
-            g_videoKeepParts = vd.keepM4sParts;
-            g_videoJsRuntimeText = vd.jsRuntime;
-            g_videoCookiesFileText = vd.cookiesFile;
-            g_videoCookiesBrowserIdx = cookiesBrowserIdxOf(vd.cookiesBrowser);
             showStatus(tr("settings.reset_done"));
         })
         .build();
@@ -1312,22 +1162,6 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             // 下载路径：落盘（立即生效，不用重启 daemon）。
             cfg::setDownloadDir(g_downloadDirText);
 
-            // 视频解析配置：独立落盘（与 aria2 daemon 无关，保存即生效）。
-            cfg::VideoConfig vc;
-            vc.bilibiliCookie = trimText(g_videoCookieText);
-            vc.defaultQuality = trimText(g_videoQualityText);
-            vc.keepM4sParts = g_videoKeepParts;
-            vc.jsRuntime = trimText(g_videoJsRuntimeText);
-            vc.cookiesFile = trimText(g_videoCookiesFileText);
-            vc.cookiesBrowser = std::string(kCookiesBrowserKeys[
-                std::clamp(g_videoCookiesBrowserIdx, 0,
-                           static_cast<int>(std::size(kCookiesBrowserKeys)) - 1)]);
-            cfg::setVideoConfig(vc);
-            g_videoCookieText = vc.bilibiliCookie;
-            g_videoQualityText = vc.defaultQuality;
-            g_videoJsRuntimeText = vc.jsRuntime;
-            g_videoCookiesBrowserIdx = cookiesBrowserIdxOf(vc.cookiesBrowser);
-
             // 汇总提示：aria2 daemon 已启动时，参数保存后需重启才生效。
             // 关闭行为改动弹「需要重启」对话框（eui 只在启动时读一次 .tray()，
             // 4s 的状态条太容易错过，曾被认为是"切换没用"）；对话框提供立即重启。
@@ -1391,13 +1225,6 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_ed2kListenPortText = a2.ed2kListenPort;
             g_ed2kUdpPortText = a2.ed2kUdpListenPort;
             g_ed2kUploadSlotsText = std::to_string(a2.ed2kUploadSlots);
-            const cfg::VideoConfig vc = cfg::videoConfig();
-            g_videoCookieText = vc.bilibiliCookie;
-            g_videoQualityText = vc.defaultQuality;
-            g_videoKeepParts = vc.keepM4sParts;
-            g_videoJsRuntimeText = vc.jsRuntime;
-            g_videoCookiesFileText = vc.cookiesFile;  // 顺带补上原有遗漏的回滚
-            g_videoCookiesBrowserIdx = cookiesBrowserIdxOf(vc.cookiesBrowser);
             showStatus(tr("settings.changes_discarded"));
         })
         .build();

@@ -16,7 +16,7 @@ import tinynext.ui.widgets;
 import tinynext.ui.cards;
 import tinynext.store.tasks;    // g_tasks（snapshot/命令）+ taskDisplayName
 import tinynext.store.ui;       // 筛选/排序/分页 + showStatus
-import tinynext.store.dialogs;  // 添加/镜像/删除弹窗状态 + addDownloadAuto/requestDelete
+import tinynext.store.dialogs;  // 添加/镜像/删除弹窗状态 + addDownload/requestDelete
 import tinynext.ui.platform;
 
 // 镜像源管理弹窗（定义在文件末尾；drawDownloadsPage 调用它）。
@@ -435,7 +435,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                         .theme(theme.components)
                         .onChange([](const std::string& value) { g_urlText = value; })
-                        .onEnter([] { if (addDownloadAuto()) g_addOpen = false; })
+                        .onEnter([] { if (addDownload()) g_addOpen = false; })
                         .build();
 
                     // ---- 镜像多源：勾选时 URL 框多行 → 首行为主 URL，其余为镜像源
@@ -483,7 +483,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                         .theme(theme.components)
                         .onChange([](const std::string& value) { g_addRenameText = value; })
-                        .onEnter([] { if (addDownloadAuto()) g_addOpen = false; })
+                        .onEnter([] { if (addDownload()) g_addOpen = false; })
                         .build();
 
                     // ---- 下载目录（留空=全局）----
@@ -503,7 +503,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                         .theme(theme.components)
                         .onChange([](const std::string& value) { g_addDirText = value; })
-                        .onEnter([] { if (addDownloadAuto()) g_addOpen = false; })
+                        .onEnter([] { if (addDownload()) g_addOpen = false; })
                         .build();
                     components::button(ui, "add.dir.browse")
                         .position(inputX + (dlgW - inputX - 16.0f - 60.0f - 8.0f) +
@@ -620,7 +620,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .radius(kButtonRadius)
                     .textColor(onPrimaryColor(theme))
                     .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                    .onClick([] { if (addDownloadAuto()) g_addOpen = false; })
+                    .onClick([] { if (addDownload()) g_addOpen = false; })
                     .build();
             })
             .build();
@@ -781,7 +781,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
 }
 
 // 任务信息弹窗：点卡片「i」按钮打开。完整展示源 URL / 真实报错全文（卡片上被
-// 省略号截断的那部分）/ 保存路径 / 进度等，方便排查下载失败（如视频直链 403）。
+// 省略号截断的那部分）/ 保存路径 / 进度等，方便排查下载失败（如直链 403）。
 void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme,
                         const TaskInfoSnapshot& task) {
     const float dlgW = 400.0f;
@@ -791,7 +791,7 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
     const float rowH = 18.0f;
 
     // 弹窗显示的串先做安全化：eui 文本整形对 NUL/控制字符/非法 UTF-8 可能栈溢出
-    // （failed 视频任务的报错/URL 可能含脏字节）。按码点清洗 + 截到 cap 码点
+    // （failed 任务的报错/URL 可能含脏字节）。按码点清洗 + 截到 cap 码点
     // （超出加省略号），保证交给 eui 的总是干净、有界、合法 UTF-8。
     auto sanitizeForDisplay = [](const std::string& s, size_t cap) {
         std::string out;

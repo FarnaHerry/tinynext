@@ -20,8 +20,6 @@ import tinynext.aria2_engine;
 import tinynext.download_engine;
 import tinynext.i18n;   // tr / trf（结果消息按语言）
 import tinynext.utils;
-import tinynext.video_resolver;  // VideoInfo/VideoFormat（startVideoDownload 入参）
-import tinynext.video_merge;     // MergeTracker（DASH 音视频合并编排）
 
 constexpr const char* kProxyEmpty = "";
 
@@ -60,11 +58,10 @@ public:
     TaskStore& operator=(const TaskStore&) = delete;
 
     // ---- 查询 ----
-    // 快照经 MergeTracker 过滤（DASH 视频子任务聚合成单个合成任务），并按统一的
-    // 「下载创建顺序」降序排列（最新在前）——普通下载与视频下载都经 startFromUrl /
-    // startVideoDownload 统一派发时由本 store 打同一条序号，保证两类任务排序一致。
+    // 快照按统一的「下载创建顺序」降序排列（最新在前）：任务创建时由本 store
+    // 打全局递增序号（startFromUrl / 恢复任务的引擎序号兜底），保证排序一致。
     std::vector<dl::TaskView> snapshot() const {
-        auto views = videoMerge_.mergeSnapshot(engine_->snapshot());
+        auto views = engine_->snapshot();
         std::stable_sort(views.begin(), views.end(), [&](const dl::TaskView& a, const dl::TaskView& b) {
             const auto sa = seqOf(a.id);
             const auto sb = seqOf(b.id);
@@ -74,12 +71,8 @@ public:
     }
     // 后台线程进度轮询（~1s 节流；UI 线程不要调，见 engine_->pollProgress 注释）。
     void pollProgress() { engine_->pollProgress(); }
-    // housekeep 500ms 循环调用：检查 DASH 任务音视频是否都下完 → 触发 ffmpeg 合并。
-    // 返回是否新触发了合并（true 时调用方唤醒 UI 显示「合并中」）。
-    bool pollVideoMerges() { return videoMerge_.pollMerges(*engine_); }
-    // 是否存在进行中的任务（aria2 引擎 + yt-dlp 原生下载）。
-    // housekeep 500ms 循环据此决定是否驱动进度轮询 + 唤醒 UI。
-    bool busy() const { return engine_->busy() || videoMerge_.hasActiveJobs(); }
+    // 是否存在进行中的任务。housekeep 500ms 循环据此决定是否驱动进度轮询 + 唤醒 UI。
+    bool busy() const { return engine_->busy(); }
     bool engineActive() const { return engine_->engineActive(); }
     std::string lastError() const { return engine_->lastError(); }
 
@@ -106,18 +99,17 @@ public:
     void shutdown() { engine_->shutdown(); }
 
     // ---- 任务命令（UI 线程）----
-    // 先问 MergeTracker：命中视频合成任务则映射到两个子任务，否则落到引擎。
-    void cancel(std::uint64_t id) { if (videoMerge_.cancel(*engine_, id)) return; engine_->cancel(id); }
-    void pause(std::uint64_t id) { if (videoMerge_.pause(*engine_, id)) return; engine_->pause(id); }
-    void resume(std::uint64_t id) { if (videoMerge_.resume(*engine_, id)) return; engine_->resume(id); }
+    void cancel(std::uint64_t id) { engine_->cancel(id); }
+    void pause(std::uint64_t id) { engine_->pause(id); }
+    void resume(std::uint64_t id) { engine_->resume(id); }
     void pauseAll() { engine_->pauseAll(); }
     void resumeAll() { engine_->resumeAll(); }
-    void retry(std::uint64_t id) { if (videoMerge_.retry(*engine_, id)) return; engine_->retry(id); }
+    void retry(std::uint64_t id) { engine_->retry(id); }
 
     // 启动自动重试（「启动时自动重试失败任务」开启时，由 app.cpp 在预热完成后
     // 调用）：对快照中所有 Failed 任务逐个 retry（aria2 复用原 URL+路径
-    // continue 续传；视频合成任务经 MergeTracker 映射到子任务）。返回触发重试
-    // 的任务数。UI 线程调用（与卡片 ↻ 同路径，无线程问题）。
+    // continue 续传）。返回触发重试的任务数。UI 线程调用（与卡片 ↻ 同路径，
+    // 无线程问题）。
     int retryFailedTasks() {
         int n = 0;
         for (const auto& t : snapshot()) {
@@ -140,8 +132,6 @@ public:
     // 删除任务记录（daemon 会话 + 本地任务表）并清理下载缓存（.aria2 控制
     // 文件）。源文件是否删除由 UI 层的删除确认弹窗决定，不在本方法职责内。
     void deleteRecord(const dl::TaskView& task) {
-        // 视频合成任务：MergeTracker 内部移除两个子任务并清掉 .m4s/成品 mp4。
-        if (videoMerge_.remove(*engine_, task.id)) return;
         engine_->remove(task.id);
         removeControlFile(task.destPath);
     }
@@ -201,117 +191,10 @@ public:
         return startFromUrl(std::move(url), opts);
     }
 
-    // ---- 视频下载 ----
-    // 从 URL 智能派发：检测视频页（YouTube/bilibili 等）时自动解析并下载最佳画质；
-    // 普通 URL 直走 aria2。同步阻塞（解析最长 60s），UI 线程调用时注意。
-    // 返回 StartResult，id 在成功时有效。
-    StartResult startVideoFromUrl(std::string url, const dl::StartOptions& baseOpts) {
-        // 修剪
-        const std::size_t first = url.find_first_not_of(" \t\r\n");
-        const std::size_t last = url.find_last_not_of(" \t\r\n");
-        url = first == std::string::npos ? "" : url.substr(first, last - first + 1);
-        if (url.empty()) return {false, tr("store.enter_download_url")};
-
-        if (!isLikelyVideoPageUrl(url)) {
-            // 非视频页，走普通下载
-            return startFromUrl(url, baseOpts);
-        }
-
-        // 视频页：解析 → 选最佳画质 → 下载
-        const std::string proxy = cfg::aria2Config().proxy;
-        const video::ResolveResult rr = video::resolveVideoUrl(
-            url, cfg::videoConfig().bilibiliCookie, proxy);
-        if (!rr.ok || !rr.info.has_value() || rr.info->formats.empty()) {
-            const std::string err = rr.error.empty()
-                ? tr("store.video_resolve_failed")
-                : std::string(tr("store.video_resolve_prefix")) + rr.error;
-            return {false, err};
-        }
-
-        const video::VideoInfo& info = *rr.info;
-        // 选画质：设置默认画质关键词 → 最高画质（formats 已按高度降序）
-        const std::string want = cfg::videoConfig().defaultQuality;
-        int pick = 0;
-        if (!want.empty()) {
-            for (int i = 0; i < static_cast<int>(info.formats.size()); ++i) {
-                if (info.formats[i].label.find(want) != std::string::npos) { pick = i; break; }
-            }
-        }
-        return startVideoDownload(info, info.formats[pick], baseOpts);
-    }
-
-    // 启动一个已解析好的视频下载（视频页在 resolveVideoUrl 成功后调用）。
-    //   - rangeBootstrap（YouTube 等 googlevideo CDN）：yt-dlp 命令行原生下载
-    //     （--downloader native，yt-dlp 自行处理 JS challenge 与 DASH 合并）；
-    //   - bilibili DASH（音视频分离）：交给 MergeTracker 起两个 aria2 子任务，
-    //     下完 ffmpeg 合并；
-    //   - 合流单文件：单个 aria2 任务，带 format 的请求头。
-    // dir 为空用配置下载目录。baseOpts 提供连接数/目录覆盖等，请求头由 format 覆盖。
-    StartResult startVideoDownload(const video::VideoInfo& info,
-                                   const video::VideoFormat& format,
-                                   const dl::StartOptions& baseOpts) {
-        std::filesystem::path dir = baseOpts.dirOverride.empty()
-            ? cfg::downloadDir()
-            : baseOpts.dirOverride;
-        if (dir.is_relative()) dir = cfg::downloadDir() / dir;
-        std::error_code ec;
-        std::filesystem::create_directories(dir, ec);
-
-        const std::string base =
-            video::MergeTracker::sanitizeFileName(info.title.empty() ? "video" : info.title);
-
-        // YouTube 等 googlevideo CDN：aria2 直连分段 Range 会被 403，统一走 yt-dlp
-        // 命令行下载（--downloader native 单进程，DASH 由 yt-dlp+ffmpeg 合并）。
-        // 注意：传 info.webpageUrl（原始 YouTube 页面）而非 format.videoUrl（直链）——
-        // yt-dlp 需要网页 URL 来做 JS challenge + cookie 验证 + 选择最佳格式。
-        if (format.rangeBootstrap) {
-            const std::filesystem::path logFile = cfg::configDir() / "tinynext-ytdlp-download.log";
-            const std::uint64_t id = videoMerge_.startYtDlpJob(
-                info.webpageUrl, cfg::videoConfig().jsRuntime, base, dir,
-                format.headers.userAgent, format.headers.referer);
-            if (id == 0) {
-                return {false, tr("store.video_start_engine_unavailable")};
-            }
-            stampSeq(id);
-            return {true, trf("store.video_started", id, base), id};
-        }
-
-        // bilibili DASH：MergeTracker 内部完成命名 / 起子任务 / 合并编排。
-        if (!format.audioUrl.empty()) {
-            const std::uint64_t id = videoMerge_.startJob(
-                *engine_, info, format, dir, baseOpts, cfg::videoConfig().keepM4sParts);
-            if (id == 0) {
-                return {false, tr("store.video_start_engine_unavailable")};
-            }
-            stampSeq(id);
-            return {true, trf("store.video_started", id, base), id};
-        }
-
-        // 合流单文件：直接走引擎，携带解析出的请求头（Referer/UA 防 CDN 403）。
-        if (format.videoUrl.empty()) {
-            return {false, tr("store.no_stream_for_quality")};
-        }
-        dl::StartOptions opts = baseOpts;
-        const std::string ext = format.ext.empty() ? "mp4" : format.ext;
-        opts.outputName = base + "." + ext;
-        opts.headers = format.headers.extra;
-        opts.userAgent = format.headers.userAgent;
-        opts.referer = format.headers.referer;
-        const std::filesystem::path dest = dir / pathFromUtf8(opts.outputName);
-        const std::uint64_t id = engine_->start(format.videoUrl, dest, opts);
-        if (id == 0) {
-            const std::string err = engine_->lastError();
-            return {false, err.empty() ? tr("store.video_start_engine_unavailable")
-                                       : trf("store.video_start_failed", err)};
-        }
-        stampSeq(id);
-        return {true, trf("store.video_started", id, opts.outputName), id};
-    }
-
 private:
-    // 统一下载创建序：每个成功派发的下载（普通 startFromUrl 或视频 startVideoDownload
-    // 的合成任务）领一个全局递增序号，存入 seqByTask_（taskId → seq）。作图层的
-    // 「最新在前」排序依据，避免视频任务因 MergeTracker 追加在列表尾部而排不上去。
+    // 统一下载创建序：每个成功派发的下载（startFromUrl）领一个全局递增序号，
+    // 存入 seqByTask_（taskId → seq）。作「最新在前」排序依据（引擎任务表的
+    // id 单调递增但重启后由会话恢复重新编号，序号保证跨恢复的稳定排序）。
     std::uint64_t stampSeq(std::uint64_t id) {
         std::lock_guard<std::mutex> lock(seqMutex_);
         const std::uint64_t s = ++nextSeq_;
@@ -325,7 +208,6 @@ private:
     }
 
     std::unique_ptr<dl::DownloadEngine> engine_;
-    video::MergeTracker videoMerge_;   // DASH 视频任务的聚合 / 合并编排
     mutable std::mutex seqMutex_;      // 保护 nextSeq_ / seqByTask_（UI 线程派发写，housekeep 后台读）
     mutable std::uint64_t nextSeq_ = 0;
     mutable std::unordered_map<std::uint64_t, std::uint64_t> seqByTask_;

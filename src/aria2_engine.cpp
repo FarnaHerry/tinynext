@@ -892,19 +892,6 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
         optionsJ["max-download-limit"] = std::to_string(a2.maxDownloadLimit);
     }
 
-    // 每任务 HTTP 头（视频解析等 CDN 受限源，如 bilibili 强制 Referer）：aria2
-    // 原生支持每任务 header/user-agent/referer 选项，覆盖 daemon 级配置。空则不
-    // 加，行为与之前一致。
-    if (!options.headers.empty()) {
-        nlohmann::json hdrs = nlohmann::json::array();
-        for (const auto& h : options.headers) {
-            if (!h.empty()) hdrs.push_back(h);
-        }
-        if (!hdrs.empty()) optionsJ["header"] = std::move(hdrs);
-    }
-    if (!options.userAgent.empty()) optionsJ["user-agent"] = options.userAgent;
-    if (!options.referer.empty()) optionsJ["referer"] = options.referer;
-
     // 磁力/BT：内容名由种子决定，只设 dir 不设 out；destPath 用占位，等
     // refreshStates() 从 files[0].path 更新为真实路径。
     // 普通 HTTP(S) 且未显式重命名：同样不设 out，让 aria2 从响应头
@@ -943,7 +930,7 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
         if (magnet) {
             task->destPath = dir / ("magnet-" + std::to_string(task->id));
         } else if (!options.outputName.empty()) {
-            // outputName 是 UTF-8（UI 输入 / 视频标题），拼 path 经 pathFromUtf8；
+            // outputName 是 UTF-8（UI 输入），拼 path 经 pathFromUtf8；
             // out 回 JSON 经 utf8FromPath。
             const std::filesystem::path uniqueDest =
                 makeUniqueDest(dir / pathFromUtf8(options.outputName));
@@ -1066,7 +1053,9 @@ void Aria2Engine::remove(std::uint64_t id) {
                     nlohmann::json::array({gid}));
         } catch (...) {}
         // 立即重写会话文件：已删任务不再出现在 --input-file，下次启动不会复活。
-        // （只删面板不动会话是"随便下载一个就拉起历史任务"的根因。）
+        // （只删面板不动会话是"随便下载一个就拉起历史任务"的根因。）写前同样
+        // 过闸门：开关关闭时失败记录也不该被这次重写顺带写进会话。
+        purgeFailedBeforeSessionSave();
         try {
             rpcCall(port_, secret_, "aria2.saveSession", nlohmann::json::array());
         } catch (...) {}
@@ -1205,16 +1194,6 @@ void Aria2Engine::retryOnWorker(std::uint64_t id) {
     if (a2.maxDownloadLimit > 0) {
         optionsJ["max-download-limit"] = std::to_string(a2.maxDownloadLimit);
     }
-    // 每任务 HTTP 头（视频解析等 CDN 受限源）：retry 复用 task->opts，头随重试保留。
-    if (!task->opts.headers.empty()) {
-        nlohmann::json hdrs = nlohmann::json::array();
-        for (const auto& h : task->opts.headers) {
-            if (!h.empty()) hdrs.push_back(h);
-        }
-        if (!hdrs.empty()) optionsJ["header"] = std::move(hdrs);
-    }
-    if (!task->opts.userAgent.empty()) optionsJ["user-agent"] = task->opts.userAgent;
-    if (!task->opts.referer.empty()) optionsJ["referer"] = task->opts.referer;
     // 磁力/BT 不设 out（内容名由种子决定）；HTTP 仅当显式重命名时才强制 out
     // （否则重新走 Content-Disposition 解析，避免续传回来仍是 uuid 名）。
     nlohmann::json params;
@@ -1658,6 +1637,7 @@ void Aria2Engine::restartEngine(std::function<void(bool)> onDone,
         {
             std::lock_guard<std::mutex> lock(daemonMutex_);
             if (daemonSpawned_) {
+                purgeFailedBeforeSessionSave();
                 try {
                     rpcCall(port_, secret_, "aria2.saveSession", nlohmann::json::array());
                 } catch (...) {}
@@ -1720,9 +1700,6 @@ std::vector<TaskView> Aria2Engine::snapshot() const {
         tv.mirrorCount = static_cast<int>(task.opts.mirrors.size());
         tv.mirrors = task.mirrors;
         tv.fromSession = task.fromSession;
-        // 普通 aria2 任务的展示进度状态 = 本身状态（progressState 默认 Queued，
-        // 这里同步为 task.state，供卡片信息行读取；yt-dlp 合成任务会覆盖它）。
-        tv.progressState = task.state;
         // 在任务数据仍存活时预编码 destPath 到 UTF-8 串，后续读（如任务信息弹窗、终端输出）
         // 不走可能已悬空的 destPath（原生下载分支的遗留问题，见 dialogs.cppm）。
         tv.destPathUtf8 = task.destPath.empty() ? std::string() : utf8FromPath(task.destPath);
@@ -1780,6 +1757,31 @@ void Aria2Engine::handleWsEvent(const std::string& method, const std::string& gi
     }
 }
 
+// 「启动时自动重试失败任务」关闭时：Failed/Cancelled 的 gid 从 daemon 的 stopped
+// 结果列表移除（aria2.removeDownloadResult，仅对已停止记录有效），save-session
+// 便不再把它们写进会话文件；下次启动 --input-file 无从重载重开。开启时直接返回，
+// 保留失败记录让 aria2 重载自动续传（= 自动重试）。tasks_ 快照在锁内取、RPC 在
+// 锁外发（与 recoverSession 持锁发 RPC 的用法一致，锁序 daemon → tasks 不变）。
+void Aria2Engine::purgeFailedBeforeSessionSave() const {
+    if (cfg::autoRetryFailed()) return;
+    std::vector<std::string> gids;
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        for (const auto& task : tasks_) {
+            if ((task->state == State::Failed || task->state == State::Cancelled) &&
+                !task->gid.empty()) {
+                gids.push_back(task->gid);
+            }
+        }
+    }
+    for (const auto& gid : gids) {
+        try {
+            rpcCall(port_, secret_, "aria2.removeDownloadResult",
+                    nlohmann::json::array({gid}));
+        } catch (...) {}
+    }
+}
+
 void Aria2Engine::shutdown() {
     // 先停命令队列（必须在取 daemonMutex_ 之前 join：worker 若正在 retryOnWorker
     // 里调 ensureDaemon 会等 daemonMutex_，此时持锁 join 会死锁）。置位后 worker
@@ -1794,7 +1796,9 @@ void Aria2Engine::shutdown() {
     // 与可能仍在跑的 warmup 后台线程互斥（它正在 ensureDaemon 里等 RPC 就绪）。
     std::lock_guard<std::mutex> daemonLock(daemonMutex_);
     if (daemonSpawned_) {
-        // 先持久化未完成任务（--save-session）；forceShutdown 会跳过会话保存。
+        // 闸门：开关关闭时先把失败记录清出 daemon，再持久化未完成任务
+        //（--save-session）；forceShutdown 会跳过会话保存。
+        purgeFailedBeforeSessionSave();
         try {
             rpcCall(port_, secret_, "aria2.saveSession", nlohmann::json::array());
         } catch (...) {}

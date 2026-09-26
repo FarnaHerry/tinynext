@@ -68,6 +68,13 @@ private:
     struct Task;
     bool ensureDaemon() const;      // spawn + wait until RPC answers
     void recoverSession() const;    // 重启后重建会话任务（tellActive/Waiting/Stopped）
+    // 写会话文件（saveSession）前的统一闸门：「启动时自动重试失败任务」关闭时，
+    // 把 Failed/Cancelled 记录从 daemon 结果列表清掉，使其不进入会话文件——
+    // aria2 的 --save-session 会连 error 记录一起保存，下次启动 --input-file 会
+    // 自动重新添加并直接开下载（旧 gid 还按 .aria2 控制文件续传），整条路径绕过
+    // 应用层开关（实测：开关关闭后失败任务重启仍被自动重新下载）。开启时不清，
+    // 失败记录进会话、aria2 自动续传，与开关语义一致。
+    void purgeFailedBeforeSessionSave() const;
     void refreshStates() const;     // poll tellStatus for live tasks (~1 Hz), 内部管理锁
     std::shared_ptr<Task> findTask(std::uint64_t id) const;
     std::filesystem::path makeUniqueDest(const std::filesystem::path& dest) const;

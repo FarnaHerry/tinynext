@@ -36,7 +36,7 @@ mkdir -p "$dist/engines"
 cp "$build_bin/tinynext" "$dist/tinynext"
 chmod +x "$dist/tinynext"
 cp -r "$root/assets" "$dist/assets"
-# 第三方二进制（aria2-next / yt-dlp / ffmpeg）的许可与来源声明，随包带到根目录。
+# 第三方二进制（aria2-next）的许可与来源声明，随包带到根目录。
 if [ -f "$root/THIRD-PARTY-NOTICES.md" ]; then
     cp "$root/THIRD-PARTY-NOTICES.md" "$dist/THIRD-PARTY-NOTICES.md"
 fi
@@ -50,17 +50,6 @@ if [ -x "$root/engines/aria2-next" ]; then
 else
     echo "WARN: engines/aria2-next missing — aria2-next is the only engine, downloads will not work" >&2
 fi
-
-# yt-dlp / ffmpeg：视频解析 + DASH 合并依赖。缺失只影响视频功能（普通下载不受影响），
-# 所以只警告不报错；它们更新频繁，运行时不做完整性校验，随包分发即可。
-for name in yt-dlp ffmpeg; do
-    if [ -x "$root/engines/$name" ]; then
-        cp "$root/engines/$name" "$dist/engines/$name"
-        chmod +x "$dist/engines/$name"
-    else
-        echo "WARN: engines/$name missing — video parse/merge will not work" >&2
-    fi
-done
 
 if [ "$os" = "linux" ]; then
     # 同根目录 run.sh：走系统 loader，优先 /usr/lib64 的系统 Mesa/glibc。

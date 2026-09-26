@@ -1,25 +1,44 @@
-// component_updater.cppm — 组件（外部二进制依赖）的应用内更新：aria2-next /
-// yt-dlp。ffmpeg 需要编译、随应用版本走，不在此更新（设置页只显示版本）。
+// component_updater.cppm — aria2-next 引擎的应用内更新。
 //
 // 领域层模块：不 import 任何 ui.*/eui。所有网络/文件操作都在 updater 自己的
 // 工作线程跑（引擎 downloadFile 回调在引擎线程，经条件变量转回工作线程）；
 // UI 线程只经 snapshot() 读纯值拷贝。状态变化经注入的 wake 回调唤醒 UI
 // （app.cpp 启动时注入 core::platform::requestUiUpdate）。
 //
-// 更新源（GitHub releases，两边都随 release 发布 sha256 校验文件）：
-//   aria2-next: AnInsomniacy/aria2-next —— 资产 aria2-next-<ver>-<os>-<arch>[.exe]，
-//               校验文件 aria2-next-<ver>-checksums.sha256；
-//   yt-dlp:     yt-dlp/yt-dlp —— 资产 yt-dlp.exe / yt-dlp_linux / yt-dlp_macos，
-//               校验文件 SHA2-256SUMS。
+// 更新源（GitHub releases，随 release 发布 sha256 校验文件）：
+//   AnInsomniacy/aria2-next —— 资产 aria2-next-<ver>-<os>-<arch>[.exe]，
+//   校验文件 aria2-next-<ver>-checksums.sha256。
 // 项目无 TLS/HTTP 客户端依赖：HTTPS 下载全部交给运行中的 aria2 daemon
 // （dl::DownloadEngine::downloadFile 静默通道，不出下载卡片）。
 //
 // 更新 aria2-next 自身的顺序：下载 + 校验先做完，替换二进制经
 // restartEngine(beforeRespawn) 在「daemon 已停、尚未重拉起」的窗口里执行
-// （Windows 运行中的 exe 被文件锁占用）；yt-dlp 非常驻进程，直接原子替换。
+// （Windows 运行中的 exe 被文件锁占用）。
 module;
 
 #include <nlohmann/json.hpp>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>  // 版本探测 spawn（CreateProcessW）/ GetModuleFileNameW
+#else
+#include <sys/types.h>   // pid_t
+#include <sys/wait.h>    // waitpid, WNOHANG
+#include <signal.h>      // kill, SIGKILL
+#include <spawn.h>       // posix_spawn
+#include <fcntl.h>       // fcntl, O_NONBLOCK, open
+#include <unistd.h>      // pipe/read/close/usleep
+#ifdef __APPLE__
+#include <mach-o/dyld.h> // _NSGetExecutablePath
+#endif
+// macOS 的 <unistd.h> 不声明 environ（glibc 会）；posix_spawn 需要，这里显式声明。
+extern char** environ;
+#endif
 
 export module tinynext.component_updater;
 
@@ -27,11 +46,8 @@ import std;
 import tinynext.config;          // configDir（版本探测的 stderr 日志）
 import tinynext.download_engine; // dl::DownloadEngine（downloadFile/restartEngine）
 import tinynext.i18n;            // tr（错误文案）
-import tinynext.video_resolver;  // findEngineBinary / runCapture / ytDlpVersion
 
 export namespace updater {
-
-enum class Component { Aria2, YtDlp };
 
 enum class CompStatus {
     Idle,             // 尚未检查
@@ -55,12 +71,11 @@ struct ComponentSnapshot {
     std::string error;     // CheckFailed/Failed 的原因
 };
 
-ComponentSnapshot snapshot(Component c);
+ComponentSnapshot snapshot();
 void setWakeUi(std::function<void()> fn);   // app.cpp 注入 requestUiUpdate
-void setCurrentVersion(Component c, std::string version);  // 预热探测写入
 void probeAria2Version();   // 跑 aria2-next --version（后台线程调用，可能数秒）
-void checkLatest(dl::DownloadEngine& eng, Component c);
-void startUpdate(dl::DownloadEngine& eng, Component c);
+void checkLatest(dl::DownloadEngine& eng);
+void startUpdate(dl::DownloadEngine& eng);
 
 } // namespace updater
 
@@ -208,19 +223,10 @@ std::string extractHashFor(const std::filesystem::path& sumFile, const std::stri
     return {};
 }
 
-// ---- 组件元数据 ----
+// ---- 组件元数据（仅 aria2-next）----
 
-using updater::Component;
-
-int compIndex(Component c) { return c == Component::Aria2 ? 0 : 1; }
-
-const char* repoOf(Component c) {
-    return c == Component::Aria2 ? "AnInsomniacy/aria2-next" : "yt-dlp/yt-dlp";
-}
-
-const char* binaryOf(Component c) {
-    return c == Component::Aria2 ? "aria2-next" : "yt-dlp";
-}
+constexpr const char* kRepo = "AnInsomniacy/aria2-next";
+constexpr const char* kBinary = "aria2-next";
 
 std::string stripLeadingV(std::string tag) {
     if (!tag.empty() && (tag[0] == 'v' || tag[0] == 'V')) tag.erase(0, 1);
@@ -228,41 +234,31 @@ std::string stripLeadingV(std::string tag) {
 }
 
 // 发布资产名按编译期平台映射（我们只发 win64 / linux-x86_64 / macos-arm64）。
-std::string assetNameOf(Component c, const std::string& ver) {
-    if (c == Component::Aria2) {
+std::string assetNameOf(const std::string& ver) {
 #ifdef _WIN32
-        return "aria2-next-" + ver + "-windows-x86_64.exe";
+    return "aria2-next-" + ver + "-windows-x86_64.exe";
 #elif defined(__APPLE__)
-        return "aria2-next-" + ver + "-macos-arm64";
+    return "aria2-next-" + ver + "-macos-arm64";
 #else
-        return "aria2-next-" + ver + "-linux-x86_64";
-#endif
-    }
-#ifdef _WIN32
-    return "yt-dlp.exe";
-#elif defined(__APPLE__)
-    return "yt-dlp_macos";
-#else
-    return "yt-dlp_linux";
+    return "aria2-next-" + ver + "-linux-x86_64";
 #endif
 }
 
-std::string checksumAssetOf(Component c, const std::string& ver) {
-    return c == Component::Aria2 ? "aria2-next-" + ver + "-checksums.sha256"
-                                 : "SHA2-256SUMS";
+std::string checksumAssetOf(const std::string& ver) {
+    return "aria2-next-" + ver + "-checksums.sha256";
 }
 
-std::string apiUrlOf(Component c) {
-    return std::string("https://api.github.com/repos/") + repoOf(c) + "/releases/latest";
+std::string apiUrl() {
+    return std::string("https://api.github.com/repos/") + kRepo + "/releases/latest";
 }
 
-std::string downloadUrlOf(Component c, const std::string& tag, const std::string& asset) {
-    return std::string("https://github.com/") + repoOf(c) + "/releases/download/" +
+std::string downloadUrlOf(const std::string& tag, const std::string& asset) {
+    return std::string("https://github.com/") + kRepo + "/releases/download/" +
            tag + "/" + asset;
 }
 
-// dotted numeric 版本比较（前导 v 已去）：2.6.7 < 2.6.8；yt-dlp 的日期版
-// （2026.08.19）同样适用，前导 0 段按数值处理（"08"=8）。返回 -1/0/1。
+// dotted numeric 版本比较（前导 v 已去）：2.6.7 < 2.6.8，前导 0 段按数值处理
+// （"08"=8）。返回 -1/0/1。
 int compareVersions(const std::string& a, const std::string& b) {
     auto splitNum = [](const std::string& s) {
         std::vector<long long> out;
@@ -292,14 +288,216 @@ int compareVersions(const std::string& a, const std::string& b) {
     return 0;
 }
 
-// "Aria2 Next version 2.6.2\n..." → "2.6.2"（yt-dlp --version 直接出版本号，
-// 不需要过这个解析）。
+// "Aria2 Next version 2.6.2\n..." → "2.6.2"。
 std::string parseVersionAfterMarker(const std::string& out, std::string_view marker) {
     const auto pos = out.find(marker);
     if (pos == std::string::npos) return {};
     const std::size_t start = pos + marker.size();
     const auto end = out.find_first_of(" \r\n\t", start);
     return out.substr(start, end == std::string::npos ? std::string::npos : end - start);
+}
+
+// ---- 进程探测辅助（自旧 video_resolver 移植，仅 --version 探测用）----
+
+#ifdef _WIN32
+std::wstring utf8ToWide(const std::string& s) {
+    if (s.empty()) return {};
+    const int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
+    std::wstring w(n, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), n);
+    return w;
+}
+// CreateProcessW 命令行参数加引号（含空格/特殊字符时）。
+std::wstring quoteArg(const std::string& s) {
+    std::wstring w = utf8ToWide(s);
+    std::wstring out = L"\"";
+    for (wchar_t c : w) {
+        if (c == L'"') out += L"\\\"";
+        else out += c;
+    }
+    out += L"\"";
+    return out;
+}
+#endif
+
+// spawn 进程并捕获 stdout（stderr 重定向到 stderrFile 供报错），带超时强杀。
+struct CapturedProc {
+    int exitCode = -1;
+    std::string out;        // stdout
+    bool timedOut = false;
+};
+
+CapturedProc runCapture(const std::string& exe,
+                        const std::vector<std::string>& args,
+                        const std::filesystem::path& stderrFile,
+                        int timeoutSec) {
+    CapturedProc result;
+#ifdef _WIN32
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    HANDLE readPipe = nullptr, writePipe = nullptr;
+    if (!CreatePipe(&readPipe, &writePipe, &sa, 0)) return result;
+    SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);  // 读端不遗传
+
+    // stderr → 文件（可继承句柄）。
+    HANDLE errFile = CreateFileW(utf8ToWide(stderrFile.string()).c_str(),
+                                 GENERIC_WRITE, FILE_SHARE_READ, &sa,
+                                 CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+
+    std::wstring cmd = quoteArg(exe);
+    for (const auto& a : args) { cmd += L" "; cmd += quoteArg(a); }
+
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = writePipe;
+    si.hStdError = errFile != INVALID_HANDLE_VALUE ? errFile : writePipe;
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    PROCESS_INFORMATION pi{};
+    std::vector<wchar_t> cmdBuf(cmd.begin(), cmd.end());
+    cmdBuf.push_back(L'\0');
+    const BOOL ok = CreateProcessW(nullptr, cmdBuf.data(), nullptr, nullptr, TRUE,
+                                   CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    CloseHandle(writePipe);  // 父进程关闭写端，才能读到 EOF
+    if (errFile != INVALID_HANDLE_VALUE) CloseHandle(errFile);
+    if (!ok) { CloseHandle(readPipe); return result; }
+
+    const DWORD deadline = GetTickCount() + (DWORD)timeoutSec * 1000;
+    bool exited = false;
+    for (;;) {
+        DWORD avail = 0;
+        if (PeekNamedPipe(readPipe, nullptr, 0, nullptr, &avail, nullptr) && avail > 0) {
+            char buf[8192];
+            DWORD got = 0;
+            const DWORD want = avail < sizeof(buf) ? avail : (DWORD)sizeof(buf);
+            if (ReadFile(readPipe, buf, want, &got, nullptr) && got > 0) {
+                result.out.append(buf, got);
+            }
+            continue;
+        }
+        if (WaitForSingleObject(pi.hProcess, 0) == WAIT_OBJECT_0) { exited = true; break; }
+        if (GetTickCount() > deadline) {
+            TerminateProcess(pi.hProcess, 1);
+            result.timedOut = true;
+            break;
+        }
+        Sleep(15);
+    }
+    // 进程退出后再尽力排空管道里剩余数据。
+    for (;;) {
+        DWORD avail = 0;
+        if (!PeekNamedPipe(readPipe, nullptr, 0, nullptr, &avail, nullptr) || avail == 0) break;
+        char buf[8192];
+        DWORD got = 0;
+        const DWORD want = avail < sizeof(buf) ? avail : (DWORD)sizeof(buf);
+        if (!ReadFile(readPipe, buf, want, &got, nullptr) || got == 0) break;
+        result.out.append(buf, got);
+    }
+    if (exited) {
+        DWORD code = 1;
+        GetExitCodeProcess(pi.hProcess, &code);
+        result.exitCode = (int)code;
+    }
+    CloseHandle(readPipe);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    return result;
+#else
+    int pipefd[2];
+    if (pipe(pipefd) != 0) return result;
+    const int errFd = open(stderrFile.string().c_str(),
+                           O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_adddup2(&fa, pipefd[1], STDOUT_FILENO);
+    if (errFd >= 0) posix_spawn_file_actions_adddup2(&fa, errFd, STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&fa, pipefd[0]);
+
+    std::vector<std::string> argStorage;
+    argStorage.push_back(exe);
+    for (const auto& a : args) argStorage.push_back(a);
+    std::vector<char*> argv;
+    argv.reserve(argStorage.size() + 1);
+    for (auto& s : argStorage) argv.push_back(s.data());
+    argv.push_back(nullptr);
+
+    pid_t pid = 0;
+    const int rc = posix_spawn(&pid, exe.c_str(), &fa, nullptr, argv.data(), environ);
+    posix_spawn_file_actions_destroy(&fa);
+    close(pipefd[1]);
+    if (errFd >= 0) close(errFd);
+    if (rc != 0) { close(pipefd[0]); return result; }
+
+    fcntl(pipefd[0], F_SETFL, O_NONBLOCK);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeoutSec);
+    int status = 0;
+    bool exited = false;
+    for (;;) {
+        char buf[8192];
+        const ssize_t n = read(pipefd[0], buf, sizeof(buf));
+        if (n > 0) { result.out.append(buf, (std::size_t)n); continue; }
+        if (waitpid(pid, &status, WNOHANG) == pid) { exited = true; break; }
+        if (std::chrono::steady_clock::now() > deadline) {
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0);
+            result.timedOut = true;
+            break;
+        }
+        usleep(15000);
+    }
+    // 排空剩余。
+    for (;;) {
+        char buf[8192];
+        const ssize_t n = read(pipefd[0], buf, sizeof(buf));
+        if (n <= 0) break;
+        result.out.append(buf, (std::size_t)n);
+    }
+    close(pipefd[0]);
+    if (exited && WIFEXITED(status)) result.exitCode = WEXITSTATUS(status);
+    return result;
+#endif
+}
+
+// 在 engines/ 下找外部工具二进制（与 aria2_engine 的查找顺序一致）：先
+// <exeDir>/engines/，回退 <cwd>/engines/；POSIX 上再回退系统 PATH 里的同名工具
+// （Linux/macOS 用户常已用包管理器装好 aria2，不必再放一份到 engines/）。
+// Windows 自动补 .exe。
+std::string findEngineBinary(const char* baseName) {
+    std::filesystem::path exeDir;
+#ifdef _WIN32
+    wchar_t buf[MAX_PATH];
+    const DWORD len = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+    if (len > 0 && len < MAX_PATH) exeDir = std::filesystem::path(buf).parent_path();
+#elif defined(__APPLE__)
+    char buf[4096];
+    uint32_t size = sizeof(buf);
+    if (_NSGetExecutablePath(buf, &size) == 0) exeDir = std::filesystem::path(buf).parent_path();
+#else
+    std::error_code ec;
+    const std::filesystem::path self = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (!ec) exeDir = self.parent_path();
+#endif
+    std::string name = baseName;
+#ifdef _WIN32
+    name += ".exe";
+#endif
+    for (const std::filesystem::path& base : {exeDir, std::filesystem::current_path()}) {
+        if (base.empty()) continue;
+        const std::filesystem::path candidate = base / "engines" / name;
+        std::error_code ec;
+        if (std::filesystem::exists(candidate, ec)) return candidate.string();
+    }
+#ifndef _WIN32
+    // 系统安装回退：/usr/bin、/usr/local/bin、/opt/homebrew/bin（macOS）。
+    for (const char* dir : {"/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"}) {
+        const std::filesystem::path candidate = std::filesystem::path(dir) / name;
+        std::error_code ec;
+        if (std::filesystem::exists(candidate, ec)) return candidate.string();
+    }
+#endif
+    return {};
 }
 
 // ---- 状态 ----
@@ -315,7 +513,7 @@ struct CompState {
 };
 
 std::mutex g_mu;
-CompState g_states[2];
+CompState g_state;
 std::function<void()> g_wakeUi;
 
 void wakeUi() {
@@ -324,10 +522,10 @@ void wakeUi() {
 
 // 锁内改状态、锁外唤醒 UI。
 template <typename F>
-void mutate(Component c, F&& fn) {
+void mutate(F&& fn) {
     {
         std::lock_guard lock(g_mu);
-        fn(g_states[compIndex(c)]);
+        fn(g_state);
     }
     wakeUi();
 }
@@ -335,15 +533,15 @@ void mutate(Component c, F&& fn) {
 // 在工作线程上同步等待引擎静默下载完成（downloadFile 的回调在引擎线程触发，
 // 经条件变量转回来）。onProgress 写进状态供 UI 显示百分比。
 bool downloadSync(dl::DownloadEngine& eng, const std::string& url,
-                  const std::filesystem::path& dest, Component c, std::string& errOut) {
+                  const std::filesystem::path& dest, std::string& errOut) {
     std::mutex mu;
     std::condition_variable cv;
     bool finished = false;
     bool ok = false;
     std::string err;
     eng.downloadFile(url, dest,
-                     [c](int p) {
-                         mutate(c, [p](CompState& s) { s.progress = p; });
+                     [](int p) {
+                         mutate([p](CompState& s) { s.progress = p; });
                      },
                      [&](bool success, std::string e) {
                          {
@@ -361,8 +559,8 @@ bool downloadSync(dl::DownloadEngine& eng, const std::string& url,
 }
 
 // 原子替换目标二进制：先 copy 到 <name>.new，再 remove + rename（POSIX rename
-// 可直接覆盖；Windows 目标存在时 rename 会失败，所以先删）。调用方保证目标
-// 进程已停（aria2 daemon 由 restartEngine 窗口保证；yt-dlp 非常驻）。返回错误串。
+// 可直接覆盖；Windows 目标存在时 rename 会失败，所以先删）。调用方保证 daemon
+// 已停（由 restartEngine 窗口保证）。返回错误串。
 std::string replaceBinary(const std::filesystem::path& src,
                           const std::filesystem::path& target) {
     std::error_code ec;
@@ -391,27 +589,24 @@ std::string replaceBinary(const std::filesystem::path& src,
     return {};
 }
 
-// 更新完成后重探组件版本（--version），刷新状态的 current。后台线程调用。
-std::string probeVersion(Component c) {
-    const std::string exe = video::findEngineBinary(binaryOf(c));
+// 更新完成后重探引擎版本（--version），刷新状态的 current。后台线程调用。
+std::string probeVersion() {
+    const std::string exe = findEngineBinary(kBinary);
     if (exe.empty()) return {};
-    const auto p = video::runCapture(exe, {"--version"},
-                                     cfg::configDir() / "tinynext-version-probe.log", 30);
+    const auto p = runCapture(exe, {"--version"},
+                              cfg::configDir() / "tinynext-version-probe.log", 30);
     if (p.exitCode != 0) return {};
-    if (c == Component::Aria2) return parseVersionAfterMarker(p.out, "version ");
-    std::string v = p.out;
-    while (!v.empty() && (v.back() == '\n' || v.back() == '\r')) v.pop_back();
-    return v;
+    return parseVersionAfterMarker(p.out, "version ");
 }
 
 } // namespace
 
 namespace updater {
 
-ComponentSnapshot snapshot(Component c) {
+ComponentSnapshot snapshot() {
     std::lock_guard lock(g_mu);
-    const auto& s = g_states[compIndex(c)];
-    return ComponentSnapshot{s.current, s.latest, s.status, s.progress, s.error};
+    return ComponentSnapshot{g_state.current, g_state.latest, g_state.status,
+                             g_state.progress, g_state.error};
 }
 
 void setWakeUi(std::function<void()> fn) {
@@ -419,36 +614,30 @@ void setWakeUi(std::function<void()> fn) {
     g_wakeUi = std::move(fn);
 }
 
-void setCurrentVersion(Component c, std::string version) {
-    mutate(c, [&](CompState& s) { s.current = std::move(version); });
-}
-
-// 预热线程调用：跑 aria2-next --version 填充当前版本（yt-dlp 的 current 由
-// video::probeVideoToolVersions 探好后经 setCurrentVersion 写入）。
+// 预热线程调用：跑 aria2-next --version 填充当前版本。
 void probeAria2Version() {
-    setCurrentVersion(Component::Aria2, probeVersion(Component::Aria2));
+    mutate([](CompState& s) { s.current = probeVersion(); });
 }
 
-void checkLatest(dl::DownloadEngine& eng, Component c) {
+void checkLatest(dl::DownloadEngine& eng) {
     {
         std::lock_guard lock(g_mu);
-        auto& s = g_states[compIndex(c)];
-        if (s.busy) return;
-        s.busy = true;
-        s.status = CompStatus::Checking;
-        s.error.clear();
-        s.progress = 0;
+        if (g_state.busy) return;
+        g_state.busy = true;
+        g_state.status = CompStatus::Checking;
+        g_state.error.clear();
+        g_state.progress = 0;
     }
     wakeUi();
     // eng 是 g_tasks 持有的长命对象（与进程同寿），引用捕获安全。
-    std::thread([&eng, c] {
+    std::thread([&eng] {
         const std::filesystem::path tmp = std::filesystem::temp_directory_path() /
-            "tinynext-update" / (std::string(binaryOf(c)) + "-latest.json");
+            "tinynext-update" / "aria2-next-latest.json";
         std::error_code ec;
         std::filesystem::create_directories(tmp.parent_path(), ec);
         std::string err;
-        if (!downloadSync(eng, apiUrlOf(c), tmp, c, err)) {
-            mutate(c, [&](CompState& s) {
+        if (!downloadSync(eng, apiUrl(), tmp, err)) {
+            mutate([&](CompState& s) {
                 s.busy = false;
                 s.status = CompStatus::CheckFailed;
                 s.error = std::move(err);
@@ -463,7 +652,7 @@ void checkLatest(dl::DownloadEngine& eng, Component c) {
             tag = nlohmann::json::parse(body).value("tag_name", "");
         } catch (...) {}
         if (tag.empty()) {
-            mutate(c, [](CompState& s) {
+            mutate([](CompState& s) {
                 s.busy = false;
                 s.status = CompStatus::CheckFailed;
                 s.error = tr("comp.error.parse");
@@ -471,7 +660,7 @@ void checkLatest(dl::DownloadEngine& eng, Component c) {
             return;
         }
         const std::string ver = stripLeadingV(tag);
-        mutate(c, [&](CompState& s) {
+        mutate([&](CompState& s) {
             s.busy = false;
             s.latest = ver;
             s.tag = tag;
@@ -483,51 +672,50 @@ void checkLatest(dl::DownloadEngine& eng, Component c) {
     }).detach();
 }
 
-void startUpdate(dl::DownloadEngine& eng, Component c) {
+void startUpdate(dl::DownloadEngine& eng) {
     std::string ver;
     std::string tag;
     {
         std::lock_guard lock(g_mu);
-        auto& s = g_states[compIndex(c)];
-        if (s.busy || s.tag.empty()) return;
-        s.busy = true;
-        s.status = CompStatus::Downloading;
-        s.progress = 0;
-        s.error.clear();
-        ver = s.latest;
-        tag = s.tag;
+        if (g_state.busy || g_state.tag.empty()) return;
+        g_state.busy = true;
+        g_state.status = CompStatus::Downloading;
+        g_state.progress = 0;
+        g_state.error.clear();
+        ver = g_state.latest;
+        tag = g_state.tag;
     }
     wakeUi();
-    std::thread([&eng, c, ver, tag] {
-        auto failWith = [c](std::string e) {
-            mutate(c, [&](CompState& s) {
+    std::thread([&eng, ver, tag] {
+        auto failWith = [](std::string e) {
+            mutate([&](CompState& s) {
                 s.busy = false;
                 s.status = CompStatus::Failed;
                 s.error = std::move(e);
             });
         };
-        const std::string asset = assetNameOf(c, ver);
+        const std::string asset = assetNameOf(ver);
         const std::filesystem::path dir =
             std::filesystem::temp_directory_path() / "tinynext-update";
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
         const std::filesystem::path binFile = dir / asset;
-        const std::filesystem::path sumFile = dir / checksumAssetOf(c, ver);
+        const std::filesystem::path sumFile = dir / checksumAssetOf(ver);
 
         // 1) 下载新二进制 + 校验文件。
         std::string err;
-        if (!downloadSync(eng, downloadUrlOf(c, tag, asset), binFile, c, err)) {
+        if (!downloadSync(eng, downloadUrlOf(tag, asset), binFile, err)) {
             failWith(std::move(err));
             return;
         }
-        if (!downloadSync(eng, downloadUrlOf(c, tag, checksumAssetOf(c, ver)),
-                          sumFile, c, err)) {
+        if (!downloadSync(eng, downloadUrlOf(tag, checksumAssetOf(ver)),
+                          sumFile, err)) {
             failWith(std::move(err));
             return;
         }
 
         // 2) sha256 校验（不符绝不替换）。
-        mutate(c, [](CompState& s) { s.status = CompStatus::Verifying; });
+        mutate([](CompState& s) { s.status = CompStatus::Verifying; });
         const std::string expect = extractHashFor(sumFile, asset);
         const std::string actual = sha256FileHex(binFile);
         if (expect.empty() || actual.empty() || expect != actual) {
@@ -536,7 +724,7 @@ void startUpdate(dl::DownloadEngine& eng, Component c) {
         }
 
         // 3) 目标二进制与可写性（/usr/bin 等系统目录不可写 → 提示包管理器升级）。
-        const std::string targetStr = video::findEngineBinary(binaryOf(c));
+        const std::string targetStr = findEngineBinary(kBinary);
         if (targetStr.empty()) {
             failWith(tr("comp.error.no_binary"));
             return;
@@ -553,10 +741,10 @@ void startUpdate(dl::DownloadEngine& eng, Component c) {
         }
         std::filesystem::remove(probe, ec);
 
-        // 4) 替换：aria2-next 经 restartEngine 的 beforeRespawn 窗口（daemon 已停）
-        //    换文件并自动重拉起；yt-dlp 非常驻进程，直接换。
-        mutate(c, [](CompState& s) { s.status = CompStatus::Replacing; });
-        if (c == Component::Aria2) {
+        // 4) 替换：经 restartEngine 的 beforeRespawn 窗口（daemon 已停、尚未
+        //    重拉起）换文件并自动重拉起。
+        mutate([](CompState& s) { s.status = CompStatus::Replacing; });
+        {
             std::mutex mu;
             std::condition_variable cv;
             bool finished = false;
@@ -577,17 +765,12 @@ void startUpdate(dl::DownloadEngine& eng, Component c) {
                 failWith(tr("comp.error.restart"));
                 return;
             }
-        } else {
-            if (const std::string e = replaceBinary(binFile, target); !e.empty()) {
-                failWith(e);
-                return;
-            }
         }
 
         // 5) 重探版本（--version），刷新 current；探测失败就用 latest 顶上。
-        std::string current = probeVersion(c);
+        std::string current = probeVersion();
         if (current.empty()) current = ver;
-        mutate(c, [&](CompState& s) {
+        mutate([&](CompState& s) {
             s.busy = false;
             s.status = CompStatus::Done;
             s.progress = 100;

@@ -37,14 +37,12 @@ import tinynext.ui.theme_watch;
 import tinynext.ui.theme;
 import tinynext.ui.widgets;
 import tinynext.ui.downloads_page;
-import tinynext.ui.video_page;
 import tinynext.ui.settings_page;
 import tinynext.ui.engine_page;
 import tinynext.ui.about_dialog;
 import tinynext.ui.platform;
 import tinynext.ui.housekeep;
 import tinynext.store.tasks;    // g_tasks（启动预热 warmup）
-import tinynext.video_resolver; // 启动预热时探测 yt-dlp/ffmpeg 版本（关于页）
 import tinynext.component_updater;  // 组件更新（设置页「组件」分组）
 import tinynext.store.ui;       // 状态消息 / 页面
 import tinynext.store.dialogs;  // g_aboutOpen
@@ -107,11 +105,8 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
             g_tasks.warmup();
             if (!g_tasks.engineActive()) g_warmupFailed.store(true);
             g_warmupDone.store(true);
-            // 顺手探测 yt-dlp/ffmpeg 版本（关于页展示；各一次进程启动，可能数秒，
-            // 所以在预热线程而非 UI 线程做）。组件更新页的当前版本也在此填充：
-            // yt-dlp 用上面的探测结果，aria2-next 单独跑 --version。
-            video::probeVideoToolVersions();
-            updater::setCurrentVersion(updater::Component::YtDlp, video::ytDlpVersion());
+            // 顺手探测引擎版本（组件更新页的当前版本；一次进程启动，放预热
+            // 线程而非 UI 线程做）。
             updater::probeAria2Version();
             core::platform::requestUiUpdate();
         }).detach();
@@ -220,17 +215,12 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                         .verticalAlign(core::VerticalAlign::Center)
                         .build();
 
-                    // 应用页导航：下载列表（默认第一页）/ 视频解析 / 设置 / 引擎监控。
+                    // 应用页导航：下载列表（默认第一页）/ 设置 / 引擎监控。
                     float railY = 40.0f;
                     drawRailItem(ui, "nav.downloads", railY, kRailWidth, 0xF03A,
                                  g_page_view == Page::Downloads, theme,
                                  [] { g_page_view = Page::Downloads; },
                                  tr("app.tab.downloads"));
-                    railY += 30.0f;
-                    drawRailItem(ui, "nav.video", railY, kRailWidth, 0xF03D,  // fa-video
-                                 g_page_view == Page::Video, theme,
-                                 [] { g_page_view = Page::Video; },
-                                 tr("app.tab.video"));
                     railY += 30.0f;
                     drawRailItem(ui, "nav.settings", railY, kRailWidth, 0xF013,
                                  g_page_view == Page::Settings, theme,
@@ -255,7 +245,6 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
             // ===================== 内容区（页面分发） =====================
             switch (g_page_view) {
                 case Page::Downloads: drawDownloadsPage(ui, screen, theme); break;
-                case Page::Video:     drawVideoPage(ui, screen, theme);     break;
                 case Page::Settings:  drawSettingsPage(ui, screen, theme);  break;
                 case Page::Monitor:   drawEnginePage(ui, screen, theme);    break;
             }

@@ -13,7 +13,7 @@ mcpp run            # 启动 GUI（Linux 用 run.sh）
 ```
 
 - 工具链在 `mcpp.toml` 里固定为 `llvm@22.1.8`，不要改。
-- eui-neo 锁在 **0.5.9**（配方加 `-fno-char8_t` 修 C++23 构建 + 补 `-ldwmapi`，见 `docs/roadmap.md`），不要乱升。
+- eui-neo 锁在 **0.6.0**（配方加 `-fno-char8_t` 修 C++23 构建 + 补 `-ldwmapi`，见 `docs/roadmap.md`），不要乱升。
 - Windows 发行打包：`.\make-dist.ps1`；Linux/macOS：`bash make-dist.sh <os> <arch>`。
 - CI：`.github/workflows/release.yml`，push `v*` 标签自动三平台构建 + 发布。
 
@@ -46,52 +46,12 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
 | `tinynext.store.ui` | `src/store/ui.cppm` | 视图 store：状态消息 / 页面 / 筛选·排序·分页 |
 | `tinynext.store.dialogs` | `src/store/dialogs.cppm` | 视图 store：弹窗状态机 + addDownload/requestDelete |
 | `tinynext.cli` | `src/cli.cppm` | 单实例 + 命令行 URL + TCP socket 转发 |
-| `tinynext.video_resolver` | `src/video_resolver.cppm` | 视频解析（外挂 yt-dlp 进程，`-J` JSON → `VideoInfo`/`VideoFormat`；领域层无 eui） |
-| `tinynext.video_merge` | `src/video_merge.cppm` | DASH 音视频合并编排：`MergeTracker` 聚合两个 aria2 子任务成单个合成任务 + ffmpeg 合并 |
-| `tinynext.ui.*` | `src/ui/*.cppm` | utils（布局常量）/ theme / platform / housekeep / widgets / cards / downloads_page / video_page / settings_page / about_dialog |
+| `tinynext.ui.*` | `src/ui/*.cppm` | utils（布局常量）/ theme / platform / housekeep / widgets / cards / downloads_page / settings_page / about_dialog |
 | `src/app.cpp` | 普通 TU | 入口：`app::dslAppConfig()` + `app::compose()` |
 
 页面已按职责拆成独立模块（`pages.cppm` 已删除）：
-`downloads_page`（下载页 + 添加下载弹窗）、`video_page`（视频解析页：粘链接 →
-yt-dlp 解析 → 选画质 → 下载）、`settings_page`（设置页）、`about_dialog`（关于弹窗）。
-
-### 视频解析（YouTube / bilibili，v0.5）
-
-- **两条下载路线**：
-  - **bilibili / 常规站点**：`aria2-next` 做下载引擎——`engines/yt-dlp(.exe)` 只做
-    解析（出直链 + 请求头），`engines/ffmpeg(.exe)` 只做 DASH 合并（`-c copy`）。
-    两者经 `findEngineBinary` 定位（`<exeDir>/engines/` → cwd/engines/），缺失时仅
-    视频功能不可用。
-  - **YouTube（googlevideo CDN）**：这类 CDN 拒绝对开放 Range 的首请求（直连 403，
-    有代理拦截时更甚，aria2 拿不全流），所以 `VideoFormat::rangeBootstrap` 标记的
-    格式走 `MergeTracker::startNativeJob`——yt-dlp **原生下载两个流并自行 ffmpeg 合并**
-    （单线程跑 `downloadNativeMerged`），进度按输出文件大小估。这是「使用解析器原生
-    能力」的决策，勿改回纯 aria2。
-- b 站高画质是音视频分离 DASH：`MergeTracker` 起两个 aria2 子任务（带 yt-dlp 给的
-  Referer/UA 头，否则 CDN 403），对外聚合成**单个合成任务**（id ≥ 1,000,000 高段，
-  `dl::State::Merging` 表示 ffmpeg 合并中）；housekeep 500ms 轮询触发合并。
-- **合并路径坑**：aria2 的 `--auto-file-renaming` 会在重名时把落盘改名为 `xxx (1).m4s`，
-  但 MergeTracker 预设路径是原名——ffmpeg 会去开不存在的文件。合并前必须用子任务
-  快照的**真实 `destPath`**（`files[0].path`）覆盖预设路径（`pollMerges` 里做）。
-- **音频容器**：合并参数按配对音频流决定 `-c:a copy`（aac/m4a 可直装 mp4）还是
-  `-c:a aac`（YouTube 的 opus/vorbis 装不进 mp4，需转码）；视频恒 `-c:v copy`。
-- Cookie 来源（`cfg::VideoConfig::cookiesBrowser`，JSON `video.cookies_browser`）：
-  默认 `"default"`（跟随系统默认浏览器，`video_resolver.cppm` 的
-  `detectDefaultBrowserKey()` 探测：Linux 读 `xdg-settings`、Windows 读注册表
-  UserChoice、macOS 不探测），yt-dlp 两个 spawn 点（`resolveVideoUrl` /
-  `startYtDlpDownload`）统一经 `ytDlpBrowserKey()` 加 `--cookies-from-browser`。
-  非 `"off"` 时 SESSDATA 与 cookiesFile 都被忽略；bilibili SESSDATA / cookies_file
-  仅 `"off"` 时的手动遗留方案（`resolveVideoUrl` 里按 URL 判断下发 SESSDATA）。
-  **Windows 锁库兜底链**：浏览器运行中独占 Cookies 文件（yt-dlp#7271，external-issue，
-  yt-dlp 修不了）→ 浏览器模式的所有 yt-dlp 调用都附加 `--cookies <配置目录>/
-  browser-cookie-cache.txt`（yt-dlp 对该参数读+写，成功调用退出时自动刷新缓存）；
-  `isCookieDbLockedError()` 识别锁库错误（Windows "Could not copy … cookie database"
-  与 Linux "Permission denied: …Cookies" 两种形态）后按 ①缓存 ②匿名 顺序重试
-  （下载路径在 `runCaptureYtDlp` 内置 finished 前递归，避免轮询抢到中间失败态），
-  全失败才报 `vres.cookie_db_locked`。
-- 默认画质 / 保留 .m4s 同在设置页「视频」tab（JSON key `"video"`）。
-- 已知边界：下载中重启 app，任务表丢失、不再自动合并（bilibili 子任务被会话恢复成
-  普通任务 / YouTube 原生任务不恢复），重新下载即可（v1 接受）。
+`downloads_page`（下载页 + 添加下载弹窗）、`settings_page`（设置页）、
+`about_dialog`（关于弹窗）。
 
 ## 关键约定（改代码前必读）
 
@@ -142,3 +102,17 @@ yt-dlp 解析 → 选画质 → 下载）、`settings_page`（设置页）、`ab
 14. **下拉点击外部收起**：`buildListPicker` 展开时铺一层全屏透明拦截层（吞掉点击），
     点击弹层外即收起。弹层宽度可用 `popupWidth` 参数（图标字段的弹层要加宽容纳文字）。
 15. **提交**：本地 commit 后由用户自行 push（不要代 push）。
+16. **资源一律 RAII 包裹**（全项目强制）：fd / socket / Windows HANDLE / 管道 /
+    进程句柄 / CoTaskMem / LocalFree 等原生资源，**获取点即交给所有者**——
+    析构即释放的守卫（`aria2_engine.cpp` 的 `LocalSocket`、`cli.cppm` 的
+    `WsSession`、`std::unique_ptr<T, Deleter>`）或封装好的辅助（`runCapture`、
+    `spawnDaemon` 内建配平），不要手写「多条 return 路径各自 close」的配平——
+    少一条路径就是泄漏（审计已修过 theme_watch 的 `return` 跳清理、cli 的
+    WSAStartup 无 Cleanup 这类实例）。新增代码检查点：每个 `Create*/socket/
+    open/spawn` 是否有对应的析构释放；提前退出（break/return/异常）是否仍释放。
+17. **线程也是资源**：常驻后台线程必须有所有者负责「唤醒退出 + join」——
+    `cmdThread_`（shutdown 置标志 + join）、`g_listenerThread`（atexit shutdown
+    socket 唤醒 + join）、`housekeep::g_thread`、`theme_watch` 的
+    `jthread + stop_callback`。`detach()` 只允许用于**一次性、引用生命周期到
+    进程末尾的对象**（全局单例 / atomic / 已加锁的 store），并在注释写明依据；
+    禁止 detach 线程捕获可能先亡的局部对象。

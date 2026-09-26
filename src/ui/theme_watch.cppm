@@ -210,7 +210,7 @@ void watchLoop(std::stop_token st) {
                     }
                 }
             } else if (evs[i].filter == EVFILT_READ) {
-                return;  // stop pipe 有数据 → 停止
+                break;  // stop pipe 有数据 → 停止（走下面的统一清理）
             }
         }
     }

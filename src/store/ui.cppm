@@ -11,7 +11,7 @@ import tinynext.download_engine;  // dl::State（stateMatches 的任务状态入
 
 // ---- 页面 ----
 
-export enum class Page { Downloads, Video, Settings, Monitor };
+export enum class Page { Downloads, Settings, Monitor };
 export Page g_page_view = Page::Downloads;  // 默认打开下载列表
 
 // ---- 应用退出标志 ----
@@ -90,7 +90,7 @@ export bool stateMatches(Filter filter, dl::State state) {
         case Filter::All: return true;
         case Filter::Active:
             return state == dl::State::Queued || state == dl::State::Downloading ||
-                   state == dl::State::Paused || state == dl::State::Merging;
+                   state == dl::State::Paused;
         case Filter::Done:
             return state == dl::State::Done || state == dl::State::Failed ||
                    state == dl::State::Cancelled;

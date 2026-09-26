@@ -16,7 +16,6 @@ export enum class State {
     Done,
     Failed,
     Cancelled,
-    Merging,   // 视频音视频流已下完，ffmpeg 合并中（视频下载合成任务的中间态）
 };
 
 // 镜像任务的一个源（aria2 files[0].uris 的去重后结果）。
@@ -61,8 +60,6 @@ export struct TaskView {
     bool fromSession = false;           // 从上次会话恢复的历史任务：不触发「完成/失败」通知
     std::string destPathUtf8;           // destPath 的预编码 UTF-8 串（在快照时任务数据存活时转好，
                                         // 避免后续读 destPath 本体时遇悬空指针崩溃）
-    State progressState = State::Queued; // 信息行展示用的状态（yt-dlp 原生任务在 ffmpeg 合并时
-                                         // 覆盖 state 为 Merging，卡片信息行据此展示「合并中」）
 };
 
 // Per-task start options. connections == 0 means "use the engine default from
@@ -75,11 +72,7 @@ export struct StartOptions {
     std::filesystem::path torrentPath;    // 本地 .torrent 文件；空 = 普通 URL 下载
     std::vector<std::string> mirrors;     // 镜像源（同一任务多源）；空 = 单 URL
     // 限速不在这里：每任务单独限速已移除（无意义），统一走配置的 maxDownloadLimit。
-    // 每任务 HTTP 头（视频解析等 CDN 受限源用，如 bilibili 强制 Referer 否则 403）。
-    // 全部可空；空则不加对应 aria2 选项，行为与之前完全一致（向后兼容）。
-    std::vector<std::string> headers;     // 原始 "Key: Value" 行（如 Cookie）
-    std::string userAgent;                // 覆盖 daemon 级 UA（仅本任务）
-    std::string referer;                  // 覆盖 daemon 级 Referer（仅本任务）
+    // HTTP 头 / UA / Referer 走 daemon 级配置（aria2Config），无每任务覆盖需求。
 };
 
 // Abstract download engine contract. Implementations are owned by the app
@@ -176,7 +169,9 @@ public:
     // （实现须自行与 UI 线程的 start() 等调用互斥）。默认空实现。
     // restoreFailed=true 时，上次会话的失败任务也恢复为 Failed 记录（供
     // 「启动时自动重试失败任务」随后逐个 retry）；false 维持原样：失败/已移除
-    // 记录直接丢弃。
+    // 记录直接丢弃——实现须连引擎自己的会话重载一并拦掉（aria2 --save-session
+    // 会保存 error 记录、--input-file 启动时自动重开下载，若不管这条路径，
+    // false 时失败任务仍会被「自动重试」）。
     virtual void warmup(bool restoreFailed) {}
 
     // 静默后台下载一个文件到 dest（不进任务表、不显示卡片；组件更新拉取

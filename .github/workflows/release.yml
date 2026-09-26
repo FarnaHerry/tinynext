@@ -3,7 +3,7 @@
 #
 #   * `mcpp` is installed from the official one-line script (→ ~/.mcpp).
 #   * The aria2-next engine binary is downloaded per-platform from the
-#     AnInsomniacy/aria2-next v2.6.8 release and verified against
+#     AnInsomniacy/aria2-next v2.8.2 release and verified against
 #     engines/checksums.sha256 before packaging.
 #   * Packaging: Windows → make-win-pkg.ps1 (zip + NSIS setup.exe), Linux →
 #     make-linux-pkg.sh (tar.gz + .deb + .rpm), macOS → make-dist.sh (tar.gz).
@@ -31,78 +31,9 @@ permissions:
   contents: write
 
 jobs:
-  # —— 瘦身 ffmpeg（0.5.2）：编译只留合并所需的最小静态版，替代 108MB 完整包 ----
-  # 完整静态 ffmpeg（BtbN/gyan）单文件 ~100MB，塞进安装包太夸张。我们只做 DASH
-  # 音视频合并（-c:v copy -c:a copy|aac），不需要任何 GPL 编码器（无 libx264/
-  # libmp3lame）。用 --disable-everything + LGPL 编出 ~6-15MB 单二进制，从源码
-  # 三平台各编一次。
-  #
-  # 产物作为 artifact 上传，供 build job 拉取（也可以用 workflow_dispatch 手动
-  # 触发单独验证体积/耗时）。
-  trim-ffmpeg:
-    name: trim-ffmpeg-${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: win64
-            os: windows-latest
-            out: ffmpeg.exe
-          - name: linux-x64
-            os: ubuntu-latest
-            out: ffmpeg
-          - name: macos-arm64
-            os: macos-latest
-            out: ffmpeg
-    steps:
-      - uses: actions/checkout@v7
-
-      # 共用 configure 参数（Windows 额外 --enable-cross-compile --target-os=mingw32，
-      # 由下面的 shell 分支拼进去）。
-      - name: "Setup msys2 (Windows)"
-        if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-pkgconf
-            mingw-w64-x86_64-nasm
-            make
-            diffutils
-
-      - name: Build trimmed ffmpeg (Linux / macOS)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            sudo apt-get update && sudo apt-get install -y nasm yasm
-          fi
-          bash .github/workflows/trim-ffmpeg.sh \
-            "${{ runner.os }}" "${{ matrix.out }}"
-
-      - name: Build trimmed ffmpeg (Windows)
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: |
-          set -euo pipefail
-          bash .github/workflows/trim-ffmpeg.sh \
-            "Windows" "${{ matrix.out }}"
-
-      - name: Upload trimmed ffmpeg artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: trimmed-ffmpeg-${{ matrix.name }}
-          path: engines/${{ matrix.out }}
-          if-no-files-found: error
-
   build:
     name: build-${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    # 不加 needs：build（编主程序）与 trim-ffmpeg（编 ffmpeg）并行跑，各自 ~2min /
-    # ~10min。真正要两者都就绪的是下面的 package job。
     strategy:
       fail-fast: false
       matrix:
@@ -226,14 +157,13 @@ jobs:
           path: dist-src/
           if-no-files-found: error
 
-  # —— package：等 build（主程序 exe）与 trim-ffmpeg（ffmpeg）都就绪后统一打包 ----
-  # build 和 trim-ffmpeg 并行跑，package 串在两者之后：总时长 ≈ max(build≈2min,
-  # ffmpeg≈10min) + 打包≈3min。编译只在 build job 发生一次；本 job 用专门的
-  # ci-package 脚本（no-compile）组装，不重复编译、不遍历易错的 target/。
+  # —— package：等 build（主程序 exe）就绪后统一打包 ----
+  # 编译只在 build job 发生一次；本 job 用专门的 ci-package 脚本（no-compile）
+  # 组装，不重复编译、不遍历易错的 target/。
   package:
     name: package-${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    needs: [build, trim-ffmpeg]
+    needs: build
     strategy:
       fail-fast: false
       matrix:
@@ -242,28 +172,22 @@ jobs:
             os: windows-latest
             os_id: win
             arch: win64
-            engine_asset: aria2-next-2.6.8-windows-x86_64.exe
+            engine_asset: aria2-next-2.8.2-windows-x86_64.exe
             engine_file: engines/aria2-next.exe
-            ytdlp_asset: yt-dlp.exe
-            ytdlp_file: engines/yt-dlp.exe
             pkg_glob: tinynext-v*
           - name: linux-x64
             os: ubuntu-latest
             os_id: linux
             arch: x86_64
-            engine_asset: aria2-next-2.6.8-linux-x86_64
+            engine_asset: aria2-next-2.8.2-linux-x86_64
             engine_file: engines/aria2-next
-            ytdlp_asset: yt-dlp_linux
-            ytdlp_file: engines/yt-dlp
             pkg_glob: tinynext-v*
           - name: macos-arm64
             os: macos-latest
             os_id: macos
             arch: arm64
-            engine_asset: aria2-next-2.6.8-macos-arm64
+            engine_asset: aria2-next-2.8.2-macos-arm64
             engine_file: engines/aria2-next
-            ytdlp_asset: yt-dlp_macos
-            ytdlp_file: engines/yt-dlp
             pkg_glob: tinynext-v*.tar.gz
     steps:
       - uses: actions/checkout@v7
@@ -274,41 +198,18 @@ jobs:
           name: build-${{ matrix.name }}
           path: dist-src
 
-      - name: Download trimmed ffmpeg
-        uses: actions/download-artifact@v8
-        with:
-          name: trimmed-ffmpeg-${{ matrix.name }}
-          path: engines
-
       - name: Fetch and verify aria2 engine
         shell: bash
         run: |
           mkdir -p engines
           asset="engines/${{ matrix.engine_asset }}"
           curl -fL --retry 3 -o "$asset" \
-            "https://github.com/AnInsomniacy/aria2-next/releases/download/v2.6.8/${{ matrix.engine_asset }}"
+            "https://github.com/AnInsomniacy/aria2-next/releases/download/v2.8.2/${{ matrix.engine_asset }}"
           # Verify upstream filename before renaming it to TinyNext's stable runtime name.
           python -c 'import hashlib, pathlib, sys; asset = pathlib.Path(sys.argv[1]); manifest = pathlib.Path(sys.argv[2]); expected = next((line.split()[0] for line in manifest.read_text().splitlines() if line.split() and line.split()[-1] == asset.name), None); actual = hashlib.sha256(asset.read_bytes()).hexdigest(); assert expected, f"no checksum for {asset.name}"; assert actual == expected, f"checksum mismatch for {asset.name}: {actual}"' \
             "$asset" engines/checksums.sha256
           mv "$asset" "${{ matrix.engine_file }}"
           chmod +x "${{ matrix.engine_file }}"
-
-      - name: Fetch yt-dlp engine
-        shell: bash
-        run: |
-          set -euo pipefail
-          # 固定 yt-dlp 版本（官方 standalone executable 内含 yt-dlp-ejs，YouTube
-          # 解析必需）；不用 latest 以免发行包间漂移、无法复现。
-          ytdlp_version="2026.08.19"
-          curl -fL --retry 3 -o "${{ matrix.ytdlp_asset }}" \
-            "https://github.com/yt-dlp/yt-dlp/releases/download/${ytdlp_version}/${{ matrix.ytdlp_asset }}"
-          chmod +x "${{ matrix.ytdlp_asset }}"
-          mv "${{ matrix.ytdlp_asset }}" "${{ matrix.ytdlp_file }}"
-
-      - name: Make ffmpeg executable (unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: chmod +x engines/ffmpeg
 
       - name: Install NSIS (Windows)
         if: runner.os == 'Windows'
@@ -358,8 +259,8 @@ jobs:
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v7
         with:
-          # 用 pkg- 前缀：release job 只下载 pkg-* 的安装包，避免混入 build-*/
-          # trimmed-ffmpeg-* 的中间产物（exe、engines/ 裸二进制）。
+          # 用 pkg- 前缀：release job 只下载 pkg-* 的安装包，避免混入 build-*
+          # 的中间产物（裸 exe / 二进制）。
           name: pkg-${{ matrix.name }}
           path: ${{ matrix.pkg_glob }}
           if-no-files-found: error
@@ -378,8 +279,8 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: artifacts
-          # 只拿 package job 上传的 pkg-* 安装包，过滤 build-*/trimmed-ffmpeg-*
-          # 的中间产物，避免 release 混进裸二进制（mac/linux/win 各自区分）。
+          # 只拿 package job 上传的 pkg-* 安装包，过滤 build-* 的中间产物，
+          # 避免 release 混进裸二进制（mac/linux/win 各自区分）。
           pattern: 'pkg-*'
           merge-multiple: true
 
@@ -405,7 +306,6 @@ jobs:
             - **Linux x64**: `tinynext-v*-linux-x86_64.tar.gz`（内含 `run.sh` 启动脚本）
             - **macOS Apple Silicon**: `tinynext-v*-macos-arm64.tar.gz`（暂未做 dmg）
 
-            下载引擎 `aria2-next`（分片多连接、断点续传、磁力/BT）与视频依赖
-            `yt-dlp` + `ffmpeg`（视频解析 / DASH 合并）均已随包附带。
+            下载引擎 `aria2-next`（分片多连接、断点续传、磁力/BT）已随包附带。
             设置页可修改下载路径、主题与 aria2 参数（并发/代理/重试/限速等）。
           files: artifacts/*

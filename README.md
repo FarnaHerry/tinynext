@@ -66,47 +66,6 @@ eui-neo 0.5.7 起提供**原生全局缩放**：`DslAppConfig::uiScale(scale)` �
    - 已完成：**打开** / **打开所在文件夹**。
 4. 同名文件自动加 ` (1)`、` (2)` 后缀，不会互相覆盖。
 
-## 视频解析（YouTube / bilibili）
-
-左侧图标栏第二个图标（🎬）打开**视频解析页**：粘贴视频页链接 → 点「解析」→
-选画质 → 「下载」。解析由外挂的 `engines/yt-dlp(.exe)` 完成（原生支持 YouTube /
-bilibili 等站点）；下载分两种走法：
-
-- **bilibili / 常规站点**：aria2-next 仍是下载引擎——yt-dlp 只出直链与请求头，
-  aria2 下载。b 站 720P+ 是音视频分离 DASH，会起两个 aria2 子任务（带各自
-  Referer/UA 头）同时下载，列表里只显示**一个任务**；两边下完自动用
-  `engines/ffmpeg(.exe)` 合并成 mp4（状态显示「合并中」），低画质合流格式单文件
-  直接下载免合并。
-- **YouTube（googlevideo CDN）**：这类 CDN 拒绝第三方下载器的开放式 Range 请求
-  （直连第一次请求即 403），所以 YouTube 走 **yt-dlp 命令行下载**（`--downloader
-  native` 单进程下载，yt-dlp 自行处理 JS challenge 与 DASH 合并；委托 aria2c 分片
-  已实测不可用），列表同样只显示一个任务。
-
-- **Cookie 自动获取（默认开）**：「设置 → 视频 → Cookie 来源」默认是**默认浏览器**
-  ——每次解析/下载 yt-dlp 都实时从浏览器 cookie 库读取（`--cookies-from-browser`），
-  免手工导出、不会过期，YouTube 防 bot 检测和 bilibili 登录态都走这条路。下拉也可
-  指定具体浏览器（Chrome/Firefox/Edge/Chromium/Brave/Opera/Vivaldi/Safari）或关闭。
-  **Windows 上浏览器运行中会独占锁定 cookie 数据库**（yt-dlp#7271，官方 external-issue）：
-  为此做了三级兜底——① 实时读浏览器；② 锁库时自动改用本地缓存（任何一次浏览器
-  关闭状态下的成功调用都会把 cookie 自动缓存到 `<配置目录>/browser-cookie-cache.txt`，
-  无需手动导出）；③ 缓存也不可用时匿名重试。全部失败才会提示「完全关闭浏览器后重试」。
-- **1080P+ / 会员画质（手动方案）**：Cookie 来源选**关闭**时，可在「设置 → 视频」填
-  bilibili Cookie 的 **SESSDATA** 值（登录 bilibili 后 F12 → 应用 → Cookies 里复制；
-  仅对 bilibili 站点生效），或为 YouTube 等站点指定 Netscape 格式的 **Cookies 文件**；
-  浏览器模式开启时这两项被忽略。
-- **默认画质 / 保留 .m4s 分片**：同「设置 → 视频」。默认画质按名称匹配（如填
-  `1080` 则解析后预选 1080P 档），留空自动选最高。
-- 流地址有时效，解析后请尽快下载；下载失败（403/过期）重新解析一次再下。
-- yt-dlp 首次启动较慢（冷启动数秒到十几秒），解析最长等待 60 秒。
-- **YouTube 解析依赖**：发行包附带的 yt-dlp 包含 EJS challenge solver；系统还需
-  安装受支持的 JavaScript runtime。TinyNext 会优先从 PATH 自动找到 Node.js，也可在
-  「设置 → 视频 → JavaScript runtime」填 `node`、`node:C:\完整\node.exe` 或 runtime
-  可执行文件的完整路径。推荐 Node.js 22+；未安装 runtime 时，bilibili 等不需要 JS
-  challenge 的站点仍可尝试解析。
-- **已知边界**：bilibili 的 DASH 下载中重启应用，音/视频子任务会被会话恢复成两个
-  普通 `.m4s` 任务，不会自动合并（重新在视频页下载即可）；YouTube 原生任务重启后
-  同样不会再合并。
-
 - **Linux 系统托盘**：EUI-NEO 0.5.7 起通过 freedesktop SNI 提供系统托盘；桌面环境需运行兼容 StatusNotifierItem 的托盘服务。
 
 ## 暂停/继续与断点续传
@@ -139,11 +98,8 @@ bilibili 等站点）；下载分两种走法：
   文件路径。
 - **BitTorrent**：做种时间（秒）、做种比率（空=不限）、最大 peers、监听端口
   （如 `6881-6999`）、局域网发现（`--bt-enable-lpd`）。
-- **视频**：bilibili SESSDATA（仅 bilibili 解锁 1080P+/会员画质）、默认画质（留空
-   =最高）、合并后保留 .m4s 音视频分片（默认删除）。保存即生效，不走 aria2 daemon。
-- **组件**：aria2-next / yt-dlp 的应用内在线更新（检查最新 release → 经引擎
-  静默下载 → sha256 校验 → 原子替换；更新引擎自身时先停 daemon 再换文件并
-  自动重启）。ffmpeg 需编译，随应用版本走，仅显示版本。
+- **组件**：aria2-next 的应用内在线更新（检查最新 release → 经引擎静默下载 →
+  sha256 校验 → 原子替换；更新引擎自身时先停 daemon 再换文件并自动重启）。
 - **下载行为**：**最大同时下载数**（队列并发上限，默认 5，范围 1~64）、全局限速
   （KB/s，区别于每任务限速）、文件分配（默认/none/trunc/falloc）、自动改名、允许
   覆盖、完成后命令、完成后移除控制文件、磁盘缓存。
@@ -170,12 +126,12 @@ UI 只面向抽象 `dl::DownloadEngine` 接口（`src/download_engine.cppm`）�
 
 三平台都需把对应的 aria2-next 二进制放进 `engines/`（已 gitignore，`checksums.sha256` 保留）：
 
-| 平台 | release 资产（v2.6.8） | 放置为 |
+| 平台 | release 资产（v2.8.2） | 放置为 |
 |------|------------------------|--------|
-| Windows x64 | `aria2-next-2.6.8-windows-x86_64.exe` | `engines/aria2-next.exe` |
-| Linux x64 | `aria2-next-2.6.8-linux-x86_64` | `engines/aria2-next` |
-| macOS (Apple Silicon) | `aria2-next-2.6.8-macos-arm64` | `engines/aria2-next` |
-| macOS (Intel) | `aria2-next-2.6.8-macos-x86_64` | `engines/aria2-next` |
+| Windows x64 | `aria2-next-2.8.2-windows-x86_64.exe` | `engines/aria2-next.exe` |
+| Linux x64 | `aria2-next-2.8.2-linux-x86_64` | `engines/aria2-next` |
+| macOS (Apple Silicon) | `aria2-next-2.8.2-macos-arm64` | `engines/aria2-next` |
+| macOS (Intel) | `aria2-next-2.8.2-macos-x86_64` | `engines/aria2-next` |
 
 下载页：https://github.com/AnInsomniacy/aria2-next/releases
 
@@ -237,7 +193,7 @@ runner。）
 |------|-----|------|
 | 工具链 | LLVM/Clang（`mcpp.toml` 的 `[toolchain]` 固定） | 22.1.8 |
 | UI 框架 | `compat:eui-neo` | 0.5.9（feature: `app-main`；Linux 支持 SNI 系统托盘；配方加 `-fno-char8_t` 修 C++23 构建） |
-| 下载引擎 | `aria2-next`（外部进程） | 2.6.8 |
+| 下载引擎 | `aria2-next`（外部进程） | 2.8.2 |
 | 配置 JSON | `nlohmann:json` | 3.12.0 |
 
 ### 架构
@@ -322,5 +278,5 @@ runner。）
 注意：下载引擎 **aria2-next**（`engines/` 下的二进制，GPLv2）是随发行包
 **单独分发**的第三方程序，不改变本项目 MIT 许可的状态；其自身仍受 GPLv2 约束。
 
-随包分发的第三方二进制（aria2-next / yt-dlp / ffmpeg）的来源与许可见
+随包分发的第三方二进制（aria2-next）的来源与许可见
 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)（随发行包带到根目录）。

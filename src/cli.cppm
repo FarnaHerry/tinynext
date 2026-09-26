@@ -41,10 +41,10 @@ namespace core::platform { void requestUiUpdate(); }
 export module tinynext.cli;
 
 import std;
-import tinynext.i18n;          // tr / trf（CLI 下载/视频页提示按用户语言）
+import tinynext.i18n;          // tr / trf（CLI 下载提示按用户语言）
 import tinynext.store.tasks;   // g_tasks.startFromUrl（下载流程唯一入口）
 import tinynext.store.ui;      // showStatus（转发/CLI 添加下载的结果提示）
-import tinynext.utils;         // isDownloadableSource / isLikelyVideoPageUrl（下载源白名单 + 视频页检测）
+import tinynext.utils;         // isDownloadableSource（下载源白名单）
 import tinynext.download_engine;  // dl::StartOptions（--mirror 的多源任务）
 import tinynext.headless;  // --headless 脚本模式（CliBoot 在 main 前接管）
 
@@ -89,6 +89,19 @@ constexpr int kSendFlags = 0;
 constexpr int kSendFlags = MSG_NOSIGNAL;
 #endif
 
+#ifdef _WIN32
+// WSAStartup/WSACleanup 的 RAII 包裹：作用域结束自动 Cleanup。Winsock 引用计数
+// 按进程配对，init 后不 cleanup 会让退出时计数不归零（手动多 return 路径配平
+// 又易漏，直接守卫）。
+struct WsSession {
+    WsSession() { ok_ = ::WSAStartup(MAKEWORD(2, 2), &wsa_) == 0; }
+    ~WsSession() { if (ok_) ::WSACleanup(); }
+    explicit operator bool() const { return ok_; }
+    WSADATA wsa_{};
+    bool ok_ = false;
+};
+#endif
+
 // 第二实例：把 URL 通过 TCP loopback 直连发到主实例。loopback 上无人监听会立即
 // ECONNREFUSED，阻塞 connect 不会卡住。返回是否成功。
 bool trySendUrls(const std::vector<std::string>& urls) {
@@ -99,8 +112,8 @@ bool trySendUrls(const std::vector<std::string>& urls) {
     }
     if (port <= 0 || port > 65535) return false;
 #ifdef _WIN32
-    WSADATA wsa{};
-    if (::WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return false;
+    const WsSession wsa;
+    if (!wsa) return false;
 #endif
     const CliFd fd = ::socket(AF_INET, SOCK_STREAM, 0);
     if (fd == kCliInvalidFd) return false;
@@ -155,8 +168,8 @@ std::thread g_listenerThread;
 
 void cliListenerLoop() {
 #ifdef _WIN32
-    WSADATA wsa{};
-    if (::WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return;
+    const WsSession wsa;
+    if (!wsa) return;
 #endif
     const CliFd listenFd = ::socket(AF_INET, SOCK_STREAM, 0);
     if (listenFd == kCliInvalidFd) return;
@@ -184,10 +197,16 @@ void cliListenerLoop() {
     ::getsockname(listenFd, reinterpret_cast<sockaddr*>(&got), &len);
     std::ofstream(portPath(), std::ios::trunc) << ntohs(got.sin_port);
 
+    // 线程退出前统一关监听 socket（两处 return 共用；atexit 里 shutdown 只负责
+    // 唤醒 accept，释放归本函数）。
+    const auto closeListen = [&] {
+        g_listenFd.store(kCliInvalidFd);
+        closeFd(listenFd);
+    };
     for (;;) {
         const CliFd client = ::accept(listenFd, nullptr, nullptr);
         if (client == kCliInvalidFd) {
-            if (g_appExiting.load()) return;
+            if (g_appExiting.load()) { closeListen(); return; }
 #ifdef _WIN32
             if (WSAGetLastError() == WSAEINTR) continue;
 #else
@@ -207,7 +226,7 @@ void cliListenerLoop() {
             data.append(buf, static_cast<std::size_t>(n));
         }
         closeFd(client);
-        if (g_appExiting.load()) return;
+        if (g_appExiting.load()) { closeListen(); return; }
         std::vector<std::string> urls;
         std::istringstream ss(data);
         std::string line;
@@ -363,14 +382,6 @@ USAGE
   tinynext --headless <url> [more-urls...]  Script mode: NO window. Download(s) run under
                                           TinyNext's own config (dir / connections), process
                                           exits 0 on success / 1 on any failure.
-  tinynext --resolve <video-page-url>     Parse a video page via yt-dlp (YouTube / bilibili /
-                                          more) and print the quality list. No window, no
-                                          download.
-  tinynext --video-dl <video-page-url> [quality-keyword]
-                                          Resolve + download a web video: DASH qualities
-                                          auto-merge to mp4 via ffmpeg. The keyword matches
-                                          the quality label (e.g. 1080); default = configured
-                                          default quality, else best available.
   tinynext agent                          Print this usage guide (what you are reading now).
 
 RULES
@@ -587,16 +598,6 @@ struct CliBoot {
         if (headless::requested()) {
             std::exit(headless::run());
         }
-        // `tinynext --resolve <视频页URL>`：只解析打印画质列表（yt-dlp），不开窗。
-        // 同样在抢单实例锁之前接管（纯只读操作，不与运行中的实例交互）。
-        if (headless::resolveRequested()) {
-            std::exit(headless::runResolve());
-        }
-        // `tinynext --video-dl <视频页URL> [画质关键词]`：解析 + 下载 + DASH 自动
-        // 合并，不开窗（headless 视频版，独立 daemon，不与运行中的 GUI 冲突）。
-        if (headless::videoDlRequested()) {
-            std::exit(headless::runVideoDownload());
-        }
         // --restart（设置页「立即重启」拉起的替换实例）：旧实例退出要跑引擎
         // shutdown，锁释放有延迟 → 重试等锁；普通启动一次抢不到即转发退出。
         const bool primary = commandLineRestartMode()
@@ -637,7 +638,6 @@ export void startCliIpc() {
 // 按行启动下载：普通行 = 单 URL 任务；"mirror:<主URL> <镜像...>" 行 = 多源合一
 // 任务（downloadLines 的编码，socket / inbox / 自身 CLI 三路共用）。
 // 结果消息走状态条（UI 线程调用，与弹窗添加一致）。
-// 视频页 URL（YouTube/bilibili 等）直接拦截，不裸下载 HTML，提示用 --resolve。
 void startFromLines(const std::vector<std::string>& lines) {
     for (const auto& line : lines) {
         if (line.starts_with("mirror:")) {
@@ -652,12 +652,6 @@ void startFromLines(const std::vector<std::string>& lines) {
             } else if (!parts.empty()) {
                 showStatus(g_tasks.startFromUrl(parts[0], 0).message);
             }
-            continue;
-        }
-        // 视频页 URL（YouTube/bilibili 等）：自动解析并下载最佳画质。
-        // 同步阻塞（最长 60s）但 CLI 场景用户等待解析完成是合理的。
-        if (isLikelyVideoPageUrl(line)) {
-            showStatus(g_tasks.startVideoFromUrl(line, dl::StartOptions{}).message);
             continue;
         }
         showStatus(g_tasks.startFromUrl(line, 0).message);

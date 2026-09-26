@@ -21,7 +21,6 @@ export eui::Color stateColor(dl::State state) {
     const AppTheme& theme = currentTheme();
     switch (state) {
         case dl::State::Downloading: return theme.downloading;
-        case dl::State::Merging:     return theme.downloading;
         case dl::State::Paused:      return theme.paused;
         case dl::State::Done:        return theme.done;
         case dl::State::Failed:      return theme.failed;
@@ -36,7 +35,6 @@ export std::string stateLabel(dl::State state) {
     switch (state) {
         case dl::State::Queued:      return tr("card.state.queued");
         case dl::State::Downloading: return tr("card.state.downloading");
-        case dl::State::Merging:     return tr("card.state.merging");
         case dl::State::Paused:      return tr("card.state.paused");
         case dl::State::Done:        return tr("card.state.done");
         case dl::State::Cancelled:   return tr("card.state.cancelled");
@@ -46,13 +44,9 @@ export std::string stateLabel(dl::State state) {
 }
 
 // 卡片信息行：百分比 · 速度 · 已下载/总大小；非下载中则显示状态/错误。
-// 使用 task.progressState（如果存在）优先于 task.state，以便 yt-dlp 原生任务
-// 在 ffmpeg 合并阶段显示「合并中」而非「下载中」。
 export std::string cardInfoText(const dl::TaskView& task) {
-    const dl::State displayState = task.progressState;
-    switch (displayState) {
+    switch (task.state) {
         case dl::State::Queued: return tr("card.state.wait_queue");
-        case dl::State::Merging: return tr("card.state.av_merging");
         case dl::State::Paused: return tr("card.state.paused");
         case dl::State::Cancelled: return tr("card.state.cancelled");
         case dl::State::Done:
@@ -87,8 +81,7 @@ export std::string cardInfoText(const dl::TaskView& task) {
         push(formatBytes(task.downloadedBytes));
     }
     // 连接数 & 镜像恒常展示（即使没有进度/速度数据），避免信息行短暂空白。
-    // aria2 任务连接数 1-64 恒 > 0；yt-dlp 原生任务为 0（单进程无连接数概念，
-    // 自动跳过）。只有非下载态在前面 switch 已提前返回。
+    // aria2 任务连接数 1-64 恒 > 0。只有非下载态在前面 switch 已提前返回。
     const std::string speed = formatSpeed(task.speedBps);
     if (!speed.empty()) {
         push(speed);

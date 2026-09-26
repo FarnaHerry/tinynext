@@ -18,7 +18,7 @@ mcpp run            # 启动 GUI（Linux 用 ./run.sh，见下）
 bash make-dist.sh <os> <arch>   # Linux / macOS 打包 → tar.gz
 ```
 
-- 工具链固定 `llvm@22.1.8`、eui-neo 锁 **0.5.9**、websocket（IXWebSocket 包装）
+- 工具链固定 `llvm@22.1.8`、eui-neo 锁 **0.6.0**、websocket（IXWebSocket 包装）
   **12.0.1**、nlohmann::json **3.12.0**（都在 `mcpp.toml` / `mcpp.lock`，不要乱升）。
 - **版本只在 mcpp.toml 维护**：应用版本 `[package].version` 与 eui/websocket/json 依赖
   版本由 `scripts/gen-versions.ps1`（或 `.sh`）生成 `src/versions.generated.h`，
@@ -62,9 +62,7 @@ tinynext agent                           # 打印 CLI 使用教学（给 AI 用�
 | `tinynext.store.ui` | `src/store/ui.cppm` | 视图 store：状态消息 / 页面 / 筛选·排序·分页（无 eui） |
 | `tinynext.store.dialogs` | `src/store/dialogs.cppm` | 视图 store：添加/镜像/删除/关于弹窗状态机 + `addDownload`/`requestDelete`（无 eui） |
 | `tinynext.cli` | `src/cli.cppm` | 单实例锁 + 命令行 URL + TCP socket 转发 + CliBoot 引导 |
-| `tinynext.video_resolver` | `src/video_resolver.cppm` | 视频解析：外挂 yt-dlp 进程出直链（`VideoInfo`/`VideoFormat`），领域层无 eui |
-| `tinynext.video_merge` | `src/video_merge.cppm` | DASH 编排：`MergeTracker` 聚合音/视频子任务成单个合成任务 + ffmpeg 合并 |
-| `tinynext.ui.*` | `src/ui/*.cppm` | utils（布局常量）/ theme / platform / housekeep / widgets / cards / downloads_page / video_page / settings_page / about_dialog |
+| `tinynext.ui.*` | `src/ui/*.cppm` | utils（布局常量）/ theme / platform / housekeep / widgets / cards / downloads_page / settings_page / about_dialog |
 | `src/app.cpp` | 普通 TU | 薄入口：`app::dslAppConfig()` + `app::compose()` |
 
 **入口**：`main()` 由 eui-neo 的 `app-main` 提供（GLFW 入口），任何 TU 都不能再定义
@@ -141,6 +139,12 @@ tellActive/tellWaiting/tellStopped 重建任务表。
     `Dockerfile` symlink）。手工补装：`curl -L` 拉校验过的 tarball → 用系统 tar 解压
     （跳过 symlink）到 `~/.mcpp/registry/data/xpkgs/<ns>-x-<name>/<ver>/` + `mcpp_generated/`，
     再 `mcpp build`。
+13. **资源 RAII 包裹（强制）**：fd/socket/HANDLE/管道/进程句柄/CoTaskMem 等
+    获取即交给析构释放的所有者（`LocalSocket`、`WsSession`、
+    `unique_ptr<T,D>`），禁止手写多 return 路径逐个 close；常驻后台线程要有
+    所有者负责唤醒退出 + join（cmdThread_/listener 线程/jthread+stop_callback），
+    `detach()` 只用于引用进程级单例的一次性任务并注释依据。详见 `AGENTS.md`
+    约定 16/17。
 
 ## 常用文档
 
