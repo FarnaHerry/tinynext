@@ -151,17 +151,14 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
         .width(cardWidth)
         .height(kCardHeight)
         .content([&] {
-            // M3 elevated card：不透明 cardBg + 12dp 圆角 + 一级投影，
-            // 无描边（层级靠表面分层表达，玻璃拟态/描边已退役）。不做 backdrop blur。
+            // 扁平卡：不透明 cardBg + 小圆角 + 1px hairline 描边，无投影
+            // （层次靠描边表达）。不做 backdrop blur。
             ui.rect(fid + ".bg")
                 .position(0, 0)
                 .size(cardWidth, kCardHeight)
                 .color(theme.cardBg)
                 .radius(kCardRadius)
-                .shadow(6.0f, 2.0f,
-                        theme.components.dark
-                            ? core::Color{0.0f, 0.0f, 0.0f, 0.28f}
-                            : core::Color{0.10f, 0.14f, 0.22f, 0.10f})
+                .border(kHairline, theme.outline)
                 .build();
 
             // ---- 第 1 行：文件名 + 状态 chip ----（文件名超长用省略号截断成单行）
@@ -177,7 +174,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .maxWidth(nameW)
                 .color(theme.nameText)
                 .build();
-            // M3 assist chip 风状态标签：状态色 @12% 底 + 状态色字。
+            // 状态标签 chip：哑化状态色 @12% 底 + 状态色字，小圆角。
             ui.rect(fid + ".state.bg")
                 .position(cardWidth - kCardPad - chipW, 8.0f)
                 .size(chipW, 16.0f)
@@ -194,7 +191,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .color(stateColor(task.state))
                 .build();
 
-            // ---- 第 2 行：进度条（M3 linear：4dp 高，active=primary）----
+            // ---- 第 2 行：进度条（4px 高，active=反白主色）----
             ui.stack(fid + ".progress.slot")
                 .position(kCardPad, 29.0f)
                 .size(inner, 4.0f)
@@ -247,6 +244,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .size(inner - iconsW, kCardIconW)
                 .text(cardInfoText(task))
                 .fontSize(10.0f)
+                .fontFamily(kMonoFont)  // 等宽点缀（数字/速度/大小）；CJK 走字体栈回退
                 .lineHeight(kCardIconW)
                 .maxWidth(inner - iconsW)
                 .color(theme.metaText)
@@ -294,7 +292,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                       [path = task.destPath] { openFile(path); });
             }
             if (showResume) {
-                // 放最后 → 最左：进行中任务的主操作（主色图标，M3 主行动强调）。
+                // 放最后 → 最左：进行中任务的主操作（反白主色图标，主行动强调）。
                 place("resume", 0xF04B, true,  // fa-play
                       [id = task.id] { g_tasks.resume(id); });
             }

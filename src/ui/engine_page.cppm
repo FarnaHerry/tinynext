@@ -232,12 +232,14 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
                             .size(statW, 46.0f)
                             .color(theme.cardBg)
                             .radius(kCardRadius)
+                            .border(kHairline, theme.outline)
                             .build();
                         components::text(sv, std::format("engine.stat.{}.value", i))
                             .position(sx, statTop + 5.0f)
                             .size(statW, 19.0f)
                             .text(kStats[i].value)
                             .fontSize(12.0f)
+                            .fontFamily(kMonoFont)  // 统计数字等宽
                             .lineHeight(19.0f)
                             .color(theme.nameText)
                             .horizontalAlign(core::HorizontalAlign::Center)

@@ -202,7 +202,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                               showStatus(tr("dl.paused_all"));
                           });
 
-    // 添加下载：M3 FAB（正圆 + 主色填充 + FAB 投影），点击弹出对话框。
+    // 添加下载：反白主色方钮（主行动强调），点击弹出对话框。
     drawToolbarIconButton(ui, "add.btn", addX, toolY, toolW, toolW,
                           0xF067, true, theme,
                           [] {
@@ -261,16 +261,13 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         .size(pagerCardW, pagerCardH)
         .zIndex(10)
         .content([&] {
-            // M3：岛内小岛 = cardBg 底（比岛卡收一层）+ 12dp 圆角，无描边。
+            // 岛内小岛 = cardBg 底（比岛卡收一层）+ 小圆角 + hairline 描边，无投影。
             ui.rect("pager.card.bg")
                 .position(0, 0)
                 .size(pagerCardW, pagerCardH)
                 .color(theme.cardBg)
                 .radius(kCardRadius)
-                .shadow(6.0f, 2.0f,
-                        theme.components.dark
-                            ? core::Color{0.0f, 0.0f, 0.0f, 0.24f}
-                            : core::Color{0.10f, 0.14f, 0.22f, 0.08f})
+                .border(kHairline, theme.outline)
                 .build();
 
             ui.row("pager.group")
@@ -294,6 +291,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .size(kPageLabelWidth, kPagerHeight)
                         .text(std::format("{}", g_page))
                         .fontSize(kCompactButtonFontSize)
+                        .fontFamily(kMonoFont)  // 页码等宽
                         .lineHeight(kPagerHeight)
                         .horizontalAlign(core::HorizontalAlign::Center)
                         .verticalAlign(core::VerticalAlign::Center)
@@ -328,7 +326,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         })
         .build();
 
-    // ---- 状态消息（M3 Snackbar）：反色面小条，翻页行上方居中，4s 过期 ----
+    // ---- 状态消息（Snackbar）：反色面小条 + hairline，翻页行上方居中，4s 过期 ----
     if (!g_statusMessage.empty()) {
         const bool shown = g_statusTimer > 0.0f;
         const float snH = 32.0f;
@@ -350,9 +348,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .size(snW, snH)
                     .color(theme.inverseSurface)
                     .radius(kChipRadius)
-                    .shadow(10.0f, 3.0f,
-                            theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.35f}
-                                       : core::Color{0.10f, 0.14f, 0.22f, 0.18f})
+                    .border(kHairline, theme.outline)
                     .build();
                 ui.text("status.snack.label")
                     .size(snW, snH)
@@ -390,7 +386,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         const float torDirY = 102.0f;  // 种子 tab：下载目录行
         const float torHintY = 138.0f; // 种子 tab：提示文字
 
-        // 遮罩（M3 scrim α32%），点击空白处关闭。zIndex 高于侧边栏/翻页，
+        // 遮罩（scrim α50%），点击空白处关闭。zIndex 高于侧边栏/翻页，
         // 保证整个窗口都被盖住。
         ui.rect("add.backdrop")
             .position(0, 0)
@@ -405,16 +401,17 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             .size(dlgW, dlgH)
             .zIndex(101)
             .content([&] {
-                // M3 Basic Dialog：不透明 surfaceContainerHigh + 20dp 圆角 + 三级投影，
-                // 无描边（玻璃拟态/描边已退役）。
+                // 弹窗规范（全 app 统一）：不透明 surfaceContainerLow 底 +
+                // hairline 描边 + 8 圆角 + 唯一保留的一套淡投影（16,4）。
                 ui.rect("add.dialog.bg")
                     .position(0, 0)
                     .size(dlgW, dlgH)
-                    .color(theme.surfaceContainerHigh)
+                    .color(theme.surfaceContainerLow)
                     .radius(kDialogRadius)
-                    .shadow(24.0f, 8.0f,
-                            theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.38f}
-                                       : core::Color{0.10f, 0.14f, 0.22f, 0.18f})
+                    .border(kHairline, theme.outline)
+                    .shadow(16.0f, 4.0f,
+                            theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.40f}
+                                       : core::Color{0.0f, 0.0f, 0.0f, 0.12f})
                     .onClick([] {})  // 吞掉弹窗内部空白点击，避免穿透到遮罩关闭弹窗
                     .build();
 
@@ -427,21 +424,22 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .color(theme.titleText)
                     .build();
 
-                // M3 segmented button：容器 surfaceContainerHighest pill，
-                // 选中段 secondaryContainer pill + onSecondaryContainer 文字。
+                // segmented button：容器 surfaceContainer + hairline，
+                // 选中段 surfaceContainerHighest 指示块 + onSurface 文字。
                 const auto segTransition =
                     core::Transition::make(0.16f, core::Ease::OutCubic);
                 ui.rect("add.tabs.bg")
                     .position(labelX, tabY)
                     .size(tabW * 2.0f + 8.0f, tabH)
-                    .color(theme.surfaceContainerHighest)
+                    .color(theme.surfaceContainer)
                     .radius(kButtonRadius)
+                    .border(kHairline, theme.outline)
                     .build();
                 ui.rect("add.tabs.ind")
                     .position(labelX + (g_addTab == AddTab::Torrent ? tabW + 8.0f : 0.0f),
                               tabY)
                     .size(tabW, tabH)
-                    .color(theme.secondaryContainer)
+                    .color(theme.surfaceContainerHighest)
                     .radius(kButtonRadius)
                     .transition(segTransition)
                     .build();
@@ -465,7 +463,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .text(tr("dl.tab.direct"))
                     .fontSize(kButtonFontSize)
                     .lineHeight(tabH)
-                    .color(g_addTab == AddTab::Direct ? theme.onSecondaryContainer
+                    .color(g_addTab == AddTab::Direct ? theme.onSurface
                                                       : theme.onSurfaceVariant)
                     .horizontalAlign(core::HorizontalAlign::Center)
                     .verticalAlign(core::VerticalAlign::Center)
@@ -476,7 +474,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .text(tr("dl.tab.torrent"))
                     .fontSize(kButtonFontSize)
                     .lineHeight(tabH)
-                    .color(g_addTab == AddTab::Torrent ? theme.onSecondaryContainer
+                    .color(g_addTab == AddTab::Torrent ? theme.onSurface
                                                        : theme.onSurfaceVariant)
                     .horizontalAlign(core::HorizontalAlign::Center)
                     .verticalAlign(core::VerticalAlign::Center)
@@ -707,11 +705,12 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 ui.rect("del.dialog.bg")
                     .position(0, 0)
                     .size(dlgW, dlgH)
-                    .color(theme.surfaceContainerHigh)
+                    .color(theme.surfaceContainerLow)
                     .radius(kDialogRadius)
-                    .shadow(24.0f, 8.0f,
-                            theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.38f}
-                                       : core::Color{0.10f, 0.14f, 0.22f, 0.18f})
+                    .border(kHairline, theme.outline)
+                    .shadow(16.0f, 4.0f,
+                            theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.40f}
+                                       : core::Color{0.0f, 0.0f, 0.0f, 0.12f})
                     .onClick([] {})  // 吞掉弹窗内部空白点击，避免穿透到遮罩关闭弹窗
                     .build();
 
@@ -904,11 +903,12 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
             ui.rect("info.dialog.bg")
                 .position(0, 0)
                 .size(dlgW, dlgH)
-                .color(theme.surfaceContainerHigh)
+                .color(theme.surfaceContainerLow)
                 .radius(kDialogRadius)
-                .shadow(24.0f, 8.0f,
-                        theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.38f}
-                                   : core::Color{0.10f, 0.14f, 0.22f, 0.18f})
+                .border(kHairline, theme.outline)
+                .shadow(16.0f, 4.0f,
+                        theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.40f}
+                                   : core::Color{0.0f, 0.0f, 0.0f, 0.12f})
                 .onClick([] {})  // 吞掉内部点击，避免穿透关闭
                 .build();
 
@@ -1047,11 +1047,12 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
             ui.rect("mirror.dialog.bg")
                 .position(0, 0)
                 .size(dlgW, dlgH)
-                .color(theme.surfaceContainerHigh)
+                .color(theme.surfaceContainerLow)
                 .radius(kDialogRadius)
-                .shadow(24.0f, 8.0f,
-                        theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.38f}
-                                   : core::Color{0.10f, 0.14f, 0.22f, 0.18f})
+                .border(kHairline, theme.outline)
+                .shadow(16.0f, 4.0f,
+                        theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.40f}
+                                   : core::Color{0.0f, 0.0f, 0.0f, 0.12f})
                 .onClick([] {})  // 吞掉内部空白点击
                 .build();
 
