@@ -59,9 +59,9 @@ const DslAppConfig& dslAppConfig() {
     static const DslAppConfig config = DslAppConfig{}
         .title("TinyNext 下载器")
         .pageId("tinynext")
-        // 起底色 = M3 dark surface（#10131A）；运行期背景由 compose 的全屏矩形覆盖，
+        // 起底色 = 暗主题 surface（#0A0A0A）；运行期背景由 compose 的全屏矩形覆盖，
         // 主题切换即时生效，这里只是启动瞬间防白闪。
-        .clearColor({0.063f, 0.075f, 0.102f, 1.0f})
+        .clearColor({0.039f, 0.039f, 0.039f, 1.0f})
         // 原生全局缩放（eui-neo 0.5.6）：uiScale 按 dpiScale*uiScale 放大整个逻辑
         // 坐标系（布局+字号），所有尺寸按设计逻辑像素书写、不再 S() 自乘。窗口
         // 物理尺寸 = 设计尺寸 * kUI（eui 创建窗口时按物理像素，不会自动乘 uiScale）。
@@ -197,27 +197,27 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 .zIndex(5)
                 .content([&] {
 
-                    // 应用 logo：项目名缩写 "TN"（TinyNext）。M3 风：primaryContainer
-                    // 圆角色块 + onPrimaryContainer 字，水平居中于 rail。
+                    // 应用 logo：项目名缩写 "TN"（TinyNext）。黑白极客风：反白方块
+                    // （暗主题白底黑字 / 亮主题黑底白字）+ 等宽字，水平居中于 rail。
                     ui.rect("sidebar.logo.bg")
                         .position((kRailWidth - 20.0f) * 0.5f, 10.0f)
                         .size(20.0f, 20.0f)
-                        .color(theme.primaryContainer)
-                        .radius(6.0f)
+                        .color(theme.primary)
+                        .radius(4.0f)
                         .build();
                     ui.text("sidebar.logo")
                         .position(0, 10.0f)
                         .size(kRailWidth, 20.0f)
                         .text("TN")
                         .fontSize(9.0f)
+                        .fontFamily(kMonoFont)
                         .lineHeight(20.0f)
-                        .color(theme.onPrimaryContainer)
+                        .color(theme.onPrimary)
                         .horizontalAlign(core::HorizontalAlign::Center)
                         .verticalAlign(core::VerticalAlign::Center)
                         .build();
 
-                    // 应用页导航（M3 Navigation Rail：图标 pill + 标签）：下载 / 设置 /
-                    // 引擎监控。项块高 kNavItemH，y 步进 64。
+                    // 应用页导航（图标块 + 标签）：下载 / 设置 / 引擎监控。y 步进 64。
                     float railY = 44.0f;
                     drawRailItem(ui, "nav.downloads", railY, kRailWidth, 0xF03A,
                                  tr("app.tab.downloads"), g_page_view == Page::Downloads,

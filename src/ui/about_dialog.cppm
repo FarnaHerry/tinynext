@@ -40,11 +40,12 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
             ui.rect("about.dialog.bg")
                 .position(0, 0)
                 .size(dlgW, dlgH)
-                .color(theme.surfaceContainerHigh)
+                .color(theme.surfaceContainerLow)
                 .radius(kDialogRadius)
-                .shadow(24.0f, 8.0f,
-                        theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.38f}
-                                   : core::Color{0.10f, 0.14f, 0.22f, 0.18f})
+                .border(kHairline, theme.outline)
+                .shadow(16.0f, 4.0f,
+                        theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.40f}
+                                   : core::Color{0.0f, 0.0f, 0.0f, 0.12f})
                 .onClick([] {})  // 吞掉弹窗内部空白点击，避免穿透到遮罩关闭弹窗
                 .build();
 
@@ -91,6 +92,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
                     .size(dlgW - 124.0f, 22.0f)
                     .text(row.value)
                     .fontSize(11.0f)
+                    .fontFamily(kMonoFont)  // 版本号等宽点缀（CJK 走字体栈回退）
                     .lineHeight(22.0f)
                     .color(theme.nameText)
                     .build();

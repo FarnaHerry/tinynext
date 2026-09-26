@@ -1213,7 +1213,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         const float dlgX = (screen.width - dlgW) * 0.5f;
         const float dlgY = (screen.height - dlgH) * 0.5f;
 
-        // 遮罩（M3 scrim），点击空白处关闭（=稍后）。
+        // 遮罩（scrim α50%），点击空白处关闭（=稍后）。
         ui.rect("restart.backdrop")
             .position(0, 0)
             .size(screen.width, screen.height)
@@ -1230,11 +1230,12 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 ui.rect("restart.dialog.bg")
                     .position(0, 0)
                     .size(dlgW, dlgH)
-                    .color(theme.surfaceContainerHigh)
+                    .color(theme.surfaceContainerLow)
                     .radius(kDialogRadius)
-                    .shadow(24.0f, 8.0f,
-                            theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.38f}
-                                       : core::Color{0.10f, 0.14f, 0.22f, 0.18f})
+                    .border(kHairline, theme.outline)
+                    .shadow(16.0f, 4.0f,
+                            theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.40f}
+                                       : core::Color{0.0f, 0.0f, 0.0f, 0.12f})
                     .onClick([] {})  // 吞掉弹窗内部空白点击，避免穿透到遮罩关闭弹窗
                     .build();
 

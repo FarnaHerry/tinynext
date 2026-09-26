@@ -89,19 +89,21 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
    尺寸按设计逻辑像素直接写，不再 `S()` 自乘。`kUI` 仍是唯一缩放旋钮。
 10. **aria2 引擎**：进程名 Windows 是 `aria2-next.exe`，unix 是 `aria2-next`；
     字段名用 `connections`（不是 `numConnections`）。
-11. **Material 3 视觉体系**：界面是 MD3 风格——tonal 表面分层（无描边无玻璃拟态，
-    `glassFill` 已退役）、pill/大圆角、state layer 交互反馈。色板全部在
-    `ui/theme.cppm` 的 `AppTheme`：MD3 角色（primary/onPrimary/primaryContainer/
-    surfaceContainer{Low..Highest}/outline/outlineVariant/inverseSurface/scrim…）+
-    语义容器层 **`panelBg`（岛卡底）/ `cardBg`（内容卡底）**——岛卡必须比窗口背景
-    「抬」一层（暗色=surfaceContainerLow，亮色=surfaceContainerLowest≈白，亮色
-    直接用 surfaceContainerLow 反而比背景暗）。交互叠加色用 `stateLayer(onColor,
-    α)`（hover 0.08 / pressed 0.12）。弹窗统一 M3 Basic Dialog：scrim 遮罩 +
-    surfaceContainerHigh + `kDialogRadius`(20) + 投影，**不加 blur**；次要按钮用
-    `widgets::drawTextButton`（透明底 + state layer）。岛卡 =
-    `widgets::drawPanel`（panelBg + `kIslandRadius`）；左侧是 MD3 Navigation Rail
-    （图标+标签 pill 指示，`kRailWidth`=64）。布局常量在 `utils.cppm`：
-    `kIslandGap`、`kPanelPad`、`kRightMargin`、`kCardRadius`、`kChipRadius` 等。
+11. **黑白极客视觉体系**：界面是纯中性灰 monochrome 风（对标 Codex / Claude Code
+    页面）——亮暗双主题严格镜像，**主色 = 反白**（暗主题 primary=白/onPrimary=黑，
+    亮主题反转）。层次靠 **1px hairline 描边**（`kHairline` + `theme.outline`）+
+    灰阶梯（surfaceContainerLow..Highest）表达，**扁平无投影**——唯一例外是弹窗
+    （`shadow(16,4)`：dark 黑 α0.40 / light 黑 α0.12）。色板全部在
+    `ui/theme.cppm` 的 `AppTheme`（字段名沿用 M3 角色名，语义已是单色体系）+
+    语义容器层 **`panelBg`（岛卡底）/ `cardBg`（内容卡底）**。状态色只保留哑化
+    绿/红（done/failed），活动态用单色灰。交互叠加色用 `stateLayer(onColor, α)`
+    （hover 0.08 / pressed 0.12）。弹窗统一规范：scrim α0.5 遮罩 +
+    surfaceContainerLow + hairline + `kDialogRadius`(8) + 那套弹窗投影；次要按钮用
+    `widgets::drawTextButton`。岛卡 = `widgets::drawPanel`（panelBg + hairline +
+    `kIslandRadius`=8）；圆角令牌 `kCardRadius`=6 / `kChipRadius`=4 /
+    `kButtonRadius`=6（pill 已退役）。**等宽字体点缀**：`kMonoFont`
+    （JetBrains Mono，assets/ 内置，OFL）用于数字/速度/页码/版本号等纯拉丁片段，
+    CJK 靠 eui 字体栈回退（`fontFamily` 带 `.` 按项目资产路径加载）。
 12. **eui 元素 id 全局唯一**：一个 frame 里同名 id 会互相覆盖（如 `components::text`
     标签与 `buildListPicker(id="x")` 内部的 `x.label` 撞名 → 文字不显示）。新增控件
     的 id 要避开已有前缀。
