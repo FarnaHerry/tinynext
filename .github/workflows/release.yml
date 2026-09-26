@@ -286,12 +286,13 @@ jobs:
 
       - name: Publish Release
         # v3 = node24 运行时（v2 还在 node20，已淘汰）。tag_name/name/draft/body/files
-        # 输入与 v2 兼容；draft: true 语义不变（创建 draft release，人工发布）。
+        # 输入与 v2 兼容。draft: false → 三平台产物齐了就直接发布正式 Release，
+        # 不再留草稿等人工点发布（构建失败则本 job 不跑到，也就不会发布残缺版本）。
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: TinyNext ${{ github.ref_name }}
-          draft: true
+          draft: false
           body: |
             ## TinyNext ${{ github.ref_name }}
 

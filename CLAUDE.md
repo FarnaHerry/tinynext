@@ -28,8 +28,9 @@ bash make-dist.sh <os> <arch>   # Linux / macOS 打包 → tar.gz
   GLIBC 版本冲突，run.sh 走系统 ld.so + 系统 Mesa。
 - **没有测试**：eui-neo 的 `app-main` 特性会把 `glfw_app_main.o` 急切链入，与任何
   定义 `main()` 的测试 TU 冲突（`multiple definition of 'main'`），tests/ 已删除。
-- CI：`.github/workflows/release.yml`。push `v*` 标签自动三平台构建 + 发布 draft
-  Release；`workflow_dispatch` 只构建上传 artifacts（用于先修跨平台编译错误）。
+- CI：`.github/workflows/release.yml`。push `v*` 标签自动三平台构建 + **直接发布
+  正式 Release**（draft: false，不留草稿）；`workflow_dispatch` 只构建上传
+  artifacts（用于先修跨平台编译错误）。
 - 提交：feature 分支本地 commit，release build 全绿后由助手直接 merge 到 main
   并 push（发布含打 `v*` tag 触发 CI）。「用户自行 push、不要代 push」旧惯例
   已于 2026-09 作废。

@@ -163,7 +163,8 @@ Linux / macOS 三平台构建并创建 Release（也可 `workflow_dispatch` 手�
    ```bash
    git tag v0.3.2 && git push origin v0.3.2
    ```
-3. 到仓库 Releases 页把自动生成的 **draft** release 补充说明后发布。
+3. tag 推送后 CI 三平台构建完成即**自动发布正式 Release**（不再产草稿）；如需
+   改说明，发布后到 Releases 页编辑即可。
 
 产物（aria2-next 二进制在 CI 上按 `engines/checksums.sha256` 校验后随包附上）：
 
