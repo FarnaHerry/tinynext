@@ -77,7 +77,7 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
                         .position(cvX, 0.0f)
                         .size(cvW, 24.0f)
                         .text(tr("app.tab.monitor"))
-                        .fontSize(17.0f)
+                        .fontSize(20.0f)
                         .lineHeight(24.0f)
                         .color(theme.titleText)
                         .build();
@@ -230,9 +230,8 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
                         sv.rect(std::format("engine.stat.{}.bg", i))
                             .position(sx, statTop)
                             .size(statW, 46.0f)
-                            .color(theme.components.surface)
-                            .radius(8.0f)
-                            .border(1.0f, components::theme::withOpacity(theme.components.border, 0.6f))
+                            .color(theme.cardBg)
+                            .radius(kCardRadius)
                             .build();
                         components::text(sv, std::format("engine.stat.{}.value", i))
                             .position(sx, statTop + 5.0f)
@@ -276,7 +275,7 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
                         .text(tr("eng.runtime_opts"))
                         .fontSize(11.0f)
                         .lineHeight(16.0f)
-                        .color(theme.statusText)
+                        .color(theme.titleText)
                         .build();
                     constexpr int kParamCols = 2;
                     constexpr int kParamRows = 3;
@@ -312,23 +311,19 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
         .build();
 
     // ---- 操作行（固定窗口底部）：立即检测 / 重启引擎 / 打开日志 ----
-    components::button(ui, "engine.check")
-        .position(infoX, actionY)
-        .size(76.0f, kButtonHeight)
-        .text(g_checking.load() ? tr("eng.checking") : tr("eng.check_now"))
-        .fontSize(kButtonFontSize)
-        .theme(theme.components, false)
-        .radius(kButtonRadius)
-        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-        .disabled(g_checking.load())
-        .onClick([] {
-            g_checking.store(true);
-            g_tasks.refreshHealth([](const dl::HealthInfo&) {
-                g_checking.store(false);
-                core::platform::requestUiUpdate();
+    {
+        const bool checking = g_checking.load();
+        drawTextButton(ui, "engine.check", infoX, actionY, 76.0f, kButtonHeight,
+                       checking ? tr("eng.checking") : tr("eng.check_now"), theme,
+                       [] {
+                if (g_checking.load()) return;  // 检测中忽略连点
+                g_checking.store(true);
+                g_tasks.refreshHealth([](const dl::HealthInfo&) {
+                    g_checking.store(false);
+                    core::platform::requestUiUpdate();
+                });
             });
-        })
-        .build();
+    }
 
     const bool restarting = g_restartState.load() == 1;
     components::button(ui, "engine.restart")
@@ -356,18 +351,12 @@ export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppThem
         })
         .build();
 
-    components::button(ui, "engine.log")
-        .position(infoX + 76.0f + kButtonGap + 84.0f + kButtonGap, actionY)
-        .size(76.0f, kButtonHeight)
-        .text(tr("eng.open_log"))
-        .fontSize(kButtonFontSize)
-        .theme(theme.components, false)
-        .radius(kButtonRadius)
-        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-        .onClick([] {
+    drawTextButton(ui, "engine.log",
+                   infoX + 76.0f + kButtonGap + 84.0f + kButtonGap, actionY,
+                   76.0f, kButtonHeight, tr("eng.open_log"), theme,
+                   [] {
             openFile(cfg::configDir() / "tinynext-aria2.log");
-        })
-        .build();
+        });
 
     components::text(ui, "engine.hint")
         .position(infoX + 76.0f + kButtonGap + 84.0f + kButtonGap + 76.0f + 12.0f, actionY)

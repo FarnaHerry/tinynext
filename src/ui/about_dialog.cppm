@@ -11,7 +11,7 @@ import tinynext.config;
 import tinynext.i18n;   // tr（关于弹窗文案）
 import tinynext.ui.theme;
 import tinynext.ui.utils;
-import tinynext.ui.widgets;     // glassFill（毛玻璃填充色）
+import tinynext.ui.widgets;     // drawTextButton
 import tinynext.store.dialogs;  // g_aboutOpen
 import tinynext.store.tasks;    // g_tasks.health()（引擎真实版本）
 import tinynext.ui.platform;
@@ -28,7 +28,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
         .position(0, 0)
         .size(screen.width, screen.height)
         .zIndex(100)
-        .color({0.0f, 0.0f, 0.0f, 0.32f})
+        .color(theme.scrim)
         .onClick([] { g_aboutOpen = false; })
         .build();
 
@@ -40,12 +40,11 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
             ui.rect("about.dialog.bg")
                 .position(0, 0)
                 .size(dlgW, dlgH)
-                .blur(10.0f)
-                .color(glassFill(theme, 0.52f))
-                .radius(10.0f)
-                .border(1.0f,
-                        components::theme::withOpacity(
-                            theme.components.border, 0.6f))
+                .color(theme.surfaceContainerHigh)
+                .radius(kDialogRadius)
+                .shadow(24.0f, 8.0f,
+                        theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.38f}
+                                   : core::Color{0.10f, 0.14f, 0.22f, 0.18f})
                 .onClick([] {})  // 吞掉弹窗内部空白点击，避免穿透到遮罩关闭弹窗
                 .build();
 
@@ -53,7 +52,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
                 .position(16.0f, 14.0f)
                 .size(dlgW - 32.0f, 22.0f)
                 .text(tr("about.title"))
-                .fontSize(15.0f)
+                .fontSize(16.0f)
                 .lineHeight(22.0f)
                 .color(theme.titleText)
                 .build();
@@ -105,7 +104,7 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
                 .text(tr("about.project_home"))
                 .fontSize(11.0f)
                 .lineHeight(16.0f)
-                .color(theme.statusText)
+                .color(theme.titleText)
                 .build();
 
             struct LinkRow { const char* label; const char* url; };
@@ -116,30 +115,16 @@ export void drawAboutDialog(eui::Ui& ui, const eui::Screen& screen, const AppThe
             };
             float linkY = rowY + 22.0f;
             for (const auto& link : kLinks) {
-                components::button(ui, std::format("about.link.{}", link.label))
-                    .position(16.0f, linkY)
-                    .size(180.0f, kCompactButtonHeight)
-                    .text(link.label)
-                    .fontSize(kCompactButtonFontSize)
-                    .theme(theme.components, false)
-                    .radius(kButtonRadius)
-                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                    .onClick([url = std::string(link.url)] { openUrl(url); })
-                    .build();
+                drawTextButton(ui, std::format("about.link.{}", link.label),
+                               16.0f, linkY, 180.0f, kCompactButtonHeight,
+                               link.label, theme,
+                               [url = std::string(link.url)] { openUrl(url); });
                 linkY += 26.0f;
             }
 
-            components::button(ui, "about.close")
-                .position((dlgW - 76.0f) * 0.5f, dlgH - 30.0f)
-                .size(76.0f, kDialogButtonHeight)
-                .text(tr("about.close"))
-                .fontSize(kDialogButtonFontSize)
-                .theme(theme.components, true)
-                .radius(kButtonRadius)
-                .textColor(onPrimaryColor(theme))
-                .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                .onClick([] { g_aboutOpen = false; })
-                .build();
+            drawTextButton(ui, "about.close", (dlgW - 76.0f) * 0.5f, dlgH - 30.0f,
+                           76.0f, kDialogButtonHeight, tr("about.close"), theme,
+                           [] { g_aboutOpen = false; });
         })
         .build();
 }

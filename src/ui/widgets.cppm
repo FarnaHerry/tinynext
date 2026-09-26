@@ -65,14 +65,9 @@ void drawTipBubble(eui::Ui& ui, const std::string& id, float btnY, float btnH,
         core::TextPrimitive::measureTextWidth(text, "", 11.0f) + tipInnerPad * 2.0f, 22.0f);
     const float tipX = railWidth + tailW + 2.0f;   // 气泡左缘
     const float tipY = btnY + (btnH - tipH) * 0.5f;  // 气泡垂直居中于按钮
-    // 气泡配色随主题：深色用比背景亮一档的深灰面板、浅色用近白——比原来的「深浅主题都
-    // 近黑」更贴合主题；文字色也随主题翻转（深色近白字 / 浅色主题正文色）。
-    const core::Color tipBg = theme.dark
-        ? core::Color{0.14f, 0.15f, 0.18f, 0.97f}
-        : core::Color{0.99f, 0.99f, 1.0f, 0.99f};
-    const core::Color tipText = theme.dark
-        ? core::Color{0.92f, 0.93f, 0.95f, 1.0f}
-        : theme.components.text;
+    // M3 tooltip：反色面（深色主题亮灰底深字 / 浅色主题深底浅字），文字随 onInverseSurface。
+    const core::Color tipBg = theme.inverseSurface;
+    const core::Color tipText = theme.onInverseSurface;
 
     // 气泡主体（绝对定位的圆角矩形）。**不加边框**：边框会在尾巴与气泡相接处切出竖线，
     // 造成「割裂」感。改用低透明度投影提供层次（分离感由阴影承担），尾巴与气泡同色重叠
@@ -85,7 +80,7 @@ void drawTipBubble(eui::Ui& ui, const std::string& id, float btnY, float btnH,
             ui.rect(id + ".tip.bg")
                 .size(tipW, tipH)
                 .color(tipBg)
-                .radius(6.0f)
+                .radius(8.0f)
                 .shadow(6.0f, 1.5f, core::Color{0.0f, 0.0f, 0.0f, 0.18f})
                 .build();
             ui.text(id + ".tip.label")
@@ -122,48 +117,22 @@ void drawTipBubble(eui::Ui& ui, const std::string& id, float btnY, float btnH,
 }
 } // namespace
 // ----------------------------------------------------- 外层"岛"卡片背景 --
-// 岛屿卡片风：内容区 / 侧边栏都做成浮在页面背景上的圆角"岛"。底色取
-// background↔surface 的中间色调，保证与纯 surface 的内层卡片（如任务卡）分层，
-// 不会糊在一起；统一圆角 + 细边框 + 柔和投影。
-// 毛玻璃填充色：surface 基色半透明，与背后被模糊的背景混合成玻璃质感。
-// alpha 越高越实、越低越透。drawPanel（整页岛卡）与各弹窗 / 任务卡 / 翻页 /
-// 下拉弹层复用同一套玻璃色。
-export core::Color glassFill(const AppTheme& theme, float alpha = 0.6f) {
-    const core::Color base = core::mixColor(theme.components.background,
-                                            theme.components.surface, 0.5f);
-    return {base.r, base.g, base.b, alpha};
-}
-
-// 按钮文字/图标色（对齐 heibu 的 buttonTextColor）：primary=true（选中/主色，白底）
-// → 配深色字才可读；primary=false（次按钮，surface 底）→ 默认（深=近白字、浅=黑字）。
-// eui ButtonStyle 默认恒用近白字，只适合深色主色，这里按主题翻转。
-export core::Color onPrimaryColor(const AppTheme& theme, bool primary = true) {
-    if (primary) {
-        return theme.components.dark ? core::Color{0.03f, 0.03f, 0.03f, 1.0f}
-                                     : core::Color{0.95f, 0.95f, 0.95f, 1.0f};
-    }
-    return theme.components.dark ? core::Color{0.94f, 0.97f, 1.0f, 1.0f}
-                                 : theme.components.text;
-}
-
+// M3 页面层：岛卡 = 不透明 surface 大圆角平面（28dp 体系下的 16），无描边无投影 ——
+// 底色 = panelBg（暗色 surfaceContainerLow / 亮色纯白），层级靠表面分层表达，不再用玻璃拟态/阴影。
 export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
                       float w, float h, const AppTheme& theme) {
-    const auto& tokens = theme.components;
-    // 全屏岛卡不做 backdrop blur：blur 在整屏面积上每帧几十次纹理采样，主题切换
-    // 触发多帧全量重绘会卡死（实测 blur 18/10 都卡）。保留半透明玻璃色让背景
-    // 柔光透出（玻璃质感靠透色 + 柔光），磨砂感略减但流畅优先。
-    // 弹窗/下拉是小面积，仍可保留 backdrop blur（见各弹窗）。
-    const core::Color shadowColor =
-        tokens.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.25f}
-                    : core::Color{0.10f, 0.14f, 0.22f, 0.12f};
     ui.rect(id)
         .position(x, y)
         .size(w, h)
-        .color(glassFill(theme, 0.62f))
+        .color(theme.panelBg)
         .radius(kIslandRadius)
-        .border(1.0f, components::theme::withOpacity(tokens.border, 0.6f))
-        .shadow(14.0f, 3.0f, shadowColor)
         .build();
+}
+
+// 按钮文字/图标色：primary 按钮文字 = onPrimary（M3 角色，亮暗各定义）；
+// 非 primary 走组件默认（text = onSurface）。玻璃拟态时代的黑白翻色已随 M3 色板退役。
+export core::Color onPrimaryColor(const AppTheme& theme, bool primary = true) {
+    return primary ? theme.onPrimary : theme.components.text;
 }
 
 // 单岛布局里的竖向分隔线：同一张岛卡内，把二级侧边栏与内容区区分开（整页一张岛、
@@ -179,12 +148,13 @@ export void drawVDivider(eui::Ui& ui, const std::string& id, float x, float y,
         .build();
 }
 
-// 工具栏图标按钮：非主按钮默认无描边，hover 时浮现细边框 + 轻微底色（利用
-// ui.state 持久存 hover，每帧读它切边框颜色，transition 过渡）；primary 时一直
-// 主色填充（保持默认描边，如 ➕ 添加按钮）。
+// 工具栏图标按钮（M3 Icon Button）：圆形，无描边；standard 款 hover/pressed 叠
+// onSurface state layer（8%/12%），selected 款（primary=true）主色填充 + onPrimary 图标。
+// fab=true 时加 M3 FAB 投影（主行动强调，如「添加下载」）。
 export void drawToolbarIconButton(eui::Ui& ui, const std::string& id, float x, float y,
                                   float w, float h, unsigned int icon, bool primary,
-                                  const AppTheme& theme, std::function<void()> onClick) {
+                                  const AppTheme& theme, std::function<void()> onClick,
+                                  bool fab = false) {
     const auto& tokens = theme.components;
     const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
     const core::Color transparent{0.0f, 0.0f, 0.0f, 0.0f};
@@ -198,24 +168,25 @@ export void drawToolbarIconButton(eui::Ui& ui, const std::string& id, float x, f
             .text("")
             .iconSize(kToolbarIconSize)
             .theme(tokens, true)
-            .iconColor(onPrimaryColor(theme))  // 深色白按钮 → 深色图标
-            .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})  // 去掉投影，避免白按钮糊边
+            .iconColor(onPrimaryColor(theme))  // 主色底 → onPrimary 图标
+            .shadow(fab ? 12.0f : 0.0f, 0.0f, fab ? 4.0f : 0.0f,
+                    fab ? (theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.35f}
+                                      : core::Color{0.10f, 0.14f, 0.22f, 0.22f})
+                        : core::Color{0.0f, 0.0f, 0.0f, 0.0f})
             .radius(radius)
             .onClick(std::move(onClick))
             .build();
         return;
     }
 
-    bool& hovered = ui.state<bool>(id + ".hover");
-    const core::Color borderColor = components::theme::withOpacity(tokens.border, 0.9f);
+    // standard 款：透明底 + onSurface state layer，选中态（调用方改 icon 色）用主色。
     ui.rect(id + ".fill")
         .position(x, y)
         .size(w, h)
-        .states(transparent, tokens.surfaceHover, tokens.surfaceActive)
+        .states(transparent, stateLayer(theme.onSurface, 0.08f),
+                stateLayer(theme.onSurface, 0.12f))
         .radius(radius)
-        .border(1.0f, hovered ? borderColor : transparent)
         .transition(transition)
-        .onHover([&hovered](bool h) { hovered = h; })
         .onClick(std::move(onClick))
         .build();
 
@@ -263,13 +234,13 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
                                       0xF0DC, false, theme,
                                       [&open] { open = !open; });
             } else if (field == PickerField::Plain) {
-                // 纯文本字段：无边框条，当前项文字居中 + 右侧小箭头（无尾 chevron），
-                // 点击弹出列表。默认透明，仅 hover/按下给出轻微底色反馈。
+                // 纯文本字段（翻页器用）：无边框条，当前项文字居中 + 右侧小箭头（无尾 chevron），
+                // 点击弹出列表。M3 text-button 风：透明底 + onSurface state layer。
                 ui.rect(id + ".hit")
                     .size(width, height)
-                    .states({0.0f, 0.0f, 0.0f, 0.0f}, tokens.surfaceHover,
-                            tokens.surfaceActive)
-                    .radius(6.0f)
+                    .states({0.0f, 0.0f, 0.0f, 0.0f}, stateLayer(theme.onSurface, 0.08f),
+                            stateLayer(theme.onSurface, 0.12f))
+                    .radius(kChipRadius)
                     .onClick([&open] { open = !open; })
                     .build();
                 ui.text(id + ".label")
@@ -293,11 +264,13 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
                     .verticalAlign(core::VerticalAlign::Center)
                     .build();
             } else {
+                // M3 outlined 字段：surface 底 + outline 描边，选中/展开时描边转主色。
                 ui.rect(id + ".field")
                     .size(width, height)
                     .color(tokens.surface)
-                    .radius(8.0f)
-                    .border(1.0f, components::theme::withOpacity(tokens.border, 0.78f))
+                    .radius(kChipRadius)
+                    .border(1.0f, open ? theme.primary
+                                       : components::theme::withOpacity(theme.outline, 0.7f))
                     .transition(transition)
                     .onClick([&open] { open = !open; })
                     .build();
@@ -343,24 +316,31 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
                     .size(popWidth, popupHeight)
                     .zIndex(31)
                     .content([&] {
+                        // M3 menu：不透明 surfaceContainerHigh + 发丝 outlineVariant 描边。
                         ui.rect(id + ".popup.bg")
                             .size(popWidth, popupHeight)
-                            .blur(8.0f)
-                            .color(glassFill(theme, 0.7f))
-                            .radius(8.0f)
-                            .border(1.0f, components::theme::withOpacity(tokens.border, 0.78f))
+                            .color(theme.surfaceContainerHigh)
+                            .radius(kChipRadius)
+                            .border(1.0f,
+                                    components::theme::withOpacity(theme.outlineVariant, 0.6f))
+                            .shadow(8.0f, 2.0f,
+                                    theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.30f}
+                                               : core::Color{0.10f, 0.14f, 0.22f, 0.14f})
                             .onClick([] {})  // 吞掉弹层内部空白点击，避免穿透到遮罩关闭弹窗
                             .build();
 
                         for (int i = 0; i < count; ++i) {
                             const float itemY = popupPad + i * itemHeight;
+                            const bool itemSelected = i == selected;
                             ui.rect(id + ".item." + std::to_string(i))
                                 .x(popupPad)
                                 .y(itemY)
                                 .size(popWidth - popupPad * 2.0f, itemHeight)
-                                .states({0.0f, 0.0f, 0.0f, 0.0f}, tokens.surfaceHover,
-                                        tokens.surfaceActive)
-                                .radius(5.0f)
+                                .states(itemSelected ? theme.primaryContainer
+                                                     : core::Color{0.0f, 0.0f, 0.0f, 0.0f},
+                                        stateLayer(theme.onSurface, 0.08f),
+                                        stateLayer(theme.onSurface, 0.12f))
+                                .radius(6.0f)
                                 .onClick([&open, i, onPick] {
                                     open = false;
                                     onPick(i);
@@ -374,7 +354,7 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
                                 .text(labels[i])
                                 .fontSize(11.0f)
                                 .lineHeight(itemHeight)
-                                .color(i == selected ? tokens.primary : tokens.text)
+                                .color(itemSelected ? theme.onPrimaryContainer : tokens.text)
                                 .verticalAlign(core::VerticalAlign::Center)
                                 .build();
                         }
@@ -448,9 +428,10 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
         .build();
 }
 
-// 侧边栏列表项（普通列表）：图标 + 文字，激活时主色高亮 + 左侧竖条。
-// 用于页面导航（下载列表 / 设置）和下载状态筛选（所有 / 下载中 / 已完成）。
-// count >= 0 时在右侧显示数量徽标（如筛选项的任务数），文字区相应让位。
+// 侧边栏列表项（M3 Navigation Drawer item）：图标 + 文字，激活指示为全宽
+// secondaryContainer pill（无左侧竖条），激活图标/文字 = onSecondaryContainer；
+// 非激活 = onSurfaceVariant，hover 叠 onSurface state layer（激活项不叠）。
+// count >= 0 时在右侧显示数量徽标，文字区相应让位。
 export void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y,
                             float width, float height, const std::string& label,
                             unsigned int icon, bool active, const AppTheme& theme,
@@ -458,34 +439,26 @@ export void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y
     const auto& tokens = theme.components;
     const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
     const core::Color idle = {0.0f, 0.0f, 0.0f, 0.0f};
-    const core::Color activeFill =
-        components::theme::withAlpha(tokens.primary, theme.dark ? 0.22f : 0.14f);
-    const core::Color textColor = active ? tokens.primary : tokens.text;
+    const core::Color activeFill = theme.secondaryContainer;
+    const core::Color textColor =
+        active ? theme.onSecondaryContainer : theme.onSurfaceVariant;
 
-    // 激活高亮底色（始终存在，透明即隐藏，避免创建/移除图层）。
+    // 激活指示 pill（始终存在，透明即隐藏，避免创建/移除图层）。
     ui.rect(id + ".bg")
         .position(x, y)
         .size(width, height)
         .color(active ? activeFill : idle)
-        .radius(8.0f)
+        .radius(kButtonRadius)
         .transition(transition)
         .build();
-
-    if (active) {
-        ui.rect(id + ".bar")
-            .position(x, y + 6.0f)
-            .size(3.0f, height - 12.0f)
-            .color(tokens.primary)
-            .radius(1.5f)
-            .build();
-    }
 
     // 点击命中区（悬停反馈；激活项不再叠加 hover 底色）。
     ui.rect(id + ".hit")
         .position(x, y)
         .size(width, height)
-        .states(idle, active ? idle : tokens.surfaceHover, tokens.surfaceActive)
-        .radius(8.0f)
+        .states(idle, active ? idle : stateLayer(theme.onSurface, 0.08f),
+                stateLayer(theme.onSurface, 0.12f))
+        .radius(kButtonRadius)
         .transition(transition)
         .onClick(std::move(onClick))
         .build();
@@ -517,7 +490,7 @@ export void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y
         .build();
 
     // 右侧数量徽标：小气泡（圆角 pill 底 + 数字），宽度随位数自适应；激活项主色
-    // 浅底 + 主色数字，其余次要文本色。
+    // 浅底 + 主色数字，其余 surfaceContainerHighest + onSurfaceVariant。
     if (count >= 0) {
         const std::string text = std::to_string(count);
         const float bubbleW = 12.0f + static_cast<float>(text.size()) * 6.0f;
@@ -525,9 +498,8 @@ export void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y
         const float bubbleX = x + width - bubbleW - 6.0f;
         const float bubbleY = y + (height - bubbleH) * 0.5f;
         const core::Color bubbleFill =
-            active ? components::theme::withAlpha(tokens.primary,
-                                                  theme.dark ? 0.26f : 0.14f)
-                   : tokens.surfaceHover;
+            active ? stateLayer(theme.primary, theme.dark ? 0.16f : 0.12f)
+                   : theme.surfaceContainerHighest;
         ui.rect(id + ".count.bg")
             .position(bubbleX, bubbleY)
             .size(bubbleW, bubbleH)
@@ -540,101 +512,69 @@ export void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y
             .text(text)
             .fontSize(10.0f)
             .lineHeight(bubbleH)
-            .color(active ? tokens.primary : theme.metaText)
+            .color(active ? theme.primary : theme.onSurfaceVariant)
             .horizontalAlign(core::HorizontalAlign::Center)
             .verticalAlign(core::VerticalAlign::Center)
             .build();
     }
 }
 
-// 侧边栏底部的小图标按钮（如「关于」）：rect + 图标，hover 反馈 + 点击 + 悬浮气泡
-// 都在同一元素上（避免用透明遮罩叠按钮导致的点击穿透问题）。railWidth 是图标栏宽，
-// 供气泡定位。
-export void drawRailInfoButton(eui::Ui& ui, const std::string& id, float x, float y,
-                               float w, float h, unsigned int icon, float railWidth,
-                               const std::string& text, const AppTheme& theme,
-                               std::function<void()> onClick) {
-    const auto& tokens = theme.components;
-    const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
-    const core::Color transparent{0.0f, 0.0f, 0.0f, 0.0f};
-    const float radius = std::min(w, h) * 0.5f;
-
-    ui.rect(id)
-        .position(x, y)
-        .size(w, h)
-        .states(transparent, tokens.surfaceHover, tokens.surfaceActive)
-        .radius(radius)
-        .border(1.0f, transparent)
-        .transition(transition)
-        .onHover([id](bool hh) { onTipHover(id, hh); })
-        .onClick(std::move(onClick))
-        .build();
-
-    ui.text(id + ".icon")
-        .position(x, y)
-        .size(w, h)
-        .icon(icon)
-        .fontSize(11.0f)
-        .lineHeight(h)
-        .color(tokens.text)
-        .horizontalAlign(core::HorizontalAlign::Center)
-        .verticalAlign(core::VerticalAlign::Center)
-        .build();
-
-    if (!text.empty()) {
-        drawTipBubble(ui, id, y, h, railWidth, text, theme);
-    }
-}
-
-// 主侧边栏（图标栏）列表项：仅图标、无文字，激活时主色高亮 + 左侧竖条。
+// M3 Navigation Rail 项：块高 kNavItemH（56）= 32 高激活 pill（图标居中）
+// + 10px 标签。激活 = secondaryContainer pill + onSecondaryContainer 图标/标签；
+// 非激活 = onSurfaceVariant；hover 叠 onSurface state layer。tooltip 延迟气泡可选。
 export void drawRailItem(eui::Ui& ui, const std::string& id, float y, float railWidth,
-                         unsigned int icon, bool active, const AppTheme& theme,
-                         std::function<void()> onClick, const std::string& tooltip = {}) {
+                         unsigned int icon, const std::string& label, bool active,
+                         const AppTheme& theme, std::function<void()> onClick,
+                         const std::string& tooltip = {}) {
     const auto& tokens = theme.components;
     const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
     const core::Color idle = {0.0f, 0.0f, 0.0f, 0.0f};
-    const core::Color activeFill =
-        components::theme::withAlpha(tokens.primary, theme.dark ? 0.22f : 0.14f);
-    const core::Color iconColor = active ? tokens.primary : tokens.text;
-    const float itemW = railWidth - 8.0f;   // 两侧各留 4px
-    const float x = (railWidth - itemW) * 0.5f;
+    const core::Color iconColor =
+        active ? theme.onSecondaryContainer : theme.onSurfaceVariant;
+    const float pillH = 32.0f;
+    const float pillW = 56.0f;
+    const float pillX = (railWidth - pillW) * 0.5f;
 
-    // 激活高亮底色。
+    // 激活指示 pill。
     ui.rect(id + ".bg")
-        .position(x, y)
-        .size(itemW, 24.0f)
-        .color(active ? activeFill : idle)
-        .radius(7.0f)
+        .position(pillX, y)
+        .size(pillW, pillH)
+        .color(active ? theme.secondaryContainer : idle)
+        .radius(kButtonRadius)
         .transition(transition)
         .build();
 
-    if (active) {
-        ui.rect(id + ".bar")
-            .position(0, y + 4.0f)
-            .size(2.0f, 16.0f)
-            .color(tokens.primary)
-            .radius(1.0f)
-            .build();
-    }
-
     // 点击命中区 + 悬停状态（有 tooltip 时，hover 走延迟显示逻辑）。
     ui.rect(id + ".hit")
-        .position(x, y)
-        .size(itemW, 24.0f)
-        .states(idle, active ? idle : tokens.surfaceHover, tokens.surfaceActive)
-        .radius(7.0f)
+        .position(pillX, y)
+        .size(pillW, pillH)
+        .states(idle, active ? idle : stateLayer(theme.onSurface, 0.08f),
+                stateLayer(theme.onSurface, 0.12f))
+        .radius(kButtonRadius)
         .transition(transition)
         .onHover([id](bool h) { onTipHover(id, h); })
         .onClick(std::move(onClick))
         .build();
 
-    // 图标（水平居中）。
+    // 图标（pill 内水平居中）。
     ui.text(id + ".icon")
-        .position(0, y)
-        .size(railWidth, 24.0f)
+        .position(pillX, y)
+        .size(pillW, pillH)
         .icon(icon)
-        .fontSize(13.0f)
-        .lineHeight(24.0f)
+        .fontSize(20.0f)
+        .lineHeight(pillH)
+        .color(iconColor)
+        .horizontalAlign(core::HorizontalAlign::Center)
+        .verticalAlign(core::VerticalAlign::Center)
+        .build();
+
+    // 标签（pill 下方，全 rail 宽居中）。
+    ui.text(id + ".label")
+        .position(0, y + pillH + 2.0f)
+        .size(railWidth, 12.0f)
+        .text(label)
+        .fontSize(10.0f)
+        .lineHeight(12.0f)
         .color(iconColor)
         .horizontalAlign(core::HorizontalAlign::Center)
         .verticalAlign(core::VerticalAlign::Center)
@@ -642,31 +582,71 @@ export void drawRailItem(eui::Ui& ui, const std::string& id, float y, float rail
 
     // 悬浮提示气泡（带尾巴，延迟显示）。
     if (!tooltip.empty()) {
-        drawTipBubble(ui, id, y, 24.0f, railWidth, tooltip, theme);
+        drawTipBubble(ui, id, y, pillH, railWidth, tooltip, theme);
     }
 }
 
-// 卡片内的小图标操作按钮：纯图标、无文字，hover/按下反馈走组件默认状态。
-export void drawCardAction(eui::Ui& ui, const std::string& id, float x, float y,
-                           unsigned int icon, bool primary, const AppTheme& theme,
-                           std::function<void()> onClick) {
-    components::button(ui, id)
+// M3 text button：透明底 pill，文字 primary（error=true 时 error 色），
+// hover/pressed 叠对应色 state layer。用于弹窗/设置页的次级操作与破坏性操作。
+export void drawTextButton(eui::Ui& ui, const std::string& id, float x, float y,
+                           float w, float h, const std::string& label,
+                           const AppTheme& theme, std::function<void()> onClick,
+                           bool error = false) {
+    const core::Color c = error ? theme.error : theme.primary;
+    const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
+    const core::Color transparent{0.0f, 0.0f, 0.0f, 0.0f};
+    ui.rect(id)
         .position(x, y)
-        .size(kCardActionSize, kCardActionSize)
-        .icon(icon)
-        .text("")
-        .iconSize(kCardActionIconSize)
-        .theme(theme.components, primary)
-        .iconColor(onPrimaryColor(theme, primary))  // 白底主按钮 → 深色图标
-        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
+        .size(w, h)
+        .states(transparent, stateLayer(c, 0.08f), stateLayer(c, 0.12f))
+        .radius(kButtonRadius)
+        .transition(transition)
         .onClick(std::move(onClick))
+        .build();
+
+    ui.text(id + ".label")
+        .position(x, y)
+        .size(w, h)
+        .text(label)
+        .fontSize(kButtonFontSize)
+        .lineHeight(h)
+        .color(c)
+        .horizontalAlign(core::HorizontalAlign::Center)
+        .verticalAlign(core::VerticalAlign::Center)
         .build();
 }
 
-// 滑动开关（toggle switch）：轨道 pill + 圆形滑块，开启时主色填充 + 滑块右端，
-// 关闭时灰色轨道 + 滑块左端。点击切换。无投影（对齐全面取消模糊）。
-// 滑块开启色取主色反色（对齐 onPrimaryColor：深色主题白主色 → 深色滑块，浅色
-// 主题黑主色 → 白色滑块），否则深色下白滑块叠在白轨道上看不见（实测用户反馈）。
+// 卡片内的小图标操作按钮（M3 icon button）：圆形透明底，hover/pressed 叠
+// onSurface state layer；primary 动作图标用主色，其余 onSurfaceVariant。无投影无描边。
+export void drawCardAction(eui::Ui& ui, const std::string& id, float x, float y,
+                           unsigned int icon, bool primary, const AppTheme& theme,
+                           std::function<void()> onClick) {
+    const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
+    const core::Color transparent{0.0f, 0.0f, 0.0f, 0.0f};
+    ui.rect(id)
+        .position(x, y)
+        .size(kCardActionSize, kCardActionSize)
+        .states(transparent, stateLayer(theme.onSurface, 0.08f),
+                stateLayer(theme.onSurface, 0.12f))
+        .radius(kCardActionSize * 0.5f)
+        .transition(transition)
+        .onClick(std::move(onClick))
+        .build();
+
+    ui.text(id + ".icon")
+        .position(x, y)
+        .size(kCardActionSize, kCardActionSize)
+        .icon(icon)
+        .fontSize(kCardActionIconSize + 1.0f)
+        .lineHeight(kCardActionSize)
+        .color(primary ? theme.primary : theme.onSurfaceVariant)
+        .horizontalAlign(core::HorizontalAlign::Center)
+        .verticalAlign(core::VerticalAlign::Center)
+        .build();
+}
+
+// 滑动开关（M3 Switch）：轨道 pill + 圆形滑块。开启 = 轨道 primary + 滑块 onPrimary；
+// 关闭 = 轨道 surfaceContainerHighest + outline 描边 + 滑块 outline。点击切换。
 export void buildToggleSwitch(eui::Ui& ui, const std::string& id, float x, float y,
                               float trackW, float trackH, bool on,
                               const AppTheme& theme, std::function<void(bool)> onToggle) {
@@ -676,27 +656,22 @@ export void buildToggleSwitch(eui::Ui& ui, const std::string& id, float x, float
     const float thumbX = on ? trackW - trackH + thumbR : thumbR;  // 滑块圆心 x
     const float thumbY = trackH * 0.5f;
 
-    // 轨道：开启主色填充（白/黑）、关闭半透明灰边框色；颜色带 transition 过渡。
-    const core::Color trackOff = components::theme::withAlpha(tokens.border, 0.7f);
+    // 轨道：开启 primary 填充（无描边）、关闭 surfaceContainerHighest + outline 描边。
     ui.rect(id + ".track")
         .position(x, y)
         .size(trackW, trackH)
-        .color(on ? tokens.primary : trackOff)
+        .color(on ? tokens.primary : theme.surfaceContainerHighest)
         .radius(trackH * 0.5f)
+        .border(1.0f, on ? core::Color{0.0f, 0.0f, 0.0f, 0.0f} : theme.outline)
         .transition(transition)
         .onClick([on, onToggle] { onToggle(!on); })
         .build();
 
-    // 滑块：开启 = 主色反色（白主色 → 深色滑块、黑主色 → 白色滑块，与白底按钮的
-    // 深色文字同思路），关闭 = 中性灰（比轨道亮，深色下也能分辨）。
-    const core::Color thumbOn = theme.dark ? core::Color{0.05f, 0.05f, 0.06f, 1.0f}
-                                           : core::Color{1.0f, 1.0f, 1.0f, 1.0f};
-    const core::Color thumbOff = theme.dark ? core::Color{0.62f, 0.62f, 0.64f, 1.0f}
-                                            : core::Color{0.68f, 0.68f, 0.70f, 1.0f};
+    // 滑块：开启 = onPrimary（主色底上的反色），关闭 = outline。
     ui.rect(id + ".thumb")
         .position(x + thumbX - thumbR, y + thumbY - thumbR)
         .size(thumbR * 2.0f, thumbR * 2.0f)
-        .color(on ? thumbOn : thumbOff)
+        .color(on ? theme.onPrimary : theme.outline)
         .radius(thumbR)
         .build();
 }

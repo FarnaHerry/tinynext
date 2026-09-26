@@ -202,7 +202,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                               showStatus(tr("dl.paused_all"));
                           });
 
-    // 添加下载：右上角 ➕ 图标（正圆 + 一直主色填充），点击弹出对话框。
+    // 添加下载：M3 FAB（正圆 + 主色填充 + FAB 投影），点击弹出对话框。
     drawToolbarIconButton(ui, "add.btn", addX, toolY, toolW, toolW,
                           0xF067, true, theme,
                           [] {
@@ -220,7 +220,8 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                               g_addRenameText.clear();
                               g_addDirText = cfg::downloadDir().string();
                               g_addOpen = true;
-                          });
+                          },
+                          /*fab=*/true);
 
     // ---- 任务列表：卡片式布局（名称/进度/信息纵向排布）----
     // 无任务时也画空 scrollView，不显示引导文案（界面更简洁，用户自会用）。
@@ -260,16 +261,15 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         .size(pagerCardW, pagerCardH)
         .zIndex(10)
         .content([&] {
-            // 卡片底：圆角表面 + 细边框 + 柔和投影（与任务卡同风格）。
+            // M3：岛内小岛 = cardBg 底（比岛卡收一层）+ 12dp 圆角，无描边。
             ui.rect("pager.card.bg")
                 .position(0, 0)
                 .size(pagerCardW, pagerCardH)
-                .color(glassFill(theme, 0.6f))
-                .radius(8.0f)
-                .border(1.0f, components::theme::withOpacity(theme.components.border, 0.55f))
-                .shadow(8.0f, 2.0f,
+                .color(theme.cardBg)
+                .radius(kCardRadius)
+                .shadow(6.0f, 2.0f,
                         theme.components.dark
-                            ? core::Color{0.0f, 0.0f, 0.0f, 0.18f}
+                            ? core::Color{0.0f, 0.0f, 0.0f, 0.24f}
                             : core::Color{0.10f, 0.14f, 0.22f, 0.08f})
                 .build();
 
@@ -328,15 +328,42 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         })
         .build();
 
-    // ---- 状态消息（短暂显示，翻页行上方）----
-    if (g_statusTimer > 0.0f && !g_statusMessage.empty()) {
-        components::text(ui, "status")
-            .position(listX, pagerY - 24.0f)
-            .size(listW, 18.0f)
-            .text(g_statusMessage)
-            .fontSize(12.0f)
-            .lineHeight(18.0f)
-            .color(theme.statusText)
+    // ---- 状态消息（M3 Snackbar）：反色面小条，翻页行上方居中，4s 过期 ----
+    if (!g_statusMessage.empty()) {
+        const bool shown = g_statusTimer > 0.0f;
+        const float snH = 32.0f;
+        const float snW = std::min(listW,
+            core::TextPrimitive::measureTextWidth(g_statusMessage, "", 12.0f) + 32.0f);
+        const float snX = contentX + (contentW - snW) * 0.5f;
+        const float snY = pagerY - 8.0f - snH;
+        const auto transition = core::Transition::make(0.18f, core::Ease::OutCubic);
+        ui.stack("status.snack")
+            .position(snX, snY)
+            .size(snW, snH)
+            .zIndex(50)
+            .opacity(shown ? 1.0f : 0.0f)
+            .translate(0.0f, shown ? 0.0f : 8.0f)
+            .transition(transition)
+            .animate(core::AnimProperty::Opacity | core::AnimProperty::Transform)
+            .content([&] {
+                ui.rect("status.snack.bg")
+                    .size(snW, snH)
+                    .color(theme.inverseSurface)
+                    .radius(kChipRadius)
+                    .shadow(10.0f, 3.0f,
+                            theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.35f}
+                                       : core::Color{0.10f, 0.14f, 0.22f, 0.18f})
+                    .build();
+                ui.text("status.snack.label")
+                    .size(snW, snH)
+                    .text(g_statusMessage)
+                    .fontSize(12.0f)
+                    .lineHeight(snH)
+                    .color(theme.onInverseSurface)
+                    .horizontalAlign(core::HorizontalAlign::Center)
+                    .verticalAlign(core::VerticalAlign::Center)
+                    .build();
+            })
             .build();
     }
 
@@ -363,13 +390,13 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         const float torDirY = 102.0f;  // 种子 tab：下载目录行
         const float torHintY = 138.0f; // 种子 tab：提示文字
 
-        // 半透明遮罩，点击空白处关闭。zIndex 高于侧边栏/翻页，
+        // 遮罩（M3 scrim α32%），点击空白处关闭。zIndex 高于侧边栏/翻页，
         // 保证整个窗口都被盖住。
         ui.rect("add.backdrop")
             .position(0, 0)
             .size(screen.width, screen.height)
             .zIndex(100)
-            .color({0.0f, 0.0f, 0.0f, 0.32f})
+            .color(theme.scrim)
             .onClick([] { g_addOpen = false; })
             .build();
 
@@ -378,49 +405,81 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             .size(dlgW, dlgH)
             .zIndex(101)
             .content([&] {
+                // M3 Basic Dialog：不透明 surfaceContainerHigh + 20dp 圆角 + 三级投影，
+                // 无描边（玻璃拟态/描边已退役）。
                 ui.rect("add.dialog.bg")
                     .position(0, 0)
                     .size(dlgW, dlgH)
-                    .blur(10.0f)
-                    .color(glassFill(theme, 0.52f))
-                    .radius(10.0f)
-                    .border(1.0f,
-                            components::theme::withOpacity(
-                                theme.components.border, 0.6f))
+                    .color(theme.surfaceContainerHigh)
+                    .radius(kDialogRadius)
+                    .shadow(24.0f, 8.0f,
+                            theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.38f}
+                                       : core::Color{0.10f, 0.14f, 0.22f, 0.18f})
                     .onClick([] {})  // 吞掉弹窗内部空白点击，避免穿透到遮罩关闭弹窗
                     .build();
 
                 components::text(ui, "add.dialog.title")
-                    .position(labelX, 12.0f)
-                    .size(dlgW - 32.0f, 20.0f)
+                    .position(labelX, 14.0f)
+                    .size(dlgW - 32.0f, 22.0f)
                     .text(tr("dl.add_download"))
-                    .fontSize(14.0f)
-                    .lineHeight(20.0f)
+                    .fontSize(16.0f)
+                    .lineHeight(22.0f)
                     .color(theme.titleText)
                     .build();
 
-                // 顶部切换：直链下载 / 种子（种子与直连流程不同，字段各自独立）。
-                components::button(ui, "add.tab.direct")
+                // M3 segmented button：容器 surfaceContainerHighest pill，
+                // 选中段 secondaryContainer pill + onSecondaryContainer 文字。
+                const auto segTransition =
+                    core::Transition::make(0.16f, core::Ease::OutCubic);
+                ui.rect("add.tabs.bg")
+                    .position(labelX, tabY)
+                    .size(tabW * 2.0f + 8.0f, tabH)
+                    .color(theme.surfaceContainerHighest)
+                    .radius(kButtonRadius)
+                    .build();
+                ui.rect("add.tabs.ind")
+                    .position(labelX + (g_addTab == AddTab::Torrent ? tabW + 8.0f : 0.0f),
+                              tabY)
+                    .size(tabW, tabH)
+                    .color(theme.secondaryContainer)
+                    .radius(kButtonRadius)
+                    .transition(segTransition)
+                    .build();
+                ui.rect("add.tab.direct.hit")
+                    .position(labelX, tabY)
+                    .size(tabW, tabH)
+                    .color({0.0f, 0.0f, 0.0f, 0.0f})
+                    .radius(kButtonRadius)
+                    .onClick([] { g_addTab = AddTab::Direct; })
+                    .build();
+                ui.rect("add.tab.torrent.hit")
+                    .position(labelX + tabW + 8.0f, tabY)
+                    .size(tabW, tabH)
+                    .color({0.0f, 0.0f, 0.0f, 0.0f})
+                    .radius(kButtonRadius)
+                    .onClick([] { g_addTab = AddTab::Torrent; })
+                    .build();
+                components::text(ui, "add.tab.direct")
                     .position(labelX, tabY)
                     .size(tabW, tabH)
                     .text(tr("dl.tab.direct"))
                     .fontSize(kButtonFontSize)
-                    .theme(theme.components, g_addTab == AddTab::Direct)
-                    .radius(kButtonRadius)
-                    .textColor(onPrimaryColor(theme, g_addTab == AddTab::Direct))
-                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                    .onClick([] { g_addTab = AddTab::Direct; })
+                    .lineHeight(tabH)
+                    .color(g_addTab == AddTab::Direct ? theme.onSecondaryContainer
+                                                      : theme.onSurfaceVariant)
+                    .horizontalAlign(core::HorizontalAlign::Center)
+                    .verticalAlign(core::VerticalAlign::Center)
                     .build();
-                components::button(ui, "add.tab.torrent")
+                components::text(ui, "add.tab.torrent")
                     .position(labelX + tabW + 8.0f, tabY)
                     .size(tabW, tabH)
                     .text(tr("dl.tab.torrent"))
                     .fontSize(kButtonFontSize)
-                    .theme(theme.components, g_addTab == AddTab::Torrent)
-                    .radius(kButtonRadius)
-                    .textColor(onPrimaryColor(theme, g_addTab == AddTab::Torrent))
-                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                    .onClick([] { g_addTab = AddTab::Torrent; })
+                    .lineHeight(tabH)
+                    .color(g_addTab == AddTab::Torrent ? theme.onSecondaryContainer
+                                                       : theme.onSurfaceVariant)
+                    .horizontalAlign(core::HorizontalAlign::Center)
+                    .verticalAlign(core::VerticalAlign::Center)
                     .build();
 
                 if (g_addTab == AddTab::Direct) {
@@ -600,16 +659,10 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .build();
                 }
 
-                components::button(ui, "add.cancel")
-                    .position(dlgW - 16.0f - 76.0f - 8.0f - 76.0f, btnY)
-                    .size(76.0f, kButtonHeight)
-                    .text(tr("dl.cancel"))
-                    .fontSize(kButtonFontSize)
-                    .theme(theme.components, false)
-                    .radius(kButtonRadius)
-                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                    .onClick([] { g_addOpen = false; })
-                    .build();
+                // M3 对话框操作：左 = text button（取消），右 = filled button（提交）。
+                drawTextButton(ui, "add.cancel", dlgW - 16.0f - 76.0f - 8.0f - 76.0f, btnY,
+                               76.0f, kButtonHeight, tr("dl.cancel"), theme,
+                               [] { g_addOpen = false; });
 
                 components::button(ui, "add.submit")
                     .position(dlgW - 16.0f - 76.0f, btnY)
@@ -637,12 +690,12 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         const float dlgX = (screen.width - dlgW) * 0.5f;
         const float dlgY = (screen.height - dlgH) * 0.5f;
 
-        // 半透明遮罩，点击空白处关闭（=取消）。
+        // 遮罩（M3 scrim），点击空白处关闭（=取消）。
         ui.rect("del.backdrop")
             .position(0, 0)
             .size(screen.width, screen.height)
             .zIndex(100)
-            .color({0.0f, 0.0f, 0.0f, 0.32f})
+            .color(theme.scrim)
             .onClick([] { g_pendingDelete.reset(); })
             .build();
 
@@ -654,21 +707,20 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 ui.rect("del.dialog.bg")
                     .position(0, 0)
                     .size(dlgW, dlgH)
-                    .blur(10.0f)
-                    .color(glassFill(theme, 0.52f))
-                    .radius(10.0f)
-                    .border(1.0f,
-                            components::theme::withOpacity(
-                                theme.components.border, 0.6f))
+                    .color(theme.surfaceContainerHigh)
+                    .radius(kDialogRadius)
+                    .shadow(24.0f, 8.0f,
+                            theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.38f}
+                                       : core::Color{0.10f, 0.14f, 0.22f, 0.18f})
                     .onClick([] {})  // 吞掉弹窗内部空白点击，避免穿透到遮罩关闭弹窗
                     .build();
 
                 components::text(ui, "del.title")
-                    .position(16.0f, 12.0f)
-                    .size(dlgW - 32.0f, 20.0f)
+                    .position(16.0f, 14.0f)
+                    .size(dlgW - 32.0f, 22.0f)
                     .text(tr("dl.delete_task"))
-                    .fontSize(14.0f)
-                    .lineHeight(20.0f)
+                    .fontSize(16.0f)
+                    .lineHeight(22.0f)
                     .color(theme.titleText)
                     .build();
 
@@ -688,13 +740,9 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
 
                 // 复选框：是否同时删除源文件。默认勾选（移到回收站，可恢复）。
                 // checkbox builder 无定位，外包 stack 定位。
-                // eui 的 CheckboxStyle 把勾号 mark 硬编码成白色，而本应用深色主题的
-                // 主色是纯白 → 勾选后白勾落在白底上看不见（同滑动开关滑块那次）。按主题
-                // 反色 mark：深色用深勾、浅色用白勾（主色黑底）。
+                // M3 checkbox：选中框 = primary，勾 = onPrimary（eui 默认白勾正合适）。
                 components::CheckboxStyle cbStyle(theme.components);
-                cbStyle.mark = theme.dark
-                    ? core::Color{0.05f, 0.05f, 0.06f, 1.0f}
-                    : core::Color{1.0f, 1.0f, 1.0f, 1.0f};
+                cbStyle.mark = theme.onPrimary;
                 ui.stack("del.checkbox.wrap")
                     .position(16.0f, 54.0f)
                     .size(dlgW - 32.0f, 20.0f)
@@ -711,7 +759,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     })
                     .build();
 
-                // 底部按钮行：取消 | 删除（主按钮）。
+                // 底部按钮行：取消 | 删除（M3 destructive text button，error 色）。
                 const float btnH = kCompactButtonHeight;
                 const float btnY = dlgH - 36.0f;
                 const float wCancel = 64.0f;
@@ -720,27 +768,13 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 const float delX = dlgW - 16.0f - wDel;
                 const float cancelX = delX - gap - wCancel;
 
-                components::button(ui, "del.cancel")
-                    .position(cancelX, btnY)
-                    .size(wCancel, btnH)
-                    .text(tr("dl.cancel"))
-                    .fontSize(kCompactButtonFontSize)
-                    .theme(theme.components, false)
-                    .radius(kButtonRadius)
-                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                    .onClick([] { g_pendingDelete.reset(); })
-                    .build();
+                drawTextButton(ui, "del.cancel", cancelX, btnY, wCancel, btnH,
+                               tr("dl.cancel"), theme,
+                               [] { g_pendingDelete.reset(); });
 
-                components::button(ui, "del.confirm")
-                    .position(delX, btnY)
-                    .size(wDel, btnH)
-                    .text(tr("dl.delete"))
-                    .fontSize(kCompactButtonFontSize)
-                    .theme(theme.components, true)
-                    .radius(kButtonRadius)
-                    .textColor(onPrimaryColor(theme))
-                    .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                    .onClick([] {
+                drawTextButton(ui, "del.confirm", delX, btnY, wDel, btnH,
+                               tr("dl.delete"), theme,
+                               [] {
                         const dl::TaskView task = *g_pendingDelete;
                         g_pendingDelete.reset();
                         g_tasks.deleteRecord(task);
@@ -763,8 +797,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         } else {
                             showStatus(tr("dl.del_source_kept"));
                         }
-                    })
-                    .build();
+                    }, /*error=*/true);
             })
             .build();
     }
@@ -859,7 +892,7 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
         .position(0, 0)
         .size(screen.width, screen.height)
         .zIndex(200)
-        .color({0.0f, 0.0f, 0.0f, 0.32f})
+        .color(theme.scrim)
         .onClick([] { g_pendingInfo.reset(); })
         .build();
 
@@ -871,19 +904,20 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
             ui.rect("info.dialog.bg")
                 .position(0, 0)
                 .size(dlgW, dlgH)
-                .blur(10.0f)
-                .color(glassFill(theme, 0.52f))
-                .radius(10.0f)
-                .border(1.0f, components::theme::withOpacity(theme.components.border, 0.6f))
+                .color(theme.surfaceContainerHigh)
+                .radius(kDialogRadius)
+                .shadow(24.0f, 8.0f,
+                        theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.38f}
+                                   : core::Color{0.10f, 0.14f, 0.22f, 0.18f})
                 .onClick([] {})  // 吞掉内部点击，避免穿透关闭
                 .build();
 
             components::text(ui, "info.title")
-                .position(pad, titleY)
-                .size(contentW, 20.0f)
+                .position(pad, titleY + 2.0f)
+                .size(contentW, 22.0f)
                 .text(tr("dl.task_info"))
-                .fontSize(14.0f)
-                .lineHeight(20.0f)
+                .fontSize(16.0f)
+                .lineHeight(22.0f)
                 .color(theme.titleText)
                 .build();
 
@@ -981,18 +1015,10 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
                     .build();
             }
 
-            // 关闭按钮。
-            components::button(ui, "info.close")
-                .position(dlgW - pad - 76.0f, btnY)
-                .size(76.0f, kButtonHeight)
-                .text(tr("about.close"))
-                .fontSize(kButtonFontSize)
-                .theme(theme.components, true)
-                .radius(kButtonRadius)
-                .textColor(onPrimaryColor(theme))
-                .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                .onClick([] { g_pendingInfo.reset(); })
-                .build();
+            // 关闭（M3 text button）。
+            drawTextButton(ui, "info.close", dlgW - pad - 76.0f, btnY, 76.0f,
+                           kButtonHeight, tr("about.close"), theme,
+                           [] { g_pendingInfo.reset(); });
         })
         .build();
 }
@@ -1009,7 +1035,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
         .position(0, 0)
         .size(screen.width, screen.height)
         .zIndex(100)
-        .color({0.0f, 0.0f, 0.0f, 0.32f})
+        .color(theme.scrim)
         .onClick([] { g_mirrorOpen = false; })
         .build();
 
@@ -1021,20 +1047,19 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
             ui.rect("mirror.dialog.bg")
                 .position(0, 0)
                 .size(dlgW, dlgH)
-                .blur(12.0f)
-                .color(glassFill(theme, 0.65f))
-                .radius(10.0f)
-                .border(1.0f,
-                        components::theme::withOpacity(
-                            theme.components.border, 0.6f))
+                .color(theme.surfaceContainerHigh)
+                .radius(kDialogRadius)
+                .shadow(24.0f, 8.0f,
+                        theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.38f}
+                                   : core::Color{0.10f, 0.14f, 0.22f, 0.18f})
                 .onClick([] {})  // 吞掉内部空白点击
                 .build();
 
             components::text(ui, "mirror.title")
-                .position(16.0f, 12.0f)
+                .position(16.0f, 14.0f)
                 .size(dlgW - 32.0f, 22.0f)
                 .text(tr("dl.mirror_sources"))
-                .fontSize(14.0f)
+                .fontSize(16.0f)
                 .lineHeight(22.0f)
                 .color(theme.titleText)
                 .build();
@@ -1105,15 +1130,10 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                                     .color(stc)
                                     .build();
                                 if (active) {
-                                    components::button(sv, rowId + ".rm")
-                                        .position(w - 44.0f, 1.0f)
-                                        .size(38.0f, kCompactButtonHeight)
-                                        .text(tr("dl.remove"))
-                                        .fontSize(kCompactButtonFontSize)
-                                        .theme(theme.components, false)
-                                        .radius(kButtonRadius)
-                                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                                        .onClick([id = task->id, uri] {
+                                    drawTextButton(sv, rowId + ".rm", w - 44.0f, 1.0f,
+                                                   38.0f, kCompactButtonHeight,
+                                                   tr("dl.remove"), theme,
+                                                   [id = task->id, uri] {
                                             // 移除走后台 RPC，结果经状态信箱回 UI
                                             // 线程提示（文案先按当前语言解析成静态串）。
                                             const char* okMsg = tr("dl.mirror_removed");
@@ -1122,8 +1142,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                                                 postStatus(ok ? okMsg : failMsg);
                                                 core::platform::requestUiUpdate();
                                             });
-                                        })
-                                        .build();
+                                        });
                                 }
                             })
                             .build();
@@ -1205,17 +1224,9 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                     .build();
             }
 
-            components::button(ui, "mirror.close")
-                .position((dlgW - 76.0f) * 0.5f, dlgH - 34.0f)
-                .size(76.0f, kButtonHeight)
-                .text(tr("about.close"))
-                .fontSize(kButtonFontSize)
-                .theme(theme.components, true)
-                .radius(kButtonRadius)
-                .textColor(onPrimaryColor(theme))
-                .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                .onClick([] { g_mirrorOpen = false; })
-                .build();
+            drawTextButton(ui, "mirror.close", (dlgW - 76.0f) * 0.5f, dlgH - 34.0f,
+                           76.0f, kButtonHeight, tr("about.close"), theme,
+                           [] { g_mirrorOpen = false; });
         })
         .build();
 }

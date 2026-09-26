@@ -89,10 +89,19 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
    尺寸按设计逻辑像素直接写，不再 `S()` 自乘。`kUI` 仍是唯一缩放旋钮。
 10. **aria2 引擎**：进程名 Windows 是 `aria2-next.exe`，unix 是 `aria2-next`；
     字段名用 `connections`（不是 `numConnections`）。
-11. **岛屿卡片布局**：内容区/子侧边栏是浮在背景上的圆角"岛"卡（`widgets::drawPanel`，
-    底色 `mixColor(background, surface, 0.5)` 中间色调，圆角 `kIslandRadius`）；左侧
-    总侧边栏是整高透明列（不铺底色）。布局常量在 `utils.cppm`：`kIslandGap`（岛间距）、
-    `kPanelPad`（大卡内边距）、`kRightMargin`（右缘）。
+11. **Material 3 视觉体系**：界面是 MD3 风格——tonal 表面分层（无描边无玻璃拟态，
+    `glassFill` 已退役）、pill/大圆角、state layer 交互反馈。色板全部在
+    `ui/theme.cppm` 的 `AppTheme`：MD3 角色（primary/onPrimary/primaryContainer/
+    surfaceContainer{Low..Highest}/outline/outlineVariant/inverseSurface/scrim…）+
+    语义容器层 **`panelBg`（岛卡底）/ `cardBg`（内容卡底）**——岛卡必须比窗口背景
+    「抬」一层（暗色=surfaceContainerLow，亮色=surfaceContainerLowest≈白，亮色
+    直接用 surfaceContainerLow 反而比背景暗）。交互叠加色用 `stateLayer(onColor,
+    α)`（hover 0.08 / pressed 0.12）。弹窗统一 M3 Basic Dialog：scrim 遮罩 +
+    surfaceContainerHigh + `kDialogRadius`(20) + 投影，**不加 blur**；次要按钮用
+    `widgets::drawTextButton`（透明底 + state layer）。岛卡 =
+    `widgets::drawPanel`（panelBg + `kIslandRadius`）；左侧是 MD3 Navigation Rail
+    （图标+标签 pill 指示，`kRailWidth`=64）。布局常量在 `utils.cppm`：
+    `kIslandGap`、`kPanelPad`、`kRightMargin`、`kCardRadius`、`kChipRadius` 等。
 12. **eui 元素 id 全局唯一**：一个 frame 里同名 id 会互相覆盖（如 `components::text`
     标签与 `buildListPicker(id="x")` 内部的 `x.label` 撞名 → 文字不显示）。新增控件
     的 id 要避开已有前缀。
