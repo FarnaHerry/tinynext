@@ -217,25 +217,26 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                         .verticalAlign(core::VerticalAlign::Center)
                         .build();
 
-                    // 应用页导航（图标块 + 标签）：下载 / 设置 / 引擎监控。y 步进 64。
+                    // 应用页导航（图标块，名称走 hover 提示气泡）：下载 / 设置 /
+                    // 引擎监控。y 步进 44（32 高块 + 12 间隙）。
                     float railY = 44.0f;
                     drawRailItem(ui, "nav.downloads", railY, kRailWidth, 0xF03A,
                                  tr("app.tab.downloads"), g_page_view == Page::Downloads,
                                  theme,
                                  [] { g_page_view = Page::Downloads; });
-                    railY += 64.0f;
+                    railY += 44.0f;
                     drawRailItem(ui, "nav.settings", railY, kRailWidth, 0xF013,
                                  tr("app.tab.settings"), g_page_view == Page::Settings,
                                  theme,
                                  [] { g_page_view = Page::Settings; });
-                    railY += 64.0f;
+                    railY += 44.0f;
                     drawRailItem(ui, "nav.engine", railY, kRailWidth, 0xF233,  // fa-server
                                  tr("app.tab.monitor"), g_page_view == Page::Monitor,
                                  theme,
                                  [] { g_page_view = Page::Monitor; });
 
                     // 关于：信息图标（circle-info）排在导航下方，同列同风格。
-                    railY += 64.0f;
+                    railY += 44.0f;
                     drawRailItem(ui, "rail.info", railY, kRailWidth, 0xF05A,  // circle-info
                                  tr("app.nav.about"), false, theme,
                                  [] { g_aboutOpen = true; });

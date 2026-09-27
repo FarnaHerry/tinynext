@@ -45,7 +45,8 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
 | `tinynext.store.tasks` | `src/store/tasks.cppm` | 领域 store：`TaskStore` + `g_tasks`（引擎 + 任务命令 + startFromUrl） |
 | `tinynext.store.ui` | `src/store/ui.cppm` | 视图 store：状态消息 / 页面 / 筛选·排序·分页 |
 | `tinynext.store.dialogs` | `src/store/dialogs.cppm` | 视图 store：弹窗状态机 + addDownload/requestDelete |
-| `tinynext.cli` | `src/cli.cppm` | 单实例 + 命令行 URL + TCP socket 转发 |
+| `tinynext.cli` | `src/cli.cppm` | 单实例 + 命令行 URL + TCP socket 转发 + 控制面请求入口 |
+| `tinynext.cli_control` | `src/cli_control.cppm` | CLI 控制面：`status/list/watch`（只读，IPC 线程直答）+ `pause/resume/cancel/retry/remove/clear/quit`（marshal 到 UI 线程执行），支持 `--json` |
 | `tinynext.ui.*` | `src/ui/*.cppm` | utils（布局常量）/ theme / platform / housekeep / widgets / cards / downloads_page / settings_page / about_dialog |
 | `src/app.cpp` | 普通 TU | 入口：`app::dslAppConfig()` + `app::compose()` |
 

@@ -116,8 +116,8 @@ void drawTipBubble(eui::Ui& ui, const std::string& id, float btnY, float btnH,
 }
 } // namespace
 // ----------------------------------------------------- 外层"岛"卡片背景 --
-// 岛卡 = panelBg 底 + 1px hairline 描边 + 小圆角，扁平无投影 —— 层次靠描边和
-// 灰阶差表达（黑白极客风），不用玻璃拟态/阴影。
+// 岛卡 = panelBg 底 + 小圆角，无描边无投影 —— 层次纯靠灰阶差表达（黑白极客风），
+// 不用玻璃拟态/阴影。
 export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
                       float w, float h, const AppTheme& theme) {
     ui.rect(id)
@@ -125,7 +125,6 @@ export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
         .size(w, h)
         .color(theme.panelBg)
         .radius(kIslandRadius)
-        .border(kHairline, theme.outline)
         .build();
 }
 
@@ -356,42 +355,57 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
         .build();
 }
 
-// 数字步进输入：文本输入 + 内嵌 -/+ 按钮。value 是当前文本（可手输数字；空/非法
-// 按 0），加减基于解析出的整数，夹到 [min,max]、步长 step，改完写回并回调。
-// 布局：[-] [输入] [+]。
+// 数字步进输入：一体式组合控件——[-] [输入] [+] 共用一个外壳（surface 底 +
+// hairline 描边 + 圆角），± 是壳内透明命中区（hover 叠 state layer），中间的
+// 输入框用覆写 InputStyle 去掉自身底/描边，视觉上是「一个框」而不是三个控件。
+// value 是当前文本（可手输数字；空/非法按 0），加减基于解析出的整数，夹到
+// [min,max]、步长 step，改完写回并回调。输入框聚焦时外壳描边转主色。
 export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, float y,
                                float width, float height, const AppTheme& theme,
                                const std::string& value,
                                const std::function<void(const std::string&)>& onChange,
                                int min, int max, int step) {
-    // -/+ 按钮做成正方形小圆角钮，垂直居中于输入框高度。
-    const float btnSize = std::min(kStepperButtonSize, height);
-    const float btnY = y + (height - btnSize) * 0.5f;
-    const float gap = 3.0f;
-    const float inputW = width - btnSize * 2.0f - gap * 2.0f;
     const auto& tokens = theme.components;
+    const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
+    const core::Color transparent{0.0f, 0.0f, 0.0f, 0.0f};
+    const float radius = tokens.metrics.radius.popup;  // 与相邻输入框同一圆角
+    const float btnW = height;                          // ± 区方形
+    const float inputW = std::max(0.0f, width - btnW * 2.0f);
 
-    components::button(ui, id + ".minus")
-        .position(x, btnY)
-        .size(btnSize, btnSize)
-        .radius(5.0f)
-        .icon(0xF068)  // fa-minus
-        .text("")
-        .iconSize(kStepperIconSize)
-        .theme(tokens, false)
-        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-        .onClick([value, onChange, min, max, step] {
-            int cur = 0;
-            try { cur = std::stoi(trimText(value)); } catch (...) {}
-            onChange(std::to_string(std::clamp(cur - step, min, max)));
-        })
+    // 一体外壳（聚焦时描边转主色，与独立输入框的聚焦反馈一致）。
+    const bool focused = ui.isFocused(id + ".input.hit");
+    ui.rect(id + ".box")
+        .position(x, y)
+        .size(width, height)
+        .color(tokens.surface)
+        .radius(radius)
+        .border(kHairline,
+                focused ? components::theme::withAlpha(tokens.primary, 0.86f)
+                        : theme.outline)
+        .transition(transition)
         .build();
+
+    // 输入框：覆写 InputStyle 去掉自身底/描边/聚焦投影，融进外壳。
+    components::InputStyle inputStyle(tokens);
+    inputStyle.background = transparent;
+    inputStyle.focused = transparent;
+    inputStyle.border = transparent;
+    inputStyle.focusBorder = transparent;
+    inputStyle.shadow = core::Shadow{};
+    inputStyle.radius = 0.0f;
+    // 文本在 ± 之间的中段内水平居中：inset = (中段宽 - 文本宽)/2（输入框只有
+    // 左对齐 + inset，用真实字体度量动态算 inset；每帧重算，编辑时自跟随）。
+    const float inputFontSize = tokens.metrics.typography.input;
+    const float textW = core::TextPrimitive::measureTextWidth(value, "", inputFontSize);
+    const float inputInset = std::max(2.0f, (inputW - textW) * 0.5f);
     components::input(ui, id + ".input")
-        .position(x + btnSize + gap, y)
+        .position(x + btnW, y)
         .size(inputW, height)
+        .inset(inputInset)
         .value(value)
         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
         .theme(tokens)
+        .style(inputStyle)
         .onChange([onChange](const std::string& v) {
             // 只保留数字：手输字母/符号会被滤掉（eui input 每帧用 value() 覆盖
             // 内部文本，写回纯数字状态后显示即同步）。范围校验在保存层。
@@ -402,21 +416,36 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
             onChange(digits);
         })
         .build();
-    components::button(ui, id + ".plus")
-        .position(x + btnSize + gap + inputW + gap, btnY)
-        .size(btnSize, btnSize)
-        .radius(5.0f)
-        .icon(0xF067)  // fa-plus
-        .text("")
-        .iconSize(kStepperIconSize)
-        .theme(tokens, false)
-        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-        .onClick([value, onChange, min, max, step] {
-            int cur = 0;
-            try { cur = std::stoi(trimText(value)); } catch (...) {}
-            onChange(std::to_string(std::clamp(cur + step, min, max)));
-        })
-        .build();
+
+    // ± 按钮：壳内透明命中区 + hover/pressed state layer，图标居中。
+    const auto drawStepButton = [&](const std::string& btnId, float btnX,
+                                    unsigned int icon, int delta) {
+        ui.rect(btnId + ".hit")
+            .position(btnX, y)
+            .size(btnW, height)
+            .states(transparent, stateLayer(theme.onSurface, 0.08f),
+                    stateLayer(theme.onSurface, 0.12f))
+            .radius(radius)
+            .transition(transition)
+            .onClick([value, onChange, min, max, step, delta] {
+                int cur = 0;
+                try { cur = std::stoi(trimText(value)); } catch (...) {}
+                onChange(std::to_string(std::clamp(cur + delta * step, min, max)));
+            })
+            .build();
+        ui.text(btnId + ".icon")
+            .position(btnX, y)
+            .size(btnW, height)
+            .icon(icon)
+            .fontSize(kStepperIconSize)
+            .lineHeight(height)
+            .color(tokens.text)
+            .horizontalAlign(core::HorizontalAlign::Center)
+            .verticalAlign(core::VerticalAlign::Center)
+            .build();
+    };
+    drawStepButton(id + ".minus", x, 0xF068, -1);               // fa-minus
+    drawStepButton(id + ".plus", x + btnW + inputW, 0xF067, 1); // fa-plus
 }
 
 // 侧边栏列表项：图标 + 文字，激活指示为全宽灰阶圆角块（surfaceContainerHigh，
@@ -507,13 +536,13 @@ export void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y
     }
 }
 
-// 图标导航栏项：32 高激活指示块（图标居中，radius 6）+ 10px 标签。
-// 激活 = surfaceContainerHigh 底 + onSurface 图标/标签；非激活 = onSurfaceVariant；
-// hover 叠 onSurface state layer。tooltip 延迟气泡可选。
+// 图标导航栏项：32 高激活指示块（图标居中，radius 6），无文字标签——名称经
+// hover 延迟气泡提示（tooltip 参数，出现在图标栏右侧，带尾巴指向按钮）。
+// 激活 = surfaceContainerHigh 底 + onSurface 图标；非激活 = onSurfaceVariant；
+// hover 叠 onSurface state layer。
 export void drawRailItem(eui::Ui& ui, const std::string& id, float y, float railWidth,
-                         unsigned int icon, const std::string& label, bool active,
-                         const AppTheme& theme, std::function<void()> onClick,
-                         const std::string& tooltip = {}) {
+                         unsigned int icon, const std::string& tooltip, bool active,
+                         const AppTheme& theme, std::function<void()> onClick) {
     const auto& tokens = theme.components;
     const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
     const core::Color idle = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -551,18 +580,6 @@ export void drawRailItem(eui::Ui& ui, const std::string& id, float y, float rail
         .icon(icon)
         .fontSize(20.0f)
         .lineHeight(pillH)
-        .color(iconColor)
-        .horizontalAlign(core::HorizontalAlign::Center)
-        .verticalAlign(core::VerticalAlign::Center)
-        .build();
-
-    // 标签（pill 下方，全 rail 宽居中）。
-    ui.text(id + ".label")
-        .position(0, y + pillH + 2.0f)
-        .size(railWidth, 12.0f)
-        .text(label)
-        .fontSize(10.0f)
-        .lineHeight(12.0f)
         .color(iconColor)
         .horizontalAlign(core::HorizontalAlign::Center)
         .verticalAlign(core::VerticalAlign::Center)

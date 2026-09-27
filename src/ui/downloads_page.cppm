@@ -25,8 +25,9 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
 void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme,
                         const TaskInfoSnapshot& task);
 
-// ===================== 下载页 =====================
-// 布局：左侧是任务列表子侧边栏，右侧是输入栏 + 卡片任务列表 + 翻页控件组。
+// ===================== 下载页 =================
+// 布局：整页一张浮岛卡，卡内顶部是工具栏行（左：筛选标签 所有/下载中/已完成，
+// 右：全部暂停 / 全部继续 / 排序 / 添加），下方是卡片任务列表 + 翻页控件组。
 export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
     // ---- 数据：筛选 + 排序 + 分页切片（每帧重跑，跟随下载线程实时刷新）----
     const auto tasks = g_tasks.snapshot();
@@ -88,17 +89,15 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const int end = std::min(totalCount, start + g_pageSize);
 
     // ---- 布局尺寸（岛屿卡片风：整页一张浮岛卡）----
-    // 图标栏占满左缘（整高竖条、不套卡片）；任务列表子侧边栏 + 内容区同属一张浮岛卡
-    // （紧贴图标栏右侧，上下各留 kIslandVInset 空隙），侧边栏与内容区之间用一条竖向
-    // 分隔线区分，不再各自成卡。仅右侧留 kRightMargin。
+    // 图标栏占满左缘（整高竖条、不套卡片）；内容岛卡紧贴图标栏右侧，上下各留
+    // kIslandVInset 空隙，仅右侧留 kRightMargin。筛选标签在工具栏行内，不再占
+    // 子侧边栏。
     const float islandTop = kIslandVInset;
     const float islandH = screen.height - 2.0f * kIslandVInset;
-    const float subX = kRailWidth;
-    const float contentX = subX + kSubSidebarWidth + kIslandGap;
+    const float contentX = kRailWidth;
     const float contentW = screen.width - contentX - kRightMargin;
-    // 整页一张岛：从侧边栏左缘到内容区右缘（含原两卡之间的空隙），竖线落在交界处。
-    const float islandW = contentX + contentW - subX;
-    const float dividerX = subX + kSubSidebarWidth + kIslandGap * 0.5f;
+    // 整页一张岛：从图标栏右缘到内容区右缘。
+    const float islandW = contentW;
 
     // 内容大卡：内边距 kPanelPad，卡内依次是 工具栏 / 任务列表 / 状态消息 / 翻页。
     const float pad = kPanelPad;
@@ -109,52 +108,89 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const float listX = contentX + pad;
     const float listW = contentW - 2.0f * pad;
 
-    // 整页一张岛卡（取代原「侧边栏岛卡 + 内容岛卡」两张），侧边栏与内容以竖线分隔。
-    drawPanel(ui, "dl.island", subX, islandTop, islandW, islandH, theme);
-    drawVDivider(ui, "dl.island.vdivider", dividerX, islandTop, islandH, theme);
+    // 整页一张岛卡。
+    drawPanel(ui, "dl.island", contentX, islandTop, islandW, islandH, theme);
 
-    // ---- 任务列表子侧边栏：所有 / 下载中 / 已完成（同一张岛卡，右缘竖线分隔）----
-    ui.stack("sub.filter")
-        .position(subX, islandTop)
-        .size(kSubSidebarWidth, islandH)
-        .zIndex(4)
-        .content([&] {
-            // 侧边栏底并入整页岛卡（drawPanel "dl.island"），这里不再单独画卡。
-
-            components::text(ui, "sub.filter.label")
-                .position(9.0f, 10.0f)
-                .size(kSubSidebarWidth - 18.0f, 18.0f)
-                .text(tr("dl.tasks"))
-                .fontSize(13.0f)
-                .lineHeight(18.0f)
-                .color(theme.titleText)
-                .build();
-
-            const float itemW = kSubSidebarWidth - 12.0f;
-            float itemY = 28.0f;
-            // 各筛选的任务数：所有 = 总数；下载中/已完成与列表筛选同一口径
-            // （stateMatches），基于本帧 snapshot 统计。
-            int activeCount = 0, doneCount = 0;
-            for (const auto& task : tasks) {
-                if (stateMatches(Filter::Active, task.state)) ++activeCount;
-                else if (stateMatches(Filter::Done, task.state)) ++doneCount;
-            }
-            drawSidebarItem(ui, "filter.all", 6.0f, itemY, itemW, 22.0f,
-                            tr("dl.filter_all"), 0xF03A, g_filter == Filter::All, theme,
-                            [] { g_filter = Filter::All; g_page = 1; },
-                            static_cast<int>(tasks.size()));
-            itemY += 27.0f;
-            drawSidebarItem(ui, "filter.active", 6.0f, itemY, itemW, 22.0f,
-                            tr("card.state.downloading"), 0xF019, g_filter == Filter::Active, theme,
-                            [] { g_filter = Filter::Active; g_page = 1; },
-                            activeCount);
-            itemY += 27.0f;
-            drawSidebarItem(ui, "filter.done", 6.0f, itemY, itemW, 22.0f,
-                            tr("card.state.done"), 0xF00C, g_filter == Filter::Done, theme,
-                            [] { g_filter = Filter::Done; g_page = 1; },
-                            doneCount);
-        })
-        .build();
+    // ---- 筛选标签（工具栏行左侧）：所有 / 下载中 / 已完成，分段切换样式 ----
+    // 样式同添加弹窗的分段规范：容器 surfaceContainer + hairline，选中指示块
+    // surfaceContainerHighest（带过渡动画），选中文字 onSurface / 未选中
+    // onSurfaceVariant。段宽随文字自适应（measureTextWidth + 水平内边距）。
+    {
+        // 各筛选的任务数：所有 = 总数；下载中/已完成与列表筛选同一口径
+        // （stateMatches），基于本帧 snapshot 统计。
+        int activeCount = 0, doneCount = 0;
+        for (const auto& task : tasks) {
+            if (stateMatches(Filter::Active, task.state)) ++activeCount;
+            else if (stateMatches(Filter::Done, task.state)) ++doneCount;
+        }
+        const std::string tabLabels[] = {
+            std::format("{} {}", tr("dl.filter_all"), tasks.size()),
+            std::format("{} {}", tr("card.state.downloading"), activeCount),
+            std::format("{} {}", tr("card.state.done"), doneCount),
+        };
+        const Filter tabFilters[] = {Filter::All, Filter::Active, Filter::Done};
+        constexpr float kTabH = 28.0f;      // 与右侧工具栏按钮同高
+        constexpr float kTabPadH = 12.0f;   // 段内水平内边距
+        constexpr float kTabGap = 4.0f;
+        float tabW[3];
+        float tabsTotalW = kTabGap * 2.0f;
+        for (int i = 0; i < 3; ++i) {
+            tabW[i] = core::TextPrimitive::measureTextWidth(tabLabels[i], "", 12.0f) +
+                      2.0f * kTabPadH;
+            tabsTotalW += tabW[i];
+        }
+        const float tabsX = contentX + pad;
+        ui.stack("tool.tabs")
+            .position(tabsX, toolY)
+            .size(tabsTotalW, kTabH)
+            .content([&] {
+                const auto segTransition =
+                    core::Transition::make(0.16f, core::Ease::OutCubic);
+                ui.rect("tool.tabs.bg")
+                    .size(tabsTotalW, kTabH)
+                    .color(theme.surfaceContainer)
+                    .radius(kButtonRadius)
+                    .border(kHairline, theme.outline)
+                    .build();
+                float segX = 0.0f;
+                int selected = 0;
+                for (int i = 0; i < 3; ++i) {
+                    if (g_filter == tabFilters[i]) { selected = i; break; }
+                }
+                for (int i = 0; i < selected; ++i) segX += tabW[i] + kTabGap;
+                ui.rect("tool.tabs.ind")
+                    .position(segX, 0.0f)
+                    .size(tabW[selected], kTabH)
+                    .color(theme.surfaceContainerHighest)
+                    .radius(kButtonRadius)
+                    .transition(segTransition)
+                    .build();
+                segX = 0.0f;
+                for (int i = 0; i < 3; ++i) {
+                    const bool active = i == selected;
+                    const std::string segId = "tool.tabs.seg." + std::to_string(i);
+                    ui.rect(segId + ".hit")
+                        .position(segX, 0.0f)
+                        .size(tabW[i], kTabH)
+                        .color({0.0f, 0.0f, 0.0f, 0.0f})
+                        .radius(kButtonRadius)
+                        .onClick([f = tabFilters[i]] { g_filter = f; g_page = 1; })
+                        .build();
+                    components::text(ui, segId + ".label")
+                        .position(segX, 0.0f)
+                        .size(tabW[i], kTabH)
+                        .text(tabLabels[i])
+                        .fontSize(12.0f)
+                        .lineHeight(kTabH)
+                        .color(active ? theme.onSurface : theme.onSurfaceVariant)
+                        .horizontalAlign(core::HorizontalAlign::Center)
+                        .verticalAlign(core::VerticalAlign::Center)
+                        .build();
+                    segX += tabW[i] + kTabGap;
+                }
+            })
+            .build();
+    }
 
     // ---- 顶部工具栏（右对齐，收在内容大卡内）：全部暂停 / 全部继续 / 排序 / 添加 ----
     const float toolW = 28.0f;
@@ -386,7 +422,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         const float torDirY = 102.0f;  // 种子 tab：下载目录行
         const float torHintY = 138.0f; // 种子 tab：提示文字
 
-        // 遮罩（scrim α50%），点击空白处关闭。zIndex 高于侧边栏/翻页，
+        // 遮罩（scrim α50%），点击空白处关闭。zIndex 高于翻页，
         // 保证整个窗口都被盖住。
         ui.rect("add.backdrop")
             .position(0, 0)

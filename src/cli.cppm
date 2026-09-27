@@ -1,4 +1,5 @@
-// cli.cppm — command-line download entry + single-instance detection.
+// cli.cppm — command-line entry: URL add, single-instance detection, and the
+// CLI control plane (status / list / pause / ... for users & AI agents).
 //
 // The app owns a per-user single-instance lock (Windows named mutex, POSIX
 // flock). A second launch forwards its URL args to the running instance over a
@@ -7,6 +8,18 @@
 // process becomes the primary and adds its own CLI URLs at first compose. The
 // old inbox-file path (temp/tinynext.inbox) is kept as a fallback when the
 // socket isn't up yet (e.g. the primary is still starting).
+//
+// Loopback protocol v2（横幅 TINYNEXT-CLI/2）：
+//   * URL 行（含 "mirror:" 编码）：fire-and-forget，客户端发完即关（v1 语义不变，
+//     服务端对 /1 前缀横幅仍兼容校验）。
+//   * 控制请求：客户端发一行 "ctl:<verb> [args...]\n" 后半关写侧（SHUT_WR），
+//     服务端执行完毕把响应写回同一连接再关闭——请求/响应一次一连接。只读动词
+//     （status/list/watch）在监听线程直接执行（snapshot/refreshHealth 线程安全，
+//     窗口缩进托盘也能答）；变更动词 marshal 到 UI 线程（store 约定：任务命令
+//     UI 线程发起，与卡片操作同路径），10s 无应答即报超时。命令语义与输出格式
+//     在 tinynext.cli_control，本模块只管收发。
+//   * 控制动词在 CliBoot 抢锁之前接管：绝不因查询/操作起 GUI，应用没在跑直接
+//     报 "not running"（退出码 1）。
 module;
 
 #ifdef _WIN32
@@ -41,12 +54,14 @@ namespace core::platform { void requestUiUpdate(); }
 export module tinynext.cli;
 
 import std;
-import tinynext.i18n;          // tr / trf（CLI 下载提示按用户语言）
-import tinynext.store.tasks;   // g_tasks.startFromUrl（下载流程唯一入口）
-import tinynext.store.ui;      // showStatus（转发/CLI 添加下载的结果提示）
-import tinynext.utils;         // isDownloadableSource（下载源白名单）
+import nlohmann.json;              // watch --until-idle 解析 status JSON
+import tinynext.i18n;             // tr / trf（CLI 下载提示按用户语言）
+import tinynext.store.tasks;      // g_tasks.startFromUrl（下载流程唯一入口）
+import tinynext.store.ui;         // showStatus（转发/CLI 添加下载的结果提示）
+import tinynext.utils;            // isDownloadableSource（下载源白名单）
 import tinynext.download_engine;  // dl::StartOptions（--mirror 的多源任务）
-import tinynext.headless;  // --headless 脚本模式（CliBoot 在 main 前接管）
+import tinynext.headless;         // --headless 脚本模式（CliBoot 在 main 前接管）
+import tinynext.cli_control;      // 控制面命令执行与输出格式
 
 namespace cli {
 
@@ -76,11 +91,22 @@ inline void closeFd(CliFd fd) { ::close(fd); }
 std::mutex g_urlsMutex;
 std::vector<std::string> g_pendingUrls;
 
+// v2 控制面的待执行变更命令（监听线程入队，UI 线程 drain 后回填响应）。reply 用
+// shared_ptr：监听线程 10s 超时先行返回错误时，UI 稍后回填也不会悬空。
+struct PendingControl {
+    std::vector<std::string> tokens;
+    std::shared_ptr<std::promise<std::string>> reply;
+};
+std::mutex g_ctlMutex;
+std::vector<PendingControl> g_pendingControls;
+
 // CLI 转发握手横幅：主实例 accept 后立刻发，第二实例 connect 后先收并校验。
 // 端口文件可能过期（PID 复用 / fd 继承导致别的进程占用该端口），只测 connect
 // 成功会把陌生进程当主实例——URL 被吞、进程静默退出（真实踩坑：kill 掉主实例
 // 后其 aria2 daemon 子进程继承了监听 socket，新实例转发给它后秒退）。
-constexpr std::string_view kCliBanner = "TINYNEXT-CLI/1\n";
+// v2：新增 "ctl:" 控制请求（带响应）；URL 行语义不变，对 /1 旧实例仍兼容转发。
+constexpr std::string_view kCliBanner = "TINYNEXT-CLI/2\n";
+constexpr std::string_view kCliBannerPrefix = "TINYNEXT-CLI/";
 
 // 发送带 MSG_NOSIGNAL（POSIX）：对方提前断开时 send 不会 raise SIGPIPE 杀进程。
 #ifdef _WIN32
@@ -88,6 +114,76 @@ constexpr int kSendFlags = 0;
 #else
 constexpr int kSendFlags = MSG_NOSIGNAL;
 #endif
+
+// 控制台输出（agent 帮助 / 控制面响应共用）。Windows 是 GUI 子系统：默认没有
+// 有效 stdout 句柄，AttachConsole(ATTACH_PARENT_PROCESS) 挂回拉起它的终端。
+void printCliText(std::string_view s) {
+#ifdef _WIN32
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut == nullptr || hOut == INVALID_HANDLE_VALUE) {
+        AttachConsole(ATTACH_PARENT_PROCESS);
+        hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    }
+    if (hOut != nullptr && hOut != INVALID_HANDLE_VALUE) {
+        DWORD written = 0;
+        WriteFile(hOut, s.data(), static_cast<DWORD>(s.size()), &written, nullptr);
+    }
+#else
+    std::cout << s;
+    std::cout.flush();
+#endif
+}
+
+// 全量发送（loopback 小报文理论上一轮询完，仍循环兜底部分写）。
+bool sendAll(CliFd fd, std::string_view data) {
+    std::size_t off = 0;
+    while (off < data.size()) {
+        const int n = static_cast<int>(
+            ::send(fd, data.data() + off, static_cast<int>(data.size() - off), kSendFlags));
+        if (n <= 0) return false;
+        off += static_cast<std::size_t>(n);
+    }
+    return true;
+}
+
+// 收主实例横幅并解析协议版本。返回：横幅主版本号（1/2...），0 = 无横幅/陌生
+// 进程/超时（调用方按「没有可通信的主实例」处理）。
+int readBannerVersion(CliFd fd) {
+    std::string banner;
+    banner.resize(kCliBanner.size());
+    std::size_t got = 0;
+    while (got < banner.size()) {
+        const int n = static_cast<int>(
+            ::recv(fd, banner.data() + got, banner.size() - got, 0));
+        if (n <= 0) break;
+        got += static_cast<std::size_t>(n);
+    }
+    banner.resize(got);
+    if (!banner.starts_with(kCliBannerPrefix) || banner.size() < kCliBannerPrefix.size() + 1) {
+        return 0;
+    }
+    const char v = banner[kCliBannerPrefix.size()];
+    return (v >= '0' && v <= '9') ? v - '0' : 0;
+}
+
+void setRecvTimeout(CliFd fd, int ms) {
+#ifdef _WIN32
+    const DWORD tv = static_cast<DWORD>(ms);
+    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO,
+                 reinterpret_cast<const char*>(&tv), sizeof(tv));
+#else
+    const timeval tv{.tv_sec = ms / 1000, .tv_usec = (ms % 1000) * 1000};
+    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
+}
+
+// 读主实例端口。无效/缺失返回 0。
+int primaryPort() {
+    int port = 0;
+    std::ifstream in(portPath());
+    in >> port;
+    return (port > 0 && port <= 65535) ? port : 0;
+}
 
 #ifdef _WIN32
 // WSAStartup/WSACleanup 的 RAII 包裹：作用域结束自动 Cleanup。Winsock 引用计数
@@ -105,12 +201,8 @@ struct WsSession {
 // 第二实例：把 URL 通过 TCP loopback 直连发到主实例。loopback 上无人监听会立即
 // ECONNREFUSED，阻塞 connect 不会卡住。返回是否成功。
 bool trySendUrls(const std::vector<std::string>& urls) {
-    int port = 0;
-    {
-        std::ifstream in(portPath());
-        in >> port;
-    }
-    if (port <= 0 || port > 65535) return false;
+    const int port = primaryPort();
+    if (port == 0) return false;
 #ifdef _WIN32
     const WsSession wsa;
     if (!wsa) return false;
@@ -127,37 +219,99 @@ bool trySendUrls(const std::vector<std::string>& urls) {
     }
     // 握手：先收横幅校验对方确实是 TinyNext 主实例（端口文件过期时 connect 到的
     // 可能是任何进程）。2s 超时——旧版本主实例没横幅，超时回退 inbox（向后兼容）。
-    {
-#ifdef _WIN32
-        const DWORD tv = 2000;
-        ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO,
-                     reinterpret_cast<const char*>(&tv), sizeof(tv));
-#else
-        timeval tv{.tv_sec = 2, .tv_usec = 0};
-        ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-#endif
-        std::string banner;
-        banner.resize(kCliBanner.size());
-        std::size_t got = 0;
-        while (got < banner.size()) {
-            const int n = static_cast<int>(
-                ::recv(fd, banner.data() + got, banner.size() - got, 0));
-            if (n <= 0) break;
-            got += static_cast<std::size_t>(n);
-        }
-        if (banner != kCliBanner) {
-            closeFd(fd);
-            return false;
-        }
+    // URL 转发不限协议小版本（/1 /2 都能收 URL 行）。
+    setRecvTimeout(fd, 2000);
+    if (readBannerVersion(fd) == 0) {
+        closeFd(fd);
+        return false;
     }
     std::string data;
     for (const auto& u : urls) {
         data += u;
         data += '\n';
     }
-    ::send(fd, data.data(), static_cast<int>(data.size()), kSendFlags);
+    if (!sendAll(fd, data)) {
+        closeFd(fd);
+        return false;
+    }
     closeFd(fd);
     return true;
+}
+
+// 控制面请求/响应：向主实例发一行 "ctl:..." 并等回包（连接级一问一答）。
+// 返回 0 = 成功（response 已填充），1 = 没有可通信的主实例（端口文件过期/
+// 陌生进程/无响应），2 = 主实例是 v1 旧版（不支持控制面，需要重启升级）。
+int exchangeCtl(const std::string& request, std::string& response) {
+    const int port = primaryPort();
+    if (port == 0) return 1;
+#ifdef _WIN32
+    const WsSession wsa;
+    if (!wsa) return 1;
+#endif
+    const CliFd fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd == kCliInvalidFd) return 1;
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(static_cast<std::uint16_t>(port));
+    ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    if (::connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0) {
+        closeFd(fd);
+        return 1;
+    }
+    setRecvTimeout(fd, 2000);
+    const int ver = readBannerVersion(fd);
+    if (ver == 0) {  // 超时/陌生进程：端口文件过期（PID 复用 / daemon 继承）
+        closeFd(fd);
+        return 1;
+    }
+    if (ver < 2) {  // 旧版主实例：不发 ctl 行（会被当 URL 处理报「不支持的源」）
+        closeFd(fd);
+        return 2;
+    }
+    // 半关写侧：服务端 recv 到 EOF 即开始执行，我们等它的回包。
+    if (!sendAll(fd, request)) {
+        closeFd(fd);
+        return 1;
+    }
+#ifdef _WIN32
+    ::shutdown(fd, SD_SEND);
+#else
+    ::shutdown(fd, SHUT_WR);
+#endif
+    setRecvTimeout(fd, 15000);  // 服务端内部还有 10s UI 等待，这里留余量
+    response.clear();
+    char buf[2048];
+    for (;;) {
+        const int n = static_cast<int>(::recv(fd, buf, sizeof(buf), 0));
+        if (n <= 0) break;  // EOF / 超时都收束（超时留下已读部分由调用方判空）
+        response.append(buf, static_cast<std::size_t>(n));
+    }
+    closeFd(fd);
+    return response.empty() ? 1 : 0;
+}
+
+// 执行一条控制请求（监听线程调用）。只读动词（status/list/watch）直接执行：
+// snapshot/refreshHealth 线程安全（housekeep 同款用法），窗口缩进托盘时也能应答。
+// 变更动词 marshal 到 UI 线程执行（store 约定：任务命令在 UI 线程发起，与卡片
+// 操作同一条路径）；UI 沉睡/托盘隐藏时 10s 超时报明确错误。
+std::string runControl(const std::vector<std::string>& tokens) {
+    if (cli_control::isReadOnlyVerb(tokens[0])) return cli_control::handle(tokens);
+    auto reply = std::make_shared<std::promise<std::string>>();
+    std::future<std::string> fu = reply->get_future();
+    {
+        std::lock_guard<std::mutex> lock(g_ctlMutex);
+        g_pendingControls.push_back({tokens, reply});
+    }
+    core::platform::requestUiUpdate();
+    if (fu.wait_for(std::chrono::seconds(10)) != std::future_status::ready) {
+        return "error: TinyNext did not answer within 10s — its window may be hidden "
+               "to the tray; restore it and retry\n";
+    }
+    try {
+        return fu.get();
+    } catch (...) {
+        return "error: TinyNext dropped the request\n";
+    }
 }
 
 // 主实例：后台线程阻塞在 accept 上（队列空就挂起），收到转发 URL 后入队并唤醒
@@ -215,7 +369,8 @@ void cliListenerLoop() {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
-        // 握手横幅先发（trySendUrls 校验用），再读 URL 到对方关闭。
+        // 握手横幅先发（trySendUrls 校验用），再读到对方关闭（URL 转发全关 /
+        // 控制请求半关写侧，都在这一步收束）。
         ::send(client, kCliBanner.data(), static_cast<int>(kCliBanner.size()),
                kSendFlags);
         std::string data;
@@ -225,19 +380,32 @@ void cliListenerLoop() {
             if (n <= 0) break;
             data.append(buf, static_cast<std::size_t>(n));
         }
-        closeFd(client);
-        if (g_appExiting.load()) { closeListen(); return; }
-        std::vector<std::string> urls;
+        std::vector<std::string> lines;
         std::istringstream ss(data);
         std::string line;
         while (std::getline(ss, line)) {
-            if (!line.empty()) urls.push_back(std::move(line));
+            if (!line.empty()) lines.push_back(std::move(line));
         }
-        if (!urls.empty()) {
-            {
-                std::lock_guard<std::mutex> lock(g_urlsMutex);
-                g_pendingUrls.insert(g_pendingUrls.end(), urls.begin(), urls.end());
-            }
+        // v2 控制请求：单行 "ctl:<verb> [args...]"，执行后把响应写回本连接。
+        if (!lines.empty() && lines[0].starts_with("ctl:")) {
+            if (g_appExiting.load()) { closeFd(client); closeListen(); return; }
+            std::vector<std::string> tokens;
+            std::istringstream cs(lines[0].substr(4));
+            std::string tok;
+            while (cs >> tok) tokens.push_back(tok);
+            std::string resp = tokens.empty()
+                ? std::string("error: empty ctl request\n")
+                : runControl(tokens);
+            if (!resp.ends_with('\n')) resp += '\n';
+            sendAll(client, resp);
+            closeFd(client);
+            continue;
+        }
+        closeFd(client);
+        if (g_appExiting.load()) { closeListen(); return; }
+        if (!lines.empty()) {
+            std::lock_guard<std::mutex> lock(g_urlsMutex);
+            g_pendingUrls.insert(g_pendingUrls.end(), lines.begin(), lines.end());
             core::platform::requestUiUpdate();
         }
     }
@@ -371,54 +539,76 @@ export bool runAgentHelpIfRequested() {
         return false;
     }
 
-    constexpr const char* kHelp = R"(TinyNext — a single-instance GUI downloader with a small CLI.
+    constexpr const char* kHelp = R"(TinyNext — a single-instance GUI downloader with a scriptable CLI.
 
-USAGE
-  tinynext <http(s)-url> [more-urls...]   Add download(s). The GUI auto-starts if needed.
-  tinynext --mirror <url1> <url2> [...]   One task, many sources: url1 is primary, the rest
-                                          are mirrors of the SAME file (aria2 splits across
-                                          sources, auto-failover). All urls must be plain
-                                          http(s)/ftp(s)/sftp links (no magnet/.torrent).
-  tinynext --headless <url> [more-urls...]  Script mode: NO window. Download(s) run under
-                                          TinyNext's own config (dir / connections), process
-                                          exits 0 on success / 1 on any failure.
-  tinynext agent                          Print this usage guide (what you are reading now).
+ADD DOWNLOADS (the GUI auto-starts when it is not running)
+  tinynext <url> [more-urls...]          Add download(s); one task per source.
+  tinynext add <url> ...                 Same thing ("add" is an optional word).
+  tinynext --mirror <url1> <url2> [...]  One task, many sources: url1 is primary, the rest
+                                         are mirrors of the SAME file (aria2 splits across
+                                         sources, auto-failover). Plain http(s)/ftp(s)/sftp
+                                         links only (no magnet / .torrent).
+  tinynext --headless <url> [...]        Script mode: NO window, TinyNext's own config
+                                         (dir / connections) applies, exits 0 when all
+                                         downloads finished, 1 on any failure.
+  Accepted sources: http:// https:// ftp:// ftps:// sftp:// magnet:, local .torrent paths.
+  Other arguments are ignored. http is used as-is (not upgraded to https). Files land in
+  the configured download directory; names come from the URL / torrent / magnet metadata.
 
-RULES
-  - http://, https://, ftp://, sftp://, ftps:// URLs, magnet: links, and local .torrent
-    file paths are treated as downloads; other arguments are ignored.
-  - Single-instance: if TinyNext is already running, the sources are forwarded to the
-    running instance and this process exits immediately — a new window is NOT opened.
-    The running instance adds the tasks itself (--mirror grouping is preserved).
-  - http is used as-is (not upgraded to https). Without --mirror, multiple URLs create
-    separate tasks.
-  - Files land in the configured download directory (default: the system Downloads folder).
-  - The filename is taken from the last path segment of the URL.
+QUERY STATE (read-only; needs a running TinyNext — they never open a window)
+  tinynext status [--json]               App version/pid, engine health, task counts, speed.
+  tinynext list [--json] [--state active|done|failed|all]
+                                         One line per task: id, state, progress, speed,
+                                         size, name. Default filter: all.
+  tinynext watch [--json] [--until-idle] [--interval <sec>]
+                                         Print status every <sec> (default 2) until Ctrl-C.
+                                         --until-idle: machine mode (one compact JSON per
+                                         line), exits 0 once nothing is queued/downloading.
 
-EXAMPLES
-  tinynext https://example.com/file.zip
-  tinynext https://a.example.com/x.bin https://b.example.com/y.tar.gz
-  tinynext --mirror https://fast.example.com/big.iso https://slow.example.org/big.iso
+OPERATE THE RUNNING APP (task ids come from `tinynext list`)
+  tinynext pause <id...> | pause all     Pause active task(s) (they keep the partial file).
+  tinynext resume <id...> | resume all   Resume paused task(s).
+  tinynext cancel <id...>                Stop a task; record + partial file stay, retryable.
+  tinynext retry <id...>                 Re-download failed/cancelled (continues from the
+                                         .aria2 control file — real resume, not restart).
+  tinynext remove <id...>                Delete a task record (files on disk are NOT touched).
+  tinynext clear done                    Delete all completed records.
+  tinynext quit                          Save session and exit the app.
+
+FOR AI AGENTS
+  - Machine output: pass --json to status / list / watch and to the operating commands
+    (results arrive as {"ok":bool,"results":[{"action","ok","message"}...]}). Text output
+    marks failures with lines starting "error: ".
+  - Exit codes: 0 success · 1 TinyNext not running / unreachable / too old · 2 command
+    error (bad id, wrong state, ...).
+  - Add, then track:  tinynext https://example.com/big.zip
+                      tinynext list --json          (find the task id)
+                      tinynext watch --until-idle   (blocks until downloads are done)
+  - Control commands never launch the app: if it may be closed, add a download first
+    (`tinynext <url>` auto-launches) or start TinyNext normally.
+  - A TinyNext window minimized to the system tray answers status / list / watch, but
+    task operations (pause / resume / retry / remove / quit) only run while its UI loop
+    is alive — restore the window and retry. On Windows, forwarding a download
+    automatically restores the window first.
+  - Per-user state you may inspect: config <configDir>/tinynext.conf, aria2 session
+    <configDir>/tinynext.session, engine log <configDir>/tinynext-aria2.log.
+    <configDir> = Windows %APPDATA%\TinyNext · macOS ~/Library/Application Support/TinyNext
+    · Linux $XDG_CONFIG_HOME/tinynext (fallback ~/.config/tinynext). A portable
+    tinynext.conf next to the exe overrides the location.
+  - Single-instance internals: lock <temp>/tinynext.lock (POSIX flock; Windows named
+    mutex), forwarding over TCP 127.0.0.1 (port in <temp>/tinynext.port, protocol
+    TINYNEXT-CLI/2, control requests are "ctl:<verb> ..." lines with a reply), plus the
+    <temp>/tinynext.inbox fallback file for early adds.
 
 TROUBLESHOOTING
-  - A download did not start: make sure the URL starts with http:// or https://.
-  - Forwarding is done via a file at <temp>/tinynext.inbox — check it to confirm the URL was queued.
+  - A download did not start: the argument must start with a recognized scheme (above).
+  - "TinyNext is not running" while a window is visible: the CLI and the app run as
+    different users / sessions — the lock and port file are per-user.
+  - --headless conflicts nothing: it spawns its own engine and never touches the GUI.
+  - More docs: README.md ("使用本应用") and docs/cli.md in the repository.
 )";
 
-#ifdef _WIN32
-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (hOut == nullptr || hOut == INVALID_HANDLE_VALUE) {
-        AttachConsole(ATTACH_PARENT_PROCESS);  // 拿到父进程控制台（若存在）
-        hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-    }
-    if (hOut != nullptr && hOut != INVALID_HANDLE_VALUE) {
-        DWORD written = 0;
-        WriteFile(hOut, kHelp, static_cast<DWORD>(std::strlen(kHelp)), &written, nullptr);
-    }
-#else
-    std::cout << kHelp;
-    std::cout.flush();
-#endif
+    printCliText(kHelp);
     return true;
 }
 
@@ -578,6 +768,111 @@ export std::vector<std::string> drainInbox() {
     return urls;
 }
 
+// ---- 控制面客户端（`tinynext status/list/watch/pause/...`）----
+
+bool hasToken(const std::vector<std::string>& tokens, std::string_view flag) {
+    for (const auto& t : tokens) {
+        if (t == flag) return true;
+    }
+    return false;
+}
+
+// 统一处理 exchangeCtl 结果：打印响应并映射退出码（约定见 cli_control 头注释 /
+// agent 帮助）：没在跑 / 旧版 / 无响应 → 1；命令错误（任一 "error:" 行或 JSON
+// 顶层 "ok": false）→ 2；否则 0。
+int ctlExitCode(int rc, const std::string& response, bool jsonMode) {
+    if (rc == 1) {
+        printCliText("TinyNext is not running.\n"
+                     "Start it (tinynext <url> auto-launches it), then retry.\n");
+        return 1;
+    }
+    if (rc == 2) {
+        printCliText("TinyNext is running, but that instance predates CLI control — "
+                     "restart the app to a newer version.\n");
+        return 1;
+    }
+    if (rc != 0 || response.empty()) {
+        printCliText("error: the running TinyNext instance did not respond\n");
+        return 1;
+    }
+    printCliText(response);
+    if (jsonMode) {
+        try {
+            const auto j = nlohmann::json::parse(response);
+            return j.value("ok", true) ? 0 : 2;
+        } catch (...) {
+            return 0;  // 服务端没按 JSON 回：按文本规则再判一遍
+        }
+    }
+    std::istringstream ss(response);
+    std::string line;
+    while (std::getline(ss, line)) {
+        if (line.starts_with("error:")) return 2;
+    }
+    return 0;
+}
+
+// `tinynext watch`：每 interval 秒取一次 status 输出，Ctrl-C 停止。
+// --until-idle 强制机器模式（每行一条紧凑 JSON），队列为空且无下载中即退出 0
+// （Paused 是用户主动暂停，不算「未完成」）。--json（不带 --until-idle）透传
+// status 的 JSON 块。
+int runWatch(const std::vector<std::string>& tokens) {
+    const bool jsonMode = hasToken(tokens, "--json");
+    const bool untilIdle = hasToken(tokens, "--until-idle");
+    double interval = 2.0;
+    for (std::size_t i = 0; i + 1 < tokens.size(); ++i) {
+        if (tokens[i] == "--interval") {
+            try {
+                interval = std::clamp(std::stod(tokens[i + 1]), 0.2, 3600.0);
+            } catch (...) {}
+        }
+    }
+    const std::string request = (jsonMode || untilIdle)
+        ? std::string("ctl:status --json\n")
+        : std::string("ctl:status\n");
+    for (;;) {
+        std::string response;
+        const int rc = exchangeCtl(request, response);
+        if (rc != 0 || response.empty()) return ctlExitCode(rc, response, jsonMode || untilIdle);
+        if (untilIdle) {
+            try {
+                const auto j = nlohmann::json::parse(response);
+                printCliText(j.dump() + "\n");
+                const int active = j["tasks"].value("queued", 0) +
+                                   j["tasks"].value("downloading", 0);
+                if (active == 0) return j.value("ok", true) ? 0 : 2;
+            } catch (...) {
+                printCliText("error: malformed status response from TinyNext\n");
+                return 1;
+            }
+        } else {
+            printCliText(response);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(
+            static_cast<int>(interval * 1000)));
+    }
+}
+
+// 首参数是控制动词 → 接管进程并永不返回（内部 std::exit）。控制面只与运行中的
+// 实例通信：不抢单实例锁、不起 GUI——应用没在跑直接报 "not running" 退出。
+// 在 CliBoot 抢锁之前调用。
+export void runControlIfRequested() {
+    const auto args = commandLineArgs();
+    if (args.empty() || !cli_control::isControlVerb(args[0])) return;
+    const std::string verb = args[0];
+    std::vector<std::string> tokens(args.begin() + 1, args.end());
+    if (verb == "watch") std::exit(runWatch(tokens));
+    std::string request = "ctl:" + verb;
+    for (const auto& t : tokens) {
+        request += ' ';
+        request += t;
+    }
+    request += '\n';
+    std::string response;
+    std::exit(ctlExitCode(exchangeCtl(request, response), response,
+                          hasToken(tokens, "--json")));
+}
+
 // ---- 应用级接线（经 tinynext.store.tasks 的下载流程）----
 
 // 单实例：CLI 启动参数是否已添加过（processPendingUrls 首次消费）。模块私有。
@@ -598,6 +893,9 @@ struct CliBoot {
         if (headless::requested()) {
             std::exit(headless::run());
         }
+        // 控制面（status/list/watch/pause/...）：只与运行中的实例通信，绝不抢锁、
+        // 绝不起 GUI——app 没在跑就报 "not running" 退出（内部 std::exit，不返回）。
+        runControlIfRequested();
         // --restart（设置页「立即重启」拉起的替换实例）：旧实例退出要跑引擎
         // shutdown，锁释放有延迟 → 重试等锁；普通启动一次抢不到即转发退出。
         const bool primary = commandLineRestartMode()
@@ -673,6 +971,20 @@ export void processPendingUrls() {
     startFromLines(urls);
     if (std::filesystem::exists(inboxPath())) {
         startFromLines(drainInbox());
+    }
+    // 控制面变更命令（UI 线程执行，见 cli.cppm 头注释的线程约定）：跑完回填
+    // 响应，监听线程把结果发回 CLI 客户端。quit 在回填后 std::exit(0)——
+    // atexit 处理器会 shutdown 监听 socket 并 join 监听/housekeep 线程（响应
+    // 已先发出），随后静态析构链（g_tasks → 引擎 saveSession + forceShutdown）
+    // 与关窗退出 / restartApp 同一条路，会话不丢。
+    std::vector<PendingControl> ctrls;
+    {
+        std::lock_guard<std::mutex> lock(g_ctlMutex);
+        ctrls.swap(g_pendingControls);
+    }
+    for (auto& c : ctrls) {
+        if (c.reply) c.reply->set_value(cli_control::handle(c.tokens));
+        if (!c.tokens.empty() && c.tokens[0] == "quit") std::exit(0);
     }
 }
 
