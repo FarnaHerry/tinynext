@@ -19,11 +19,11 @@ import tinynext.component_updater;  // 组件更新（aria2-next）
 import tinynext.ui.platform;
 
 // ---- 设置页私有待提交状态（本模块自用，store 化后不再全局导出）----
-// 输入框草稿 / 下拉展开态 / 左侧分组选中项：都是「这个 UI 的实现细节」，点
+// 输入框草稿 / 下拉展开态 / 分组标签选中项：都是「这个 UI 的实现细节」，点
 // 「保存」时写入配置并生效，点「放弃」回滚到已保存值。主题相关的 pending
 // （g_pendingTheme/g_dark/...）归位在 tinynext.ui.theme。
 
-// 设置页左侧配置分组：每组一个独立"子页面"，避免全部参数挤在一屏滚动过长。
+// 设置页顶部标签分组：每组一个独立"子页面"，避免全部参数挤在一屏滚动过长。
 // 分组对齐 MotrixNext：通用 / 下载 / BitTorrent / ED2K / 网络 / 高级（MotrixNext
 // 同为 aria2-next 引擎，其分组是此类下载器的标准布局）。
 enum class SettingsTab { General, Download, BitTorrent, Ed2k, Network, Advanced, Components };
@@ -186,82 +186,131 @@ void applyThemeChoice(int i) {
 } // namespace
 
 // ===================== 设置页 =====================
-// 岛屿卡片风：配置分组子侧边栏 + 内容大卡两张浮岛（镜像下载页的任务列表子侧边栏）。
-// 每组配置单独一个"子页面"，避免全部参数挤在一屏滚动过长。底部操作行固定在大卡底部。
+// 岛屿卡片风：整页一张浮岛卡，卡内顶部是「页面标题 + 配置分组标签栏」行（标签栏
+// 镜像下载页的分段切换样式），下方是滚动表单区，底部操作行固定在大卡底部。
 export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
     const float islandTop = kIslandVInset;
     const float islandH = screen.height - 2.0f * kIslandVInset;
-    const float subX = kRailWidth;
-    const float contentX = subX + kSubSidebarWidth + kIslandGap;
+    const float contentX = kRailWidth;
     const float contentW = screen.width - contentX - kRightMargin;
-    // 整页一张岛：侧边栏 + 内容区同卡，交界处竖线分隔（取代原两张岛卡）。
-    const float islandW = contentX + contentW - subX;
-    const float dividerX = subX + kSubSidebarWidth + kIslandGap * 0.5f;
     const float pad = kPanelPad;
     const float infoX = contentX + pad;
     const float innerW = contentW - 2.0f * pad;
 
-    // 整页一张岛卡（取代原「settings.sub.bg + settings.panel」两张），竖线分隔。
-    drawPanel(ui, "settings.island", subX, islandTop, islandW, islandH, theme);
-    drawVDivider(ui, "settings.island.vdivider", dividerX, islandTop, islandH, theme);
+    // 整页一张岛卡。
+    drawPanel(ui, "settings.island", contentX, islandTop, contentW, islandH, theme);
 
-    // ---- 配置分组子侧边栏（同一张岛卡，镜像下载页的任务列表子侧边栏）----
-    ui.stack("settings.sub")
-        .position(subX, islandTop)
-        .size(kSubSidebarWidth, islandH)
-        .zIndex(4)
-        .content([&] {
-            // 侧边栏底并入整页岛卡（drawPanel "settings.island"），这里不再单独画卡。
-
-            components::text(ui, "settings.sub.label")
-                .position(9.0f, 10.0f)
-                .size(kSubSidebarWidth - 18.0f, 18.0f)
-                .text(tr("settings.title"))
-                .fontSize(13.0f)
-                .lineHeight(18.0f)
-                .color(theme.titleText)
-                .build();
-
-            struct TabItem { const char* label; const char* id; unsigned int icon; SettingsTab tab; };
-            // 对齐 MotrixNext 的设置分组（ed2k 由 aria2-next 原生支持）。
-            // label 走 tr()，id 独立于语言，保证 eui 元素 id 稳定唯一。
-            const TabItem kTabs[] = {
-                {tr("settings.tab.general"), "general", 0xF013, SettingsTab::General},
-                {tr("settings.tab.download"), "download", 0xF0AC, SettingsTab::Download},
-                {tr("settings.tab.bittorrent"), "bittorrent", 0xF0E7, SettingsTab::BitTorrent},
-                {tr("settings.tab.ed2k"), "ed2k", 0xF0C0, SettingsTab::Ed2k},
-                {tr("settings.tab.network"), "network", 0xF0D7, SettingsTab::Network},
-                {tr("settings.tab.advanced"), "advanced", 0xF085, SettingsTab::Advanced},
-                {tr("settings.tab.components"), "components", 0xF1B2, SettingsTab::Components},
-            };
-            const float itemW = kSubSidebarWidth - 12.0f;
-            float itemY = 28.0f;
-            for (const auto& item : kTabs) {
-                drawSidebarItem(ui, std::string("settings.tab.") + item.id,
-                               6.0f, itemY, itemW, 22.0f, item.label, item.icon,
-                               g_settingsTab == item.tab, theme,
-                               [tab = item.tab] { g_settingsTab = tab; });
-                itemY += 27.0f;
-            }
-        })
-        .build();
-
-    // 标题距卡片顶留足空间（避免被顶部圆角/窗口边缘截到第一行）。M3 title-large。
-    const float titleY = islandTop + 16.0f;
+    // ---- 顶部行：页面标题（左）+ 配置分组标签栏（标题右侧）----
+    // 标签栏镜像下载页筛选标签的分段切换样式：容器 surfaceContainer + hairline，
+    // 选中指示块 surfaceContainerHighest（带过渡动画），选中文字 onSurface /
+    // 未选中 onSurfaceVariant。段宽随文字自适应（measureTextWidth + 水平内边距），
+    // 窗口过窄时收窄段内边距，保证 7 个分组标签完整可见。
+    const float headerY = islandTop + 16.0f;
+    constexpr float kTabH = 28.0f;
+    const char* titleText = tr("app.tab.settings");
+    const float titleW =
+        core::TextPrimitive::measureTextWidth(titleText, "", 20.0f);
     components::text(ui, "settings.title")
-        .position(infoX, titleY)
-        .size(innerW, 24.0f)
-        .text(tr("app.tab.settings"))
+        .position(infoX, headerY + 2.0f)
+        .size(titleW + 2.0f, 24.0f)
+        .text(titleText)
         .fontSize(20.0f)
         .lineHeight(24.0f)
         .color(theme.titleText)
+        .build();
+
+    struct TabItem { const char* label; const char* id; SettingsTab tab; };
+    // 对齐 MotrixNext 的设置分组（ed2k 由 aria2-next 原生支持）。
+    // label 走 tr()，id 独立于语言，保证 eui 元素 id 稳定唯一。
+    const TabItem kTabs[] = {
+        {tr("settings.tab.general"), "general", SettingsTab::General},
+        {tr("settings.tab.download"), "download", SettingsTab::Download},
+        {tr("settings.tab.bittorrent"), "bittorrent", SettingsTab::BitTorrent},
+        {tr("settings.tab.ed2k"), "ed2k", SettingsTab::Ed2k},
+        {tr("settings.tab.network"), "network", SettingsTab::Network},
+        {tr("settings.tab.advanced"), "advanced", SettingsTab::Advanced},
+        {tr("settings.tab.components"), "components", SettingsTab::Components},
+    };
+    constexpr int kTabCount = static_cast<int>(std::size(kTabs));
+    constexpr float kTabGap = 4.0f;
+    float tabW[kTabCount];
+    float labelWSum = 0.0f;
+    for (int i = 0; i < kTabCount; ++i) {
+        tabW[i] = core::TextPrimitive::measureTextWidth(kTabs[i].label, "", 12.0f);
+        labelWSum += tabW[i];
+    }
+    const float tabsX = infoX + titleW + 16.0f;
+    const float tabsAvail =
+        std::max(0.0f, contentX + contentW - pad - tabsX);
+    const float gapsW = kTabGap * static_cast<float>(kTabCount - 1);
+    float tabPadH = 12.0f;
+    if (labelWSum + 2.0f * tabPadH * kTabCount + gapsW > tabsAvail) {
+        tabPadH = std::max(4.0f,
+            (tabsAvail - gapsW - labelWSum) / (2.0f * kTabCount));
+    }
+    float tabsTotalW = gapsW;
+    for (int i = 0; i < kTabCount; ++i) {
+        tabW[i] += 2.0f * tabPadH;
+        tabsTotalW += tabW[i];
+    }
+    int selected = 0;
+    for (int i = 0; i < kTabCount; ++i) {
+        if (g_settingsTab == kTabs[i].tab) { selected = i; break; }
+    }
+
+    ui.stack("settings.tabs")
+        .position(tabsX, headerY)
+        .size(tabsTotalW, kTabH)
+        .content([&] {
+            const auto segTransition =
+                core::Transition::make(0.16f, core::Ease::OutCubic);
+            ui.rect("settings.tabs.bg")
+                .size(tabsTotalW, kTabH)
+                .color(theme.surfaceContainer)
+                .radius(kButtonRadius)
+                .border(kHairline, theme.outline)
+                .build();
+            float segX = 0.0f;
+            for (int i = 0; i < selected; ++i) segX += tabW[i] + kTabGap;
+            ui.rect("settings.tabs.ind")
+                .position(segX, 0.0f)
+                .size(tabW[selected], kTabH)
+                .color(theme.surfaceContainerHighest)
+                .radius(kButtonRadius)
+                .transition(segTransition)
+                .build();
+            segX = 0.0f;
+            for (int i = 0; i < kTabCount; ++i) {
+                const bool active = i == selected;
+                const std::string segId =
+                    std::string("settings.tabs.seg.") + kTabs[i].id;
+                ui.rect(segId + ".hit")
+                    .position(segX, 0.0f)
+                    .size(tabW[i], kTabH)
+                    .color({0.0f, 0.0f, 0.0f, 0.0f})
+                    .radius(kButtonRadius)
+                    .onClick([tab = kTabs[i].tab] { g_settingsTab = tab; })
+                    .build();
+                components::text(ui, segId + ".label")
+                    .position(segX, 0.0f)
+                    .size(tabW[i], kTabH)
+                    .text(kTabs[i].label)
+                    .fontSize(12.0f)
+                    .lineHeight(kTabH)
+                    .color(active ? theme.onSurface : theme.onSurfaceVariant)
+                    .horizontalAlign(core::HorizontalAlign::Center)
+                    .verticalAlign(core::VerticalAlign::Center)
+                    .build();
+                segX += tabW[i] + kTabGap;
+            }
+        })
         .build();
 
     // ---- 布局常量 ----
     constexpr float kLabelW = 90.0f;
     constexpr float kFieldH = 26.0f;
     const float actionY = islandTop + islandH - pad - kButtonHeight;
-    const float scrollTop = titleY + 24.0f + 12.0f;
+    const float scrollTop = headerY + kTabH + 12.0f;
     const float scrollHeight = std::max(0.0f, actionY - 10.0f - scrollTop);
 
     // 设置项较多，正文放进 scrollView（主题/路径/aria2 参数）；底部操作行

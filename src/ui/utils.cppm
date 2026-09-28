@@ -56,7 +56,6 @@ export constexpr float kScrollbarWidth = 4.0f;
 export constexpr float kScrollbarGap = 6.0f;
 
 export constexpr float kRailWidth = 64.0f;          // 左侧图标导航栏宽（图标+标签）
-export constexpr float kSubSidebarWidth = 96.0f;    // 设置页内配置分组子侧边栏宽
 // 岛屿卡片布局：外层"岛"卡片之间的间距 / 大卡内边距 / 岛卡片圆角。
 export constexpr float kIslandGap = 2.0f;
 export constexpr float kIslandVInset = 6.0f;   // 岛卡距窗口上/下的空隙（卡片感）
