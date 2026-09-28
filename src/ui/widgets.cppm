@@ -578,7 +578,7 @@ export void drawRailItem(eui::Ui& ui, const std::string& id, float y, float rail
         .position(pillX, y)
         .size(pillW, pillH)
         .icon(icon)
-        .fontSize(20.0f)
+        .fontSize(16.0f)
         .lineHeight(pillH)
         .color(iconColor)
         .horizontalAlign(core::HorizontalAlign::Center)
