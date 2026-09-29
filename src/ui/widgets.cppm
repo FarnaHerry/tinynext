@@ -24,6 +24,62 @@ struct TipState {
 };
 std::mutex g_tipMutex;
 std::unordered_map<std::string, TipState> g_tips;
+struct TipWorker {
+    std::thread thread;
+    std::shared_ptr<std::atomic_bool> finished;
+};
+std::mutex g_tipWorkersMutex;
+std::vector<TipWorker> g_tipWorkers;
+std::once_flag g_tipWorkerExitHook;
+TipState& tipState(const std::string& id);
+
+void joinTipWorkers() {
+    std::vector<TipWorker> workers;
+    {
+        std::lock_guard lock(g_tipWorkersMutex);
+        workers.swap(g_tipWorkers);
+    }
+    for (auto& worker : workers) {
+        if (worker.thread.joinable()) worker.thread.join();
+    }
+}
+
+void reapTipWorkers() {
+    std::lock_guard lock(g_tipWorkersMutex);
+    for (auto it = g_tipWorkers.begin(); it != g_tipWorkers.end();) {
+        if (it->finished->load(std::memory_order_acquire)) {
+            if (it->thread.joinable()) it->thread.join();
+            it = g_tipWorkers.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void launchTipWorker(std::string id) {
+    std::call_once(g_tipWorkerExitHook, [] { std::atexit(joinTipWorkers); });
+    reapTipWorkers();
+    auto finished = std::make_shared<std::atomic_bool>(false);
+    std::thread thread([id = std::move(id), finished] {
+        struct Completion {
+            std::shared_ptr<std::atomic_bool> finished;
+            ~Completion() { finished->store(true, std::memory_order_release); }
+        } completion{finished};
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
+        TipState& state = tipState(id);
+        if (state.hovered.load()) {
+            state.shown.store(true);
+            core::platform::requestUiUpdate();
+        }
+    });
+    try {
+        std::lock_guard lock(g_tipWorkersMutex);
+        g_tipWorkers.push_back({std::move(thread), std::move(finished)});
+    } catch (...) {
+        if (thread.joinable()) thread.join();
+        throw;
+    }
+}
 
 TipState& tipState(const std::string& id) {
     std::lock_guard<std::mutex> lock(g_tipMutex);
@@ -40,15 +96,8 @@ void onTipHover(const std::string& id, bool h) {
         core::platform::requestUiUpdate();
         return;
     }
-    // 进入 hover：spawn 一个延迟线程，400ms 后若仍 hovered 才显示气泡。
-    std::thread([id] {
-        std::this_thread::sleep_for(std::chrono::milliseconds(400));
-        TipState& st = tipState(id);
-        if (st.hovered.load()) {
-            st.shown.store(true);
-            core::platform::requestUiUpdate();
-        }
-    }).detach();
+    // The worker owns its copied id and is joined before tooltip state is torn down.
+    launchTipWorker(id);
 }
 
 // 画气泡 + 尾巴。气泡在图标栏右侧，尾巴是向左的小三角形（用 polygon，局部坐标，

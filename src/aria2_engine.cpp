@@ -20,6 +20,7 @@ module;
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include "native_resource.hpp"
 #else
 // POSIX (macOS + Linux). Each header must be included explicitly: glibc pulls
 // them in transitively so Linux "works by accident", but the macOS SDK does
@@ -35,6 +36,7 @@ module;
 #include <sys/select.h>  // fd_set, select
 #include <cerrno>        // errno, EINPROGRESS, EAGAIN
 #include <unistd.h>
+#include "native_resource.hpp"
 #ifdef __APPLE__
 #include <mach-o/dyld.h> // _NSGetExecutablePath
 #endif
@@ -63,12 +65,100 @@ import tinynext.utils;  // pathFromUtf8 / utf8FromPath（aria2 JSON 字符串是
 
 namespace dl {
 
+struct Aria2Engine::NetworkSession {
+    NetworkSession() : initialized(ix::initNetSystem()) {}
+    ~NetworkSession() {
+        if (initialized) ix::uninitNetSystem();
+    }
+
+    bool initialized = false;
+};
+
+struct Aria2Engine::Process {
+#ifdef _WIN32
+    void adopt(HANDLE value) noexcept { handle.reset(value); }
+
+    bool exited() const noexcept {
+        return !handle || WaitForSingleObject(handle.get(), 0) == WAIT_OBJECT_0;
+    }
+
+    void terminate() noexcept {
+        if (!handle) return;
+        if (WaitForSingleObject(handle.get(), 0) != WAIT_OBJECT_0) {
+            TerminateProcess(handle.get(), 0);
+            WaitForSingleObject(handle.get(), INFINITE);
+        }
+        handle.reset();
+    }
+
+    tinynext::native::UniqueHandle handle;
+#else
+    void adopt(pid_t value) noexcept {
+        pid = value;
+        reaped = false;
+    }
+
+    bool exited() noexcept {
+        if (pid <= 0 || reaped) return true;
+        int status = 0;
+        pid_t result;
+        do {
+            result = ::waitpid(pid, &status, WNOHANG);
+        } while (result < 0 && errno == EINTR);
+        if (result == pid || (result < 0 && errno == ECHILD)) {
+            reaped = true;
+            pid = -1;
+            return true;
+        }
+        return false;
+    }
+
+    void terminate() noexcept {
+        if (pid <= 0 || reaped || exited()) return;
+        ::kill(pid, SIGTERM);
+        for (int i = 0; i < 50; ++i) {
+            if (exited()) return;
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        if (!exited()) ::kill(pid, SIGKILL);
+        int status = 0;
+        pid_t result;
+        do {
+            result = ::waitpid(pid, &status, 0);
+        } while (result < 0 && errno == EINTR);
+        reaped = true;
+        pid = -1;
+    }
+
+    pid_t pid = -1;
+    bool reaped = true;
+#endif
+
+    ~Process() { terminate(); }
+};
+
 namespace {
 
 // ---- 极简跨平台 TCP socket（替代 tinyhttps::Socket，仅用于本地 JSON-RPC）----
 #ifdef _WIN32
 using LocalFd = SOCKET;
 constexpr LocalFd kInvalidFd = INVALID_SOCKET;
+
+class WinsockSession {
+public:
+    WinsockSession() : active_(WSAStartup(MAKEWORD(2, 2), &data_) == 0) {}
+    ~WinsockSession() { if (active_) WSACleanup(); }
+    bool active() const noexcept { return active_; }
+
+private:
+    WSADATA data_{};
+    bool active_ = false;
+};
+
+WinsockSession& winsockSession() {
+    static WinsockSession session;
+    return session;
+}
 #else
 using LocalFd = int;
 constexpr LocalFd kInvalidFd = -1;
@@ -85,6 +175,13 @@ public:
         close();
         fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
         if (fd_ == kInvalidFd) return false;
+#ifndef _WIN32
+        const int fdFlags = ::fcntl(fd_, F_GETFD);
+        if (fdFlags < 0 || ::fcntl(fd_, F_SETFD, fdFlags | FD_CLOEXEC) < 0) {
+            close();
+            return false;
+        }
+#endif
 
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
@@ -148,15 +245,9 @@ public:
 
     static bool platformInit() {
 #ifdef _WIN32
-        WSADATA wsa{};
-        return WSAStartup(MAKEWORD(2, 2), &wsa) == 0;
+        return winsockSession().active();
 #else
         return true;
-#endif
-    }
-    static void platformCleanup() {
-#ifdef _WIN32
-        WSACleanup();
 #endif
     }
 
@@ -480,36 +571,6 @@ std::string engineExePath() {
     return {};
 }
 
-// 跨平台进程助手。processHandle_ 在 Windows 上是 HANDLE，POSIX 上是 pid_t
-// （经 intptr_t 存放）。
-bool processExited(void* handle) {
-    if (!handle) return true;
-#ifdef _WIN32
-    return WaitForSingleObject(static_cast<HANDLE>(handle), 0) == WAIT_OBJECT_0;
-#else
-    int status = 0;
-    return ::waitpid(static_cast<pid_t>(reinterpret_cast<std::intptr_t>(handle)),
-                     &status, WNOHANG) > 0;
-#endif
-}
-
-void terminateProcess(void* handle) {
-    if (!handle) return;
-#ifdef _WIN32
-    TerminateProcess(static_cast<HANDLE>(handle), 0);
-    CloseHandle(static_cast<HANDLE>(handle));
-#else
-    const pid_t pid = static_cast<pid_t>(reinterpret_cast<std::intptr_t>(handle));
-    ::kill(pid, SIGTERM);
-    for (int i = 0; i < 50; ++i) {  // ~1s 宽限
-        if (::waitpid(pid, nullptr, WNOHANG) > 0) return;
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    }
-    ::kill(pid, SIGKILL);
-    ::waitpid(pid, nullptr, 0);
-#endif
-}
-
 } // namespace
 
 // WebSocket 事件监听（compat.websocket / IXWebSocket）：只连 aria2 的 RPC WS 端点
@@ -582,15 +643,14 @@ struct Aria2Engine::Task {
 Aria2Engine::Aria2Engine() {
     // Winsock for the local RPC socket (Windows only; POSIX no-op).
     LocalSocket::platformInit();
-    // IXWebSocket 需要（Windows 上内部 WSAStartup；重复调用安全）。不调
-    // ix::uninitNetSystem()：避免与 ~Aria2Engine 里 LocalSocket::platformCleanup
-    // 的 WSACleanup 冲突（进程退出时 OS 会回收，无需显式清理）。
-    ix::initNetSystem();
+    // The session pairs IXWebSocket's network initialization and cleanup; it is
+    // released only after shutdown() has stopped the websocket worker.
+    networkSession_ = std::make_unique<NetworkSession>();
 }
 
 Aria2Engine::~Aria2Engine() {
     shutdown();
-    LocalSocket::platformCleanup();
+    networkSession_.reset();
 }
 
 bool Aria2Engine::engineActive() const {
@@ -615,17 +675,46 @@ void Aria2Engine::downloadFile(const std::string& url,
                                const std::filesystem::path& dest,
                                std::function<void(int)> onProgress,
                                std::function<void(bool, std::string)> onDone) {
-    // 组件更新专用静默下载：不进任务表、不出卡片。独立 detached 线程轮询
-    // tellStatus（不占命令队列，避免大文件下载期间阻塞任务命令）；中途引擎
-    // shutdown 杀死 daemon 后 rpcCall 抛错，自然走失败回调。this 由模块级
-    // g_tasks 静态持有、与进程同寿。
-    std::thread([this, url, dest, onProgress = std::move(onProgress),
-                 onDone = std::move(onDone)]() mutable {
+    // 组件更新专用静默下载：不进任务表、不出卡片。worker 由引擎持有；shutdown
+    // 会请求停止并 join，因此回调结束前 this 与 daemon 状态都保持有效。
+    std::unique_lock workerLock(downloadThreadMutex_);
+    if (downloadShutdown_) {
+        workerLock.unlock();
+        if (onDone) onDone(false, tr("err.engine_unavailable"));
+        return;
+    }
+    if (downloadThread_.joinable()) {
+        downloadThread_.request_stop();
+        downloadThread_.join();
+    }
+    downloadThread_ = std::jthread(
+        [this, url, dest, onProgress = std::move(onProgress),
+         onDone = std::move(onDone)](std::stop_token stop) mutable {
         auto fail = [&onDone](const std::string& err) {
             if (onDone) onDone(false, err);
         };
+        if (stop.stop_requested()) {
+            fail(tr("err.engine_unavailable"));
+            return;
+        }
         if (!ensureDaemon()) {
-            fail(lastError_.empty() ? tr("err.engine_unavailable") : lastError_);
+            std::string err;
+            {
+                std::lock_guard lock(daemonMutex_);
+                err = lastError_;
+            }
+            fail(err.empty() ? tr("err.engine_unavailable") : err);
+            return;
+        }
+        int port = 0;
+        std::string secret;
+        {
+            std::lock_guard lock(daemonMutex_);
+            port = port_;
+            secret = secret_;
+        }
+        if (port == 0 || stop.stop_requested()) {
+            fail(tr("err.engine_unavailable"));
             return;
         }
         // 文件名必须精确（校验文件按资产名取 hash）：关自动改名、允许覆盖残留。
@@ -639,7 +728,7 @@ void Aria2Engine::downloadFile(const std::string& url,
         optionsJ["connect-timeout"] = "15";
         std::string gid;
         try {
-            gid = rpcCall(port_, secret_, "aria2.addUri",
+            gid = rpcCall(port, secret, "aria2.addUri",
                           nlohmann::json::array({nlohmann::json::array({url}),
                                                  optionsJ}))
                       .get<std::string>();
@@ -648,10 +737,18 @@ void Aria2Engine::downloadFile(const std::string& url,
             return;
         }
         for (;;) {
+            if (stop.stop_requested()) {
+                fail(tr("err.engine_unavailable"));
+                return;
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            if (stop.stop_requested()) {
+                fail(tr("err.engine_unavailable"));
+                return;
+            }
             nlohmann::json st;
             try {
-                st = rpcCall(port_, secret_, "aria2.tellStatus",
+                st = rpcCall(port, secret, "aria2.tellStatus",
                              nlohmann::json::array({gid}));
             } catch (const std::exception& e) {
                 fail(e.what());
@@ -668,7 +765,7 @@ void Aria2Engine::downloadFile(const std::string& url,
             const std::string status = st.value("status", "");
             if (status == "complete") {
                 try {
-                    rpcCall(port_, secret_, "aria2.removeDownloadResult",
+                    rpcCall(port, secret, "aria2.removeDownloadResult",
                             nlohmann::json::array({gid}));
                 } catch (...) {}
                 if (onProgress) onProgress(100);
@@ -678,14 +775,15 @@ void Aria2Engine::downloadFile(const std::string& url,
             if (status == "error" || status == "removed") {
                 const std::string err = st.value("errorMessage", "download error");
                 try {
-                    rpcCall(port_, secret_, "aria2.removeDownloadResult",
+                    rpcCall(port, secret, "aria2.removeDownloadResult",
                             nlohmann::json::array({gid}));
                 } catch (...) {}
                 fail(err);
                 return;
             }
         }
-    }).detach();
+    });
+    workerLock.unlock();
 }
 
 bool Aria2Engine::ensureDaemon() const {
@@ -707,6 +805,7 @@ bool Aria2Engine::ensureDaemon() const {
     const auto extra = daemonExtraOpts(a2);
 
 #ifdef _WIN32
+    process_ = std::make_unique<Process>();
     const std::wstring wExe = std::filesystem::path(exe).wstring();
     // 值含空格时用引号包起来（aria2 的 cmdline 解析按 MSVCRT 规则分词）。
     const auto winValue = [](const std::string& v) -> std::wstring {
@@ -733,31 +832,61 @@ bool Aria2Engine::ensureDaemon() const {
     const std::filesystem::path logPath = cfg::configDir() / "tinynext-aria2.log";
     std::error_code lsec;
     std::filesystem::create_directories(logPath.parent_path(), lsec);
-    const HANDLE logFile = CreateFileW(logPath.c_str(), FILE_APPEND_DATA,
-                                       FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                       nullptr, OPEN_ALWAYS,
-                                       FILE_ATTRIBUTE_NORMAL, nullptr);
+    SECURITY_ATTRIBUTES inheritAttrs{};
+    inheritAttrs.nLength = sizeof(inheritAttrs);
+    inheritAttrs.bInheritHandle = TRUE;
+    tinynext::native::UniqueHandle logFile(CreateFileW(
+        logPath.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+        &inheritAttrs, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    tinynext::native::UniqueHandle childInput;
+    if (logFile) {
+        childInput.reset(CreateFileW(L"NUL", GENERIC_READ,
+                                     FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                     &inheritAttrs, OPEN_EXISTING,
+                                     FILE_ATTRIBUTE_NORMAL, nullptr));
+    }
 
-    STARTUPINFOW si{};
-    si.cb = sizeof(si);
-    if (logFile != INVALID_HANDLE_VALUE) {
+    STARTUPINFOEXW startup{};
+    STARTUPINFOW& si = startup.StartupInfo;
+    if (logFile) {
         si.dwFlags = STARTF_USESTDHANDLES;
-        si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-        si.hStdOutput = logFile;
-        si.hStdError = logFile;
+        si.hStdInput = childInput.get();
+        si.hStdOutput = logFile.get();
+        si.hStdError = logFile.get();
+    }
+    std::vector<HANDLE> inheritedHandles;
+    if (logFile) inheritedHandles.push_back(logFile.get());
+    if (childInput) inheritedHandles.push_back(childInput.get());
+    tinynext::native::UniqueProcThreadAttributeList attributes;
+    const bool inheritHandles = !inheritedHandles.empty() &&
+        attributes.initialize(inheritedHandles.data(),
+                              static_cast<DWORD>(inheritedHandles.size()));
+    DWORD creationFlags = CREATE_NO_WINDOW;
+    if (inheritHandles) {
+        startup.lpAttributeList = attributes.get();
+        si.cb = sizeof(startup);
+        creationFlags |= EXTENDED_STARTUPINFO_PRESENT;
+    } else {
+        si.dwFlags = 0;
+        si.cb = sizeof(STARTUPINFOW);
+        logFile.reset();
+        childInput.reset();
     }
     PROCESS_INFORMATION pi{};
-    // STARTF_USESTDHANDLES 时子进程需继承这些句柄，bInheritHandles 必须 TRUE。
-    if (!CreateProcessW(wExe.c_str(), &cmdLine[0], nullptr, nullptr, TRUE,
-                        CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
-        if (logFile != INVALID_HANDLE_VALUE) CloseHandle(logFile);
+    // The explicit handle list prevents unrelated inheritable app handles from
+    // keeping sockets, pipes, or locks alive in the aria2 child process.
+    if (!CreateProcessW(wExe.c_str(), &cmdLine[0], nullptr, nullptr, inheritHandles,
+                        creationFlags, nullptr, nullptr, &si, &pi)) {
+        process_.reset();
         lastError_ = tr("err.engine_process_failed");
         return false;
     }
-    if (logFile != INVALID_HANDLE_VALUE) CloseHandle(logFile);
-    CloseHandle(pi.hThread);
-    processHandle_ = pi.hProcess;
+    process_->adopt(pi.hProcess);
+    tinynext::native::UniqueHandle thread(pi.hThread);
+    logFile.reset();
+    childInput.reset();
 #else
+    process_ = std::make_unique<Process>();
     std::vector<std::string> args = {
         exe, "--enable-rpc", "--rpc-listen-all=false",
         "--rpc-listen-port=" + std::to_string(port),
@@ -778,26 +907,36 @@ bool Aria2Engine::ensureDaemon() const {
     const std::filesystem::path logPath = cfg::configDir() / "tinynext-aria2.log";
     std::error_code lsec;
     std::filesystem::create_directories(logPath.parent_path(), lsec);
-    const int logFd = ::open(logPath.c_str(), O_CREAT | O_WRONLY | O_APPEND, 0644);
-
-    posix_spawn_file_actions_t fa;
-    posix_spawn_file_actions_init(&fa);
-    if (logFd >= 0) {
-        // adddup2 到 stdout/stderr 会清掉 CLOEXEC，子进程正确继承。
-        posix_spawn_file_actions_adddup2(&fa, logFd, STDOUT_FILENO);
-        posix_spawn_file_actions_adddup2(&fa, logFd, STDERR_FILENO);
-    }
+    tinynext::native::UniqueFd logFd(
+        ::open(logPath.c_str(), O_CREAT | O_WRONLY | O_APPEND | O_CLOEXEC, 0644));
 
     pid_t pid = -1;
-    if (::posix_spawn(&pid, exe.c_str(), &fa, nullptr, argv.data(), environ) != 0) {
-        if (logFd >= 0) ::close(logFd);
-        posix_spawn_file_actions_destroy(&fa);
+    int spawnResult = 0;
+    {
+        posix_spawn_file_actions_t fa;
+        if (posix_spawn_file_actions_init(&fa) != 0) {
+            process_.reset();
+            lastError_ = tr("err.engine_process_failed");
+            return false;
+        }
+        struct ActionsGuard {
+            posix_spawn_file_actions_t* actions;
+            ~ActionsGuard() { posix_spawn_file_actions_destroy(actions); }
+        } actionsGuard{&fa};
+        if (logFd) {
+            // adddup2 到 stdout/stderr 会清掉 CLOEXEC，子进程正确继承。
+            posix_spawn_file_actions_adddup2(&fa, logFd.get(), STDOUT_FILENO);
+            posix_spawn_file_actions_adddup2(&fa, logFd.get(), STDERR_FILENO);
+        }
+        spawnResult = ::posix_spawn(&pid, exe.c_str(), &fa, nullptr, argv.data(), environ);
+    }
+    if (spawnResult != 0) {
+        process_.reset();
         lastError_ = tr("err.engine_process_failed");
         return false;
     }
-    posix_spawn_file_actions_destroy(&fa);
-    if (logFd >= 0) ::close(logFd);
-    processHandle_ = reinterpret_cast<void*>(static_cast<std::intptr_t>(pid));
+    process_->adopt(pid);
+    logFd.reset();
 #endif
 
     // Wait until the RPC endpoint answers (up to ~3 s). If the spawned process
@@ -807,7 +946,7 @@ bool Aria2Engine::ensureDaemon() const {
     secret_ = secret;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
     while (std::chrono::steady_clock::now() < deadline) {
-        if (processHandle_ && processExited(processHandle_)) {
+        if (process_ && process_->exited()) {
             break;  // daemon died right after spawn (e.g. invalid args)
         }
         try {
@@ -838,10 +977,8 @@ bool Aria2Engine::ensureDaemon() const {
         }
     }
 
-    if (processHandle_) {
-        terminateProcess(processHandle_);
-        processHandle_ = nullptr;
-    }
+    if (process_) process_->terminate();
+    process_.reset();
     port_ = 0;
     secret_.clear();
     lastError_ = tr("err.engine_startup_timeout");
@@ -1585,8 +1722,7 @@ void Aria2Engine::refreshHealth(std::function<void(const HealthInfo&)> onDone) {
         {
             std::lock_guard<std::mutex> lock(daemonMutex_);
             info.daemonSpawned = daemonSpawned_;
-            info.daemonAlive = daemonSpawned_ && processHandle_ &&
-                               !processExited(processHandle_);
+            info.daemonAlive = daemonSpawned_ && process_ && !process_->exited();
             info.wsConnected = ws_ != nullptr && ws_->isConnected();
             info.error = lastError_;
             port = port_;
@@ -1644,14 +1780,13 @@ void Aria2Engine::restartEngine(std::function<void(bool)> onDone,
                 try {
                     rpcCall(port_, secret_, "aria2.forceShutdown", nlohmann::json::array());
                 } catch (...) {}
-                if (processHandle_) {
-                    terminateProcess(processHandle_);
-                    processHandle_ = nullptr;
-                }
-                daemonSpawned_ = false;
-                port_ = 0;
-                secret_.clear();
             }
+            // Also release a child left from an incomplete startup attempt.
+            if (process_) process_->terminate();
+            process_.reset();
+            daemonSpawned_ = false;
+            port_ = 0;
+            secret_.clear();
         }
         // 先停掉旧 WS（stop 会 join IXWebSocket 线程，此后不再有回调），再清任务，
         // 保证没有任何回调访问已清空的任务（顺序同 shutdown()，不可颠倒）。
@@ -1783,6 +1918,17 @@ void Aria2Engine::purgeFailedBeforeSessionSave() const {
 }
 
 void Aria2Engine::shutdown() {
+    // Finish the engine-owned silent download worker before stopping the daemon.
+    // It may be waiting in ensureDaemon(), so do not hold daemonMutex_ here.
+    {
+        std::lock_guard lock(downloadThreadMutex_);
+        downloadShutdown_ = true;
+        if (downloadThread_.joinable()) {
+            downloadThread_.request_stop();
+            downloadThread_.join();
+        }
+    }
+
     // 先停命令队列（必须在取 daemonMutex_ 之前 join：worker 若正在 retryOnWorker
     // 里调 ensureDaemon 会等 daemonMutex_，此时持锁 join 会死锁）。置位后 worker
     // 丢弃未处理命令并退出；当前命令执行完才返回。
@@ -1805,14 +1951,14 @@ void Aria2Engine::shutdown() {
         try {
             rpcCall(port_, secret_, "aria2.forceShutdown", nlohmann::json::array());
         } catch (...) {}
-        if (processHandle_) {
-            terminateProcess(processHandle_);
-            processHandle_ = nullptr;
-        }
         daemonSpawned_ = false;
         port_ = 0;
         secret_.clear();
     }
+    // Startup can fail before daemonSpawned_ is set; the process owner still
+    // terminates/reaps any child and closes its Windows process handle here.
+    if (process_) process_->terminate();
+    process_.reset();
     // 先停掉 WS 监听（stop 会 join IXWebSocket 的线程，此后不再有回调），再清任务，
     // 保证没有任何回调访问已清空的任务。顺序不可颠倒。
     if (ws_) {

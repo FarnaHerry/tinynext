@@ -20,9 +20,13 @@ extern "C" const char* glfwGetClipboardString(GLFWwindow* window);
 #include <shellapi.h>  // Shell_NotifyIconW / NIM_* / NIF_*（原生通知）
 #include <dwmapi.h>    // DwmSetWindowAttribute（标题栏沉浸式深色模式）
 #include <commdlg.h>   // GetOpenFileNameW（.torrent 文件选择器）
+#include "../native_resource.hpp"
 extern "C" HWND glfwGetWin32Window(GLFWwindow* window);
 #endif
 #include <cstdio>  // popen/fgets/pclose (POSIX) — before import std
+#ifndef _WIN32
+#include "../native_resource.hpp"
+#endif
 #ifndef _WIN32
 #include <unistd.h>  // fork/setsid/execv/_exit（restartApp 的自重启）
 #ifdef __APPLE__
@@ -35,6 +39,58 @@ export module tinynext.ui.platform;
 import std;
 
 namespace {
+
+struct OsWorker {
+    std::thread thread;
+    std::shared_ptr<std::atomic_bool> finished;
+};
+
+std::mutex g_osWorkersMutex;
+std::vector<OsWorker> g_osWorkers;
+std::once_flag g_osWorkerExitHook;
+
+void joinOsWorkers() {
+    std::vector<OsWorker> workers;
+    {
+        std::lock_guard lock(g_osWorkersMutex);
+        workers.swap(g_osWorkers);
+    }
+    for (auto& worker : workers) {
+        if (worker.thread.joinable()) worker.thread.join();
+    }
+}
+
+void reapOsWorkers() {
+    std::lock_guard lock(g_osWorkersMutex);
+    for (auto it = g_osWorkers.begin(); it != g_osWorkers.end();) {
+        if (it->finished->load(std::memory_order_acquire)) {
+            if (it->thread.joinable()) it->thread.join();
+            it = g_osWorkers.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void launchOsWorker(std::function<void()> work) {
+    std::call_once(g_osWorkerExitHook, [] { std::atexit(joinOsWorkers); });
+    reapOsWorkers();
+    auto finished = std::make_shared<std::atomic_bool>(false);
+    std::thread thread([work = std::move(work), finished] {
+        struct Completion {
+            std::shared_ptr<std::atomic_bool> finished;
+            ~Completion() { finished->store(true, std::memory_order_release); }
+        } completion{finished};
+        work();
+    });
+    try {
+        std::lock_guard lock(g_osWorkersMutex);
+        g_osWorkers.push_back({std::move(thread), std::move(finished)});
+    } catch (...) {
+        if (thread.joinable()) thread.join();
+        throw;
+    }
+}
 
 #ifdef _WIN32
 // High-DPI awareness must be declared before any window/GDI object exists.
@@ -57,11 +113,11 @@ DpiAwarenessBoot g_dpiBoot;
 // 线程同步等 Explorer 窗口关闭，导致点击后渲染卡住。
 using ShellExecuteFn = HINSTANCE(WINAPI*)(HWND, LPCWSTR, LPCWSTR, LPCWSTR, LPCWSTR, INT);
 const ShellExecuteFn& shellExecFn() {
-    static const ShellExecuteFn fn = []() -> ShellExecuteFn {
-        HMODULE m = LoadLibraryW(L"shell32.dll");
-        if (!m) return nullptr;
+    static const tinynext::native::UniqueModule shell32(LoadLibraryW(L"shell32.dll"));
+    static const ShellExecuteFn fn = [&]() -> ShellExecuteFn {
+        if (!shell32) return nullptr;
         return reinterpret_cast<ShellExecuteFn>(
-            reinterpret_cast<void*>(GetProcAddress(m, "ShellExecuteW")));
+            reinterpret_cast<void*>(GetProcAddress(shell32.get(), "ShellExecuteW")));
     }();
     return fn;
 }
@@ -85,31 +141,115 @@ struct NotifyPayload {
     std::wstring message;
 };
 
+std::mutex g_notifyThreadsMutex;
+std::vector<std::thread> g_notifyThreads;
+std::once_flag g_notifyThreadExitHook;
+
+class NotifyWindowClassOwner {
+public:
+    NotifyWindowClassOwner() {
+        WNDCLASSW wc{};
+        wc.lpfnWndProc = DefWindowProcW;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.lpszClassName = L"TinyNext.Notify";
+        owns_ = RegisterClassW(&wc) != 0;
+        ready_ = owns_ || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
+        instance_ = wc.hInstance;
+    }
+    ~NotifyWindowClassOwner() {
+        if (owns_) UnregisterClassW(L"TinyNext.Notify", instance_);
+    }
+    bool ready() const noexcept { return ready_; }
+    HINSTANCE instance() const noexcept { return instance_; }
+
+private:
+    HINSTANCE instance_ = nullptr;
+    bool owns_ = false;
+    bool ready_ = false;
+};
+
+NotifyWindowClassOwner& notifyWindowClass() {
+    static NotifyWindowClassOwner owner;
+    return owner;
+}
+
+void joinNotifyThreads() {
+    std::vector<std::thread> threads;
+    {
+        std::lock_guard lock(g_notifyThreadsMutex);
+        threads.swap(g_notifyThreads);
+    }
+    for (auto& thread : threads) {
+        if (thread.joinable()) thread.join();
+    }
+}
+
+void reapFinishedNotifyThreads() {
+    std::lock_guard lock(g_notifyThreadsMutex);
+    for (auto it = g_notifyThreads.begin(); it != g_notifyThreads.end();) {
+        if (WaitForSingleObject(it->native_handle(), 0) == WAIT_OBJECT_0) {
+            it->join();
+            it = g_notifyThreads.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+class WindowOwner {
+public:
+    explicit WindowOwner(HWND hwnd) noexcept : hwnd_(hwnd) {}
+    ~WindowOwner() { if (hwnd_) DestroyWindow(hwnd_); }
+    WindowOwner(const WindowOwner&) = delete;
+    WindowOwner& operator=(const WindowOwner&) = delete;
+    HWND get() const noexcept { return hwnd_; }
+
+private:
+    HWND hwnd_ = nullptr;
+};
+
+class TimerOwner {
+public:
+    TimerOwner(HWND hwnd, UINT_PTR id) noexcept : hwnd_(hwnd), id_(id) {}
+    ~TimerOwner() { if (active_) KillTimer(hwnd_, id_); }
+    TimerOwner(const TimerOwner&) = delete;
+    TimerOwner& operator=(const TimerOwner&) = delete;
+    void activate(bool active) noexcept { active_ = active; }
+
+private:
+    HWND hwnd_;
+    UINT_PTR id_;
+    bool active_ = false;
+};
+
+class NotifyIconOwner {
+public:
+    explicit NotifyIconOwner(NOTIFYICONDATAW& data) noexcept : data_(&data) {}
+    ~NotifyIconOwner() { if (active_) Shell_NotifyIconW(NIM_DELETE, data_); }
+    NotifyIconOwner(const NotifyIconOwner&) = delete;
+    NotifyIconOwner& operator=(const NotifyIconOwner&) = delete;
+    void activate(bool active) noexcept { active_ = active; }
+
+private:
+    NOTIFYICONDATAW* data_;
+    bool active_ = false;
+};
+
 // 独立线程跑一个 message-only 窗口 + Shell_NotifyIconW 气泡（约 4.5s 后自动移除）。
 // 纯 Win32，不 spawn 任何命令行进程——之前用 `powershell -WindowStyle Hidden` 会被
 // 杀软/主防当作恶意静默执行而拦截。
 DWORD WINAPI notifyThreadProc(LPVOID param) {
     std::unique_ptr<NotifyPayload> payload(static_cast<NotifyPayload*>(param));
     const wchar_t* kClass = L"TinyNext.Notify";
-    WNDCLASSW wc{};
-    wc.lpfnWndProc = DefWindowProcW;
-    wc.hInstance = GetModuleHandleW(nullptr);
-    wc.lpszClassName = kClass;
-    // 并发通知时类可能已注册（ERROR_CLASS_ALREADY_EXISTS）——此时仍可创建窗口，
-    // 但只有真正注册成功的那一程才负责 UnregisterClassW。
-    const bool registered = RegisterClassW(&wc) != 0 ||
-                            GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
+    const HINSTANCE instance = notifyWindowClass().instance();
 
-    HWND hwnd = CreateWindowExW(0, kClass, L"", 0, 0, 0, 0, 0, HWND_MESSAGE,
-                                nullptr, wc.hInstance, nullptr);
-    if (!hwnd) {
-        if (registered) UnregisterClassW(kClass, wc.hInstance);
-        return 1;
-    }
+    WindowOwner window(CreateWindowExW(0, kClass, L"", 0, 0, 0, 0, 0,
+                                       HWND_MESSAGE, nullptr, instance, nullptr));
+    if (!window.get()) return 1;
 
     NOTIFYICONDATAW nid{};
     nid.cbSize = sizeof(nid);
-    nid.hWnd = hwnd;
+    nid.hWnd = window.get();
     nid.uID = 1;
     nid.uFlags = NIF_ICON | NIF_INFO;
     nid.hIcon = LoadIconW(nullptr, reinterpret_cast<LPCWSTR>(IDI_INFORMATION));
@@ -117,35 +257,35 @@ DWORD WINAPI notifyThreadProc(LPVOID param) {
     nid.uTimeout = 4000;
     wcsncpy_s(nid.szInfoTitle, ARRAYSIZE(nid.szInfoTitle), payload->title.c_str(), _TRUNCATE);
     wcsncpy_s(nid.szInfo, ARRAYSIZE(nid.szInfo), payload->message.c_str(), _TRUNCATE);
-    Shell_NotifyIconW(NIM_ADD, &nid);
+    NotifyIconOwner icon(nid);
+    const bool iconAdded = Shell_NotifyIconW(NIM_ADD, &nid) != FALSE;
+    icon.activate(iconAdded);
+    if (!iconAdded) return 1;
 
     // 系统会自动收掉气泡；到时移除托盘图标。
-    SetTimer(hwnd, 1, 4500, nullptr);
+    TimerOwner timer(window.get(), 1);
+    const bool timerActive = SetTimer(window.get(), 1, 4500, nullptr) != 0;
+    timer.activate(timerActive);
+    if (!timerActive) return 1;
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         if (msg.message == WM_TIMER && msg.wParam == 1) {
-            Shell_NotifyIconW(NIM_DELETE, &nid);
             PostQuitMessage(0);
             continue;
         }
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
-    KillTimer(hwnd, 1);
-    DestroyWindow(hwnd);
-    if (registered) UnregisterClassW(kClass, wc.hInstance);
     return 0;
 }
 #endif
 
 } // namespace
 
-// 把可能阻塞的 OS 集成（ShellExecuteW 的 DDE 握手 / SHFileOperationW 的磁盘操作 /
-// gio trash 等）丢到独立线程执行，UI 线程立即返回。这些操作都是低频用户点击，
-// thread-per-op 的开销可忽略，无需常驻线程池。
-void runDetached(std::function<void()> fn) {
-    std::thread t(std::move(fn));
-    t.detach();
+// Slow OS shell operations run off the UI thread. The owner reaps completed workers and
+// joins remaining workers during process teardown.
+void runOwnedWorker(std::function<void()> fn) {
+    launchOsWorker(std::move(fn));
 }
 
 // Open the native folder picker; returns the chosen path or an empty path if
@@ -157,24 +297,23 @@ export std::filesystem::path pickDownloadFolder() {
 #ifdef _WIN32
     using BrowseFn = LPITEMIDLIST(WINAPI*)(BROWSEINFOW*);
     using GetPathFn = BOOL(WINAPI*)(LPCITEMIDLIST, LPWSTR);
-    using CoTaskMemFreeFn = void(WINAPI*)(void*);
-    static const BrowseFn browse = []() -> BrowseFn {
-        HMODULE m = LoadLibraryW(L"shell32.dll");
-        if (!m) return nullptr;
+    using CoTaskMemFreeFn = tinynext::native::UniqueCoTaskMem::FreeFn;
+    static const tinynext::native::UniqueModule shell32(LoadLibraryW(L"shell32.dll"));
+    static const tinynext::native::UniqueModule ole32(LoadLibraryW(L"ole32.dll"));
+    static const BrowseFn browse = [&]() -> BrowseFn {
+        if (!shell32) return nullptr;
         return reinterpret_cast<BrowseFn>(
-            reinterpret_cast<void*>(GetProcAddress(m, "SHBrowseForFolderW")));
+            reinterpret_cast<void*>(GetProcAddress(shell32.get(), "SHBrowseForFolderW")));
     }();
-    static const GetPathFn getPath = []() -> GetPathFn {
-        HMODULE m = LoadLibraryW(L"shell32.dll");
-        if (!m) return nullptr;
+    static const GetPathFn getPath = [&]() -> GetPathFn {
+        if (!shell32) return nullptr;
         return reinterpret_cast<GetPathFn>(
-            reinterpret_cast<void*>(GetProcAddress(m, "SHGetPathFromIDListW")));
+            reinterpret_cast<void*>(GetProcAddress(shell32.get(), "SHGetPathFromIDListW")));
     }();
-    static const CoTaskMemFreeFn coFree = []() -> CoTaskMemFreeFn {
-        HMODULE m = LoadLibraryW(L"ole32.dll");
-        if (!m) return nullptr;
+    static const CoTaskMemFreeFn coFree = [&]() -> CoTaskMemFreeFn {
+        if (!ole32) return nullptr;
         return reinterpret_cast<CoTaskMemFreeFn>(
-            reinterpret_cast<void*>(GetProcAddress(m, "CoTaskMemFree")));
+            reinterpret_cast<void*>(GetProcAddress(ole32.get(), "CoTaskMemFree")));
     }();
     if (!browse || !getPath || !coFree) return {};
 
@@ -188,10 +327,10 @@ export std::filesystem::path pickDownloadFolder() {
     bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
     LPITEMIDLIST pidl = browse(&bi);
     if (!pidl) return {};
+    tinynext::native::UniqueCoTaskMem pidlOwner(pidl, coFree);
     std::filesystem::path result;
     wchar_t buf[32768];
     if (getPath(pidl, buf)) result = buf;
-    coFree(pidl);
     return result;
 #else
     // POSIX: shell out to a native picker (works best on a desktop session;
@@ -206,12 +345,11 @@ export std::filesystem::path pickDownloadFolder() {
           "zenity --file-selection --directory 2>/dev/null; "
           "else kdialog --getexistingdirectory 2>/dev/null; fi";
 #endif
-    FILE* pipe = ::popen(cmd, "r");
+    tinynext::native::UniqueFile pipe(::popen(cmd, "r"), ::pclose);
     if (!pipe) return {};
     std::string out;
     char buf[4096];
-    while (::fgets(buf, sizeof(buf), pipe)) out += buf;
-    ::pclose(pipe);
+    while (::fgets(buf, sizeof(buf), pipe.get())) out += buf;
     while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
     if (out.empty()) return {};
     return std::filesystem::path(out);
@@ -249,12 +387,11 @@ export std::filesystem::path pickTorrentFile() {
           "zenity --file-selection --file-filter='BitTorrent种子 *.torrent' 2>/dev/null; "
           "else kdialog --getopenfilename . '*.torrent' 2>/dev/null; fi";
 #endif
-    FILE* pipe = ::popen(cmd, "r");
+    tinynext::native::UniqueFile pipe(::popen(cmd, "r"), ::pclose);
     if (!pipe) return {};
     std::string out;
     char buf[4096];
-    while (::fgets(buf, sizeof(buf), pipe)) out += buf;
-    ::pclose(pipe);
+    while (::fgets(buf, sizeof(buf), pipe.get())) out += buf;
     while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
     if (out.empty()) return {};
     return std::filesystem::path(out);
@@ -265,15 +402,16 @@ export std::filesystem::path pickTorrentFile() {
 // 同步阻塞调用线程，丢到独立线程后 UI 立即返回）。
 export void openFile(const std::filesystem::path& path) {
     const std::filesystem::path p = path;
-    runDetached([p] {
+#ifdef _WIN32
+    (void)shellExecFn();  // Initialize the DLL owner before registering the join hook.
+#endif
+    runOwnedWorker([p] {
 #ifdef _WIN32
         if (const ShellExecuteFn shellExec = shellExecFn(); shellExec) {
             const std::wstring wpath = p.wstring();
             shellExec(nullptr, L"open", wpath.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-            return;
         }
-        // 兜底：start 启动后 cmd 立即退出，std::system 不会长等。
-        std::system(("start \"\" \"" + p.string() + "\"").c_str());
+        return;
 #else
         std::system(("xdg-open \"" + p.string() + "\" >/dev/null 2>&1 &").c_str());
 #endif
@@ -282,7 +420,10 @@ export void openFile(const std::filesystem::path& path) {
 
 export void openContainingFolder(const std::filesystem::path& path) {
     const std::filesystem::path p = path;
-    runDetached([p] {
+#ifdef _WIN32
+    (void)shellExecFn();
+#endif
+    runOwnedWorker([p] {
 #ifdef _WIN32
         if (const ShellExecuteFn shellExec = shellExecFn(); shellExec) {
             // 归一化成绝对原生路径：destPath 可能来自 aria2 的 files[0].path（正斜杠），
@@ -310,7 +451,7 @@ export void openContainingFolder(const std::filesystem::path& path) {
             }
             return;
         }
-        std::system(("start \"\" explorer /select,\"" + p.string() + "\"").c_str());
+        return;
 #else
         std::system(("xdg-open \"" + p.parent_path().string() + "\" >/dev/null 2>&1 &").c_str());
 #endif
@@ -320,15 +461,17 @@ export void openContainingFolder(const std::filesystem::path& path) {
 // 用系统默认浏览器打开 URL（后台线程执行，跨平台不阻塞 UI 线程）。
 export void openUrl(const std::string& url) {
     const std::string u = url;
-    runDetached([u] {
+#ifdef _WIN32
+    (void)shellExecFn();
+#endif
+    runOwnedWorker([u] {
 #ifdef _WIN32
         // ShellExecuteW 可能因 DDE / 浏览器冷启动同步阻塞，这里已在后台线程。
         if (const ShellExecuteFn shellExec = shellExecFn(); shellExec) {
             const std::wstring wurl(u.begin(), u.end());
             shellExec(nullptr, L"open", wurl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-            return;
         }
-        std::system(("start \"\" \"" + u + "\"").c_str());
+        return;
 #elif defined(__APPLE__)
         std::system(("open \"" + u + "\"").c_str());
 #else
@@ -468,15 +611,22 @@ export void restartApp() {
 //   Linux:   gio trash（trash-put 兜底）。工具缺失返回 false，绝不直接 rm。
 // 这是同步实现（SHFileOperationW / osascript / gio trash 会阻塞调用线程），仅供
 // moveToTrashAsync 在后台线程调用；UI 线程不要直接调它。
+#ifdef _WIN32
+using ShFileOpFn = int(WINAPI*)(LPSHFILEOPSTRUCTW);
+ShFileOpFn trashFileFn() {
+    static const tinynext::native::UniqueModule shell32(LoadLibraryW(L"shell32.dll"));
+    static const ShFileOpFn fn = [&]() -> ShFileOpFn {
+        if (!shell32) return nullptr;
+        return reinterpret_cast<ShFileOpFn>(
+            reinterpret_cast<void*>(GetProcAddress(shell32.get(), "SHFileOperationW")));
+    }();
+    return fn;
+}
+#endif
+
 bool moveToTrashBlocking(const std::filesystem::path& path) {
 #ifdef _WIN32
-    using ShFileOpFn = int(WINAPI*)(LPSHFILEOPSTRUCTW);
-    static const ShFileOpFn shFileOp = []() -> ShFileOpFn {
-        HMODULE m = LoadLibraryW(L"shell32.dll");
-        if (!m) return nullptr;
-        return reinterpret_cast<ShFileOpFn>(
-            reinterpret_cast<void*>(GetProcAddress(m, "SHFileOperationW")));
-    }();
+    const ShFileOpFn shFileOp = trashFileFn();
     if (!shFileOp) return false;
     // pFrom 要求以双 null 结尾的宽字符串。
     std::wstring wide = path.wstring();
@@ -527,7 +677,10 @@ export enum class TrashResult { Recycled, Failed, Missing };
 export void moveToTrashAsync(const std::filesystem::path& path,
                              const std::function<void(TrashResult)>& onDone) {
     const std::filesystem::path p = path;
-    runDetached([p, onDone] {
+#ifdef _WIN32
+    (void)trashFileFn();  // Initialize the DLL owner before registering the join hook.
+#endif
+    runOwnedWorker([p, onDone] {
         std::error_code ec;
         if (!std::filesystem::exists(p, ec)) {
             if (onDone) onDone(TrashResult::Missing);
@@ -570,6 +723,10 @@ export void setNativeTheme(bool dark) {
 // Windows 用原生 ICO + LoadImage + WM_SETICON，避免解码 PNG。
 export void applyAppIcon() {
 #ifdef _WIN32
+    // The HWND keeps using these icons after WM_SETICON returns, so retain
+    // ownership for the process lifetime and destroy them during teardown.
+    static tinynext::native::UniqueIcon appIconBig;
+    static tinynext::native::UniqueIcon appIconSmall;
     if (GLFWwindow* ctx = glfwGetCurrentContext()) {
         HWND hwnd = glfwGetWin32Window(ctx);
         if (!hwnd) return;
@@ -587,16 +744,20 @@ export void applyAppIcon() {
         };
         for (const std::filesystem::path& ico : candidates) {
             if (!std::filesystem::exists(ico)) continue;
-            HICON hIconBig = static_cast<HICON>(
+            tinynext::native::UniqueIcon hIconBig(static_cast<HICON>(
                 LoadImageW(nullptr, ico.c_str(), IMAGE_ICON, 0, 0,
-                           LR_LOADFROMFILE | LR_DEFAULTSIZE));
+                           LR_LOADFROMFILE | LR_DEFAULTSIZE)));
             if (hIconBig) {
-                SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(hIconBig));
+                SendMessageW(hwnd, WM_SETICON, ICON_BIG,
+                             reinterpret_cast<LPARAM>(hIconBig.get()));
+                appIconBig = std::move(hIconBig);
             }
-            HICON hIconSmall = static_cast<HICON>(
-                LoadImageW(nullptr, ico.c_str(), IMAGE_ICON, 16, 16, LR_LOADFROMFILE));
+            tinynext::native::UniqueIcon hIconSmall(static_cast<HICON>(
+                LoadImageW(nullptr, ico.c_str(), IMAGE_ICON, 16, 16, LR_LOADFROMFILE)));
             if (hIconSmall) {
-                SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(hIconSmall));
+                SendMessageW(hwnd, WM_SETICON, ICON_SMALL,
+                             reinterpret_cast<LPARAM>(hIconSmall.get()));
+                appIconSmall = std::move(hIconSmall);
             }
             break;
         }
@@ -614,14 +775,24 @@ export void applyAppIcon() {
 //   Linux:   notify-send（无则 kdialog --passivepopup 兜底）。
 export void notifyDownload(const std::string& title, const std::string& message) {
 #ifdef _WIN32
-    // 独立线程跑气泡，UI 线程不等待。
-    auto* payload = new NotifyPayload{utf8ToWide(title), utf8ToWide(message)};
-    HANDLE hThread = CreateThread(nullptr, 0, notifyThreadProc, payload, 0, nullptr);
-    if (!hThread) {
-        delete payload;
-        return;
+    // The manager retains each short-lived notification worker and joins any
+    // remaining threads during process teardown.
+    if (!notifyWindowClass().ready()) return;
+    std::call_once(g_notifyThreadExitHook, [] {
+        std::atexit(joinNotifyThreads);
+    });
+    reapFinishedNotifyThreads();
+    auto payload = std::make_unique<NotifyPayload>(
+        NotifyPayload{utf8ToWide(title), utf8ToWide(message)});
+    std::thread worker([payload = std::move(payload)]() mutable {
+        notifyThreadProc(payload.release());
+    });
+    try {
+        std::lock_guard lock(g_notifyThreadsMutex);
+        g_notifyThreads.push_back(std::move(worker));
+    } catch (...) {
+        if (worker.joinable()) worker.join();
     }
-    CloseHandle(hThread);
 #elif defined(__APPLE__)
     // 消息/标题经 argv 传给 osascript（POSIX 单引号引用），避免把中文嵌进
     // AppleScript 源码导致编码/转义问题；& 后台化避免阻塞。

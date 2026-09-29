@@ -34,6 +34,7 @@ module;
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include "native_resource.hpp"
 #else
 #include <sys/file.h>    // flock
 #include <sys/socket.h>  // socket / bind / listen / accept / recv / send
@@ -41,6 +42,7 @@ module;
 #include <arpa/inet.h>   // inet_pton
 #include <fcntl.h>       // open, O_CREAT/O_RDWR
 #include <unistd.h>      // close
+#include "native_resource.hpp"
 #include <cerrno>        // errno / EINTR（accept 失败重试；macOS 不显式引入会报错）
 #ifdef __APPLE__
 #include <crt_externs.h> // _NSGetArgc/_NSGetArgv
@@ -86,6 +88,47 @@ using CliFd = int;
 constexpr CliFd kCliInvalidFd = -1;
 inline void closeFd(CliFd fd) { ::close(fd); }
 #endif
+
+class CliSocket {
+public:
+    CliSocket() = default;
+    explicit CliSocket(CliFd fd) noexcept : fd_(fd) {
+#ifndef _WIN32
+        // aria2/restart child processes must not inherit CLI sockets or keep the
+        // single-instance listener alive after the parent exits.
+        if (fd_ != kCliInvalidFd) {
+            const int flags = ::fcntl(fd_, F_GETFD);
+            if (flags < 0 || ::fcntl(fd_, F_SETFD, flags | FD_CLOEXEC) < 0) {
+                closeFd(fd_);
+                fd_ = kCliInvalidFd;
+            }
+        }
+#endif
+    }
+    ~CliSocket() { reset(); }
+    CliSocket(const CliSocket&) = delete;
+    CliSocket& operator=(const CliSocket&) = delete;
+    CliSocket(CliSocket&& other) noexcept : fd_(other.release()) {}
+    CliSocket& operator=(CliSocket&& other) noexcept {
+        if (this != &other) reset(other.release());
+        return *this;
+    }
+
+    explicit operator bool() const noexcept { return fd_ != kCliInvalidFd; }
+    CliFd get() const noexcept { return fd_; }
+    CliFd release() noexcept {
+        const CliFd fd = fd_;
+        fd_ = kCliInvalidFd;
+        return fd;
+    }
+    void reset(CliFd fd = kCliInvalidFd) noexcept {
+        if (fd_ != kCliInvalidFd) closeFd(fd_);
+        fd_ = fd;
+    }
+
+private:
+    CliFd fd_ = kCliInvalidFd;
+};
 
 // 后台监听线程收到的转发 URL 队列（mutex 保护；UI 线程 drain）。
 std::mutex g_urlsMutex;
@@ -192,6 +235,8 @@ int primaryPort() {
 struct WsSession {
     WsSession() { ok_ = ::WSAStartup(MAKEWORD(2, 2), &wsa_) == 0; }
     ~WsSession() { if (ok_) ::WSACleanup(); }
+    WsSession(const WsSession&) = delete;
+    WsSession& operator=(const WsSession&) = delete;
     explicit operator bool() const { return ok_; }
     WSADATA wsa_{};
     bool ok_ = false;
@@ -207,35 +252,26 @@ bool trySendUrls(const std::vector<std::string>& urls) {
     const WsSession wsa;
     if (!wsa) return false;
 #endif
-    const CliFd fd = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (fd == kCliInvalidFd) return false;
+    CliSocket fd(::socket(AF_INET, SOCK_STREAM, 0));
+    if (!fd) return false;
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(static_cast<std::uint16_t>(port));
     ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-    if (::connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0) {
-        closeFd(fd);
+    if (::connect(fd.get(), reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0) {
         return false;
     }
     // 握手：先收横幅校验对方确实是 TinyNext 主实例（端口文件过期时 connect 到的
     // 可能是任何进程）。2s 超时——旧版本主实例没横幅，超时回退 inbox（向后兼容）。
     // URL 转发不限协议小版本（/1 /2 都能收 URL 行）。
-    setRecvTimeout(fd, 2000);
-    if (readBannerVersion(fd) == 0) {
-        closeFd(fd);
-        return false;
-    }
+    setRecvTimeout(fd.get(), 2000);
+    if (readBannerVersion(fd.get()) == 0) return false;
     std::string data;
     for (const auto& u : urls) {
         data += u;
         data += '\n';
     }
-    if (!sendAll(fd, data)) {
-        closeFd(fd);
-        return false;
-    }
-    closeFd(fd);
-    return true;
+    return sendAll(fd.get(), data);
 }
 
 // 控制面请求/响应：向主实例发一行 "ctl:..." 并等回包（连接级一问一答）。
@@ -248,45 +284,38 @@ int exchangeCtl(const std::string& request, std::string& response) {
     const WsSession wsa;
     if (!wsa) return 1;
 #endif
-    const CliFd fd = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (fd == kCliInvalidFd) return 1;
+    CliSocket fd(::socket(AF_INET, SOCK_STREAM, 0));
+    if (!fd) return 1;
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(static_cast<std::uint16_t>(port));
     ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-    if (::connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0) {
-        closeFd(fd);
+    if (::connect(fd.get(), reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0) {
         return 1;
     }
-    setRecvTimeout(fd, 2000);
-    const int ver = readBannerVersion(fd);
+    setRecvTimeout(fd.get(), 2000);
+    const int ver = readBannerVersion(fd.get());
     if (ver == 0) {  // 超时/陌生进程：端口文件过期（PID 复用 / daemon 继承）
-        closeFd(fd);
         return 1;
     }
     if (ver < 2) {  // 旧版主实例：不发 ctl 行（会被当 URL 处理报「不支持的源」）
-        closeFd(fd);
         return 2;
     }
     // 半关写侧：服务端 recv 到 EOF 即开始执行，我们等它的回包。
-    if (!sendAll(fd, request)) {
-        closeFd(fd);
-        return 1;
-    }
+    if (!sendAll(fd.get(), request)) return 1;
 #ifdef _WIN32
-    ::shutdown(fd, SD_SEND);
+    ::shutdown(fd.get(), SD_SEND);
 #else
-    ::shutdown(fd, SHUT_WR);
+    ::shutdown(fd.get(), SHUT_WR);
 #endif
-    setRecvTimeout(fd, 15000);  // 服务端内部还有 10s UI 等待，这里留余量
+    setRecvTimeout(fd.get(), 15000);  // 服务端内部还有 10s UI 等待，这里留余量
     response.clear();
     char buf[2048];
     for (;;) {
-        const int n = static_cast<int>(::recv(fd, buf, sizeof(buf), 0));
+        const int n = static_cast<int>(::recv(fd.get(), buf, sizeof(buf), 0));
         if (n <= 0) break;  // EOF / 超时都收束（超时留下已读部分由调用方判空）
         response.append(buf, static_cast<std::size_t>(n));
     }
-    closeFd(fd);
     return response.empty() ? 1 : 0;
 }
 
@@ -325,41 +354,35 @@ void cliListenerLoop() {
     const WsSession wsa;
     if (!wsa) return;
 #endif
-    const CliFd listenFd = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (listenFd == kCliInvalidFd) return;
-#ifndef _WIN32
-    // 不遗传给子进程：aria2 daemon 由本进程 fork/exec 拉起，若继承了这个监听
-    // socket，主实例被杀后 daemon 仍占着端口，新实例会把它当主实例转发并秒退。
-    ::fcntl(listenFd, F_SETFD, FD_CLOEXEC);
-#endif
+    CliSocket listenFd(::socket(AF_INET, SOCK_STREAM, 0));
+    if (!listenFd) return;
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(0);  // 系统分配端口
     ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-    if (::bind(listenFd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0 ||
-        ::listen(listenFd, 8) != 0) {
-        closeFd(listenFd);
+    if (::bind(listenFd.get(), reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0 ||
+        ::listen(listenFd.get(), 8) != 0) {
         return;
     }
-    g_listenFd.store(listenFd);
+    g_listenFd.store(listenFd.get());
     sockaddr_in got{};
 #ifdef _WIN32
     int len = static_cast<int>(sizeof(got));
 #else
     socklen_t len = sizeof(got);
 #endif
-    ::getsockname(listenFd, reinterpret_cast<sockaddr*>(&got), &len);
+    ::getsockname(listenFd.get(), reinterpret_cast<sockaddr*>(&got), &len);
     std::ofstream(portPath(), std::ios::trunc) << ntohs(got.sin_port);
 
     // 线程退出前统一关监听 socket（两处 return 共用；atexit 里 shutdown 只负责
     // 唤醒 accept，释放归本函数）。
     const auto closeListen = [&] {
         g_listenFd.store(kCliInvalidFd);
-        closeFd(listenFd);
+        listenFd.reset();
     };
     for (;;) {
-        const CliFd client = ::accept(listenFd, nullptr, nullptr);
-        if (client == kCliInvalidFd) {
+        CliSocket client(::accept(listenFd.get(), nullptr, nullptr));
+        if (!client) {
             if (g_appExiting.load()) { closeListen(); return; }
 #ifdef _WIN32
             if (WSAGetLastError() == WSAEINTR) continue;
@@ -371,12 +394,12 @@ void cliListenerLoop() {
         }
         // 握手横幅先发（trySendUrls 校验用），再读到对方关闭（URL 转发全关 /
         // 控制请求半关写侧，都在这一步收束）。
-        ::send(client, kCliBanner.data(), static_cast<int>(kCliBanner.size()),
+        ::send(client.get(), kCliBanner.data(), static_cast<int>(kCliBanner.size()),
                kSendFlags);
         std::string data;
         char buf[1024];
         for (;;) {
-            const int n = static_cast<int>(::recv(client, buf, sizeof(buf), 0));
+            const int n = static_cast<int>(::recv(client.get(), buf, sizeof(buf), 0));
             if (n <= 0) break;
             data.append(buf, static_cast<std::size_t>(n));
         }
@@ -388,7 +411,7 @@ void cliListenerLoop() {
         }
         // v2 控制请求：单行 "ctl:<verb> [args...]"，执行后把响应写回本连接。
         if (!lines.empty() && lines[0].starts_with("ctl:")) {
-            if (g_appExiting.load()) { closeFd(client); closeListen(); return; }
+            if (g_appExiting.load()) { closeListen(); return; }
             std::vector<std::string> tokens;
             std::istringstream cs(lines[0].substr(4));
             std::string tok;
@@ -397,11 +420,9 @@ void cliListenerLoop() {
                 ? std::string("error: empty ctl request\n")
                 : runControl(tokens);
             if (!resp.ends_with('\n')) resp += '\n';
-            sendAll(client, resp);
-            closeFd(client);
+            sendAll(client.get(), resp);
             continue;
         }
-        closeFd(client);
         if (g_appExiting.load()) { closeListen(); return; }
         if (!lines.empty()) {
             std::lock_guard<std::mutex> lock(g_urlsMutex);
@@ -420,21 +441,22 @@ export std::vector<std::string> commandLineArgs() {
         std::vector<std::string> args;
 #ifdef _WIN32
         using CmdToArgvFn = LPWSTR*(WINAPI*)(LPCWSTR, int*);
-        static const CmdToArgvFn cmdToArgv = []() -> CmdToArgvFn {
-            HMODULE m = LoadLibraryW(L"shell32.dll");
-            if (!m) return nullptr;
+        static const tinynext::native::UniqueModule shell32(LoadLibraryW(L"shell32.dll"));
+        static const CmdToArgvFn cmdToArgv = [&]() -> CmdToArgvFn {
+            if (!shell32) return nullptr;
             return reinterpret_cast<CmdToArgvFn>(
-                reinterpret_cast<void*>(GetProcAddress(m, "CommandLineToArgvW")));
+                reinterpret_cast<void*>(GetProcAddress(shell32.get(), "CommandLineToArgvW")));
         }();
         if (cmdToArgv) {
             int argc = 0;
             LPWSTR* wargv = cmdToArgv(GetCommandLineW(), &argc);
             if (wargv) {
+                tinynext::native::UniqueLocalAlloc argsOwner(
+                    static_cast<HLOCAL>(wargv));
                 for (int i = 1; i < argc; ++i) {
                     const std::wstring w(wargv[i]);
                     args.push_back(std::string(w.begin(), w.end()));
                 }
-                LocalFree(static_cast<HLOCAL>(wargv));  // kernel32, always linked
             }
         }
 #elif defined(__APPLE__)
@@ -612,43 +634,44 @@ TROUBLESHOOTING
     return true;
 }
 
-// Try to become the primary instance. Returns true if this process owns the
-// single-instance lock. The lock (mutex / flock fd) is intentionally never
-// released — the OS frees it when the process exits, and keeping it open is
-// exactly what holds the single-instance guarantee.
+// Try to become the primary instance. A module-level RAII owner keeps the lock
+// for the process lifetime and releases its mutex handle / flock fd at teardown.
 namespace {
 
 // 锁状态（模块级、非 static 函数内缓存）：--restart 重试成功后要能把结果回写，
 // 函数内 static const 写不回。
 bool g_lockAttempted = false;
 bool g_primaryInstance = false;
+#ifdef _WIN32
+tinynext::native::UniqueHandle g_singleInstanceMutex;
+#else
+tinynext::native::UniqueFd g_singleInstanceFd;
+#endif
 
-// 单次尝试抢锁（非缓存）：成功则持有锁直到进程结束（故意不释放）；失败时
-// 清理本次尝试的句柄/fd（Windows 失败句柄若不关会泄漏——旧实现只调一次无所谓，
-// --restart 重试循环必须关）。
+// 单次尝试抢锁（非缓存）：成功时转交给模块级 RAII owner；失败时自动清理本次资源。
 bool tryAcquireLockOnce() {
 #ifdef _WIN32
     // "Local\" scope: only the same logged-in session sees it.
-    HANDLE m = CreateMutexW(nullptr, FALSE, L"Local\\TinyNext_SingleInstance");
-    if (!m) return true;  // 创建失败按主实例继续，别把应用挡在门外
+    tinynext::native::UniqueHandle mutex(
+        CreateMutexW(nullptr, FALSE, L"Local\\TinyNext_SingleInstance"));
+    if (!mutex) return true;  // 创建失败按主实例继续，别把应用挡在门外
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        CloseHandle(m);   // 主实例在跑；本进程不当主实例，句柄不必留
         return false;
     }
+    g_singleInstanceMutex = std::move(mutex);
     return true;
 #else
     const std::filesystem::path lockPath =
         std::filesystem::temp_directory_path() / "tinynext.lock";
-    const int fd = ::open(lockPath.string().c_str(), O_CREAT | O_RDWR, 0600);
-    if (fd < 0) return true;
+    tinynext::native::UniqueFd fd(
+        ::open(lockPath.string().c_str(), O_CREAT | O_RDWR, 0600));
+    if (!fd) return true;
     // 不遗传给子进程：否则主实例被杀后，继承了该 fd 的 aria2 daemon 仍持有
     // flock，新实例 acquireSingleInstance 永远失败 → 静默退出、窗口起不来。
-    ::fcntl(fd, F_SETFD, FD_CLOEXEC);
-    if (::flock(fd, LOCK_EX | LOCK_NB) != 0) {
-        ::close(fd);
-        return false;  // 已有一份在跑
-    }
-    return true;  // fd 故意不关：持锁到进程结束
+    ::fcntl(fd.get(), F_SETFD, FD_CLOEXEC);
+    if (::flock(fd.get(), LOCK_EX | LOCK_NB) != 0) return false;
+    g_singleInstanceFd = std::move(fd);
+    return true;  // module-level owner keeps the lock until static teardown
 #endif
 }
 
@@ -707,29 +730,26 @@ export void forwardToRunningInstance(const std::vector<std::string>& urls) {
     using SetForegroundFn = BOOL(WINAPI*)(HWND);
     using IsVisibleFn = BOOL(WINAPI*)(HWND);
     using PostMessageFn = BOOL(WINAPI*)(HWND, UINT, WPARAM, LPARAM);
-    static const FindWindowFn findWindow = []() -> FindWindowFn {
-        HMODULE m = LoadLibraryW(L"user32.dll");
-        if (!m) return nullptr;
+    static const tinynext::native::UniqueModule user32(LoadLibraryW(L"user32.dll"));
+    static const FindWindowFn findWindow = [&]() -> FindWindowFn {
+        if (!user32) return nullptr;
         return reinterpret_cast<FindWindowFn>(
-            reinterpret_cast<void*>(GetProcAddress(m, "FindWindowW")));
+            reinterpret_cast<void*>(GetProcAddress(user32.get(), "FindWindowW")));
     }();
-    static const SetForegroundFn setForeground = []() -> SetForegroundFn {
-        HMODULE m = LoadLibraryW(L"user32.dll");
-        if (!m) return nullptr;
+    static const SetForegroundFn setForeground = [&]() -> SetForegroundFn {
+        if (!user32) return nullptr;
         return reinterpret_cast<SetForegroundFn>(
-            reinterpret_cast<void*>(GetProcAddress(m, "SetForegroundWindow")));
+            reinterpret_cast<void*>(GetProcAddress(user32.get(), "SetForegroundWindow")));
     }();
-    static const IsVisibleFn isVisible = []() -> IsVisibleFn {
-        HMODULE m = LoadLibraryW(L"user32.dll");
-        if (!m) return nullptr;
+    static const IsVisibleFn isVisible = [&]() -> IsVisibleFn {
+        if (!user32) return nullptr;
         return reinterpret_cast<IsVisibleFn>(
-            reinterpret_cast<void*>(GetProcAddress(m, "IsWindowVisible")));
+            reinterpret_cast<void*>(GetProcAddress(user32.get(), "IsWindowVisible")));
     }();
-    static const PostMessageFn postMessage = []() -> PostMessageFn {
-        HMODULE m = LoadLibraryW(L"user32.dll");
-        if (!m) return nullptr;
+    static const PostMessageFn postMessage = [&]() -> PostMessageFn {
+        if (!user32) return nullptr;
         return reinterpret_cast<PostMessageFn>(
-            reinterpret_cast<void*>(GetProcAddress(m, "PostMessageW")));
+            reinterpret_cast<void*>(GetProcAddress(user32.get(), "PostMessageW")));
     }();
     if (findWindow && setForeground && isVisible && postMessage) {
         if (HWND h = findWindow(nullptr, L"TinyNext 下载器")) {

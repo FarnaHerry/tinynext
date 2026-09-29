@@ -34,6 +34,7 @@ module;
 #endif
 #include <windows.h>
 #endif
+#include "../native_resource.hpp"
 
 // eui 的 UI 唤醒：主题变化时唤醒 UI 一帧，让 compose 消费标志并重绘（跨线程安全）。
 namespace core::platform { void requestUiUpdate(); }
@@ -56,35 +57,22 @@ void markThemeDirty() {
 // 后台 watcher 线程（std::jthread：进程退出时自动请求停止并 join）。
 std::jthread g_watcher;
 
-#if defined(__linux__) || defined(__APPLE__)
-// 把 pipe 两端设成 close-on-exec，避免泄漏给 popen 子进程。（Windows 无 POSIX
-// fcntl，走 PostThreadMessage 停止，不需要 pipe。）
-void setCloexec(int fds[2]) {
-    for (int fd : {fds[0], fds[1]}) {
-        const int fl = ::fcntl(fd, F_GETFD);
-        if (fl >= 0) ::fcntl(fd, F_SETFD, fl | FD_CLOEXEC);
-    }
-}
-#endif
-
 #if defined(__linux__)
 
 void watchLoop(std::stop_token st) {
     int stopPipe[2];
     if (::pipe(stopPipe) != 0) return;
-    setCloexec(stopPipe);
+    tinynext::native::UniqueFd stopRead(stopPipe[0]);
+    tinynext::native::UniqueFd stopWrite(stopPipe[1]);
+    if (!stopRead || !stopWrite) return;
     // 停止：jthread 析构触发 request_stop → 向 pipe 写字节 → poll 返回。
-    std::stop_callback stopCb(st, [stopPipe] {
-        ssize_t r = ::write(stopPipe[1], "x", 1);
+    std::stop_callback stopCb(st, [fd = stopWrite.get()] {
+        ssize_t r = ::write(fd, "x", 1);
         (void)r;
     });
 
-    const int inotifyFd = ::inotify_init1(IN_CLOEXEC);
-    if (inotifyFd < 0) {
-        ::close(stopPipe[0]);
-        ::close(stopPipe[1]);
-        return;
-    }
+    tinynext::native::UniqueFd inotifyFd(::inotify_init1(IN_CLOEXEC));
+    if (!inotifyFd) return;
 
     // 观察目录 → 关注的文件名。任一匹配事件（创建/改写/原子改名落位）都可能是主题
     // 变化，置 flag 让渲染线程重读 osDark()（重读本身全量探测，正确即可）。
@@ -98,7 +86,7 @@ void watchLoop(std::stop_token st) {
         const auto addDir = [&](const std::string& dir,
                                 std::initializer_list<const char*> names) {
             const int wd = ::inotify_add_watch(
-                inotifyFd, dir.c_str(),
+                inotifyFd.get(), dir.c_str(),
                 IN_CREATE | IN_CLOSE_WRITE | IN_MODIFY | IN_MOVED_TO);
             if (wd >= 0) {
                 watches.push_back(
@@ -112,8 +100,8 @@ void watchLoop(std::stop_token st) {
     }
 
     struct pollfd fds[2];
-    fds[0] = {inotifyFd, POLLIN, 0};
-    fds[1] = {stopPipe[0], POLLIN, 0};
+    fds[0] = {inotifyFd.get(), POLLIN, 0};
+    fds[1] = {stopRead.get(), POLLIN, 0};
 
     std::array<char, 4096> buf;
     while (!st.stop_requested()) {
@@ -121,7 +109,7 @@ void watchLoop(std::stop_token st) {
         if (rc <= 0) continue;  // EINTR / 未知错误 → 继续等
         if (fds[1].revents & POLLIN) break;  // 收到停止信号
         if (!(fds[0].revents & POLLIN)) continue;
-        const ssize_t n = ::read(inotifyFd, buf.data(),
+        const ssize_t n = ::read(inotifyFd.get(), buf.data(),
                                  static_cast<size_t>(buf.size()));
         if (n <= 0) continue;
         ssize_t off = 0;
@@ -143,9 +131,6 @@ void watchLoop(std::stop_token st) {
             off += static_cast<ssize_t>(sizeof(inotify_event)) + ev->len;
         }
     }
-    ::close(inotifyFd);
-    ::close(stopPipe[0]);
-    ::close(stopPipe[1]);
 }
 
 #elif defined(__APPLE__)
@@ -153,18 +138,16 @@ void watchLoop(std::stop_token st) {
 void watchLoop(std::stop_token st) {
     int stopPipe[2];
     if (::pipe(stopPipe) != 0) return;
-    setCloexec(stopPipe);
-    std::stop_callback stopCb(st, [stopPipe] {
-        ssize_t r = ::write(stopPipe[1], "x", 1);
+    tinynext::native::UniqueFd stopRead(stopPipe[0]);
+    tinynext::native::UniqueFd stopWrite(stopPipe[1]);
+    if (!stopRead || !stopWrite) return;
+    std::stop_callback stopCb(st, [fd = stopWrite.get()] {
+        ssize_t r = ::write(fd, "x", 1);
         (void)r;
     });
 
-    const int kq = ::kqueue();
-    if (kq < 0) {
-        ::close(stopPipe[0]);
-        ::close(stopPipe[1]);
-        return;
-    }
+    tinynext::native::UniqueFd kq(::kqueue());
+    if (!kq) return;
 
     const char* home = std::getenv("HOME");
     const std::string plist = home
@@ -172,23 +155,23 @@ void watchLoop(std::stop_token st) {
         : std::string();
     // AppleInterfaceStyle 写在这里；cfprefsd 可能延迟刷盘，best-effort。文件不
     // 存在时只阻塞在 stop pipe 上（此时 osDark() 默认浅色）。
-    int fd = -1;
-    if (!plist.empty()) fd = ::open(plist.c_str(), O_EVTONLY | O_CLOEXEC);
-    if (fd >= 0) {
+    tinynext::native::UniqueFd plistFd;
+    if (!plist.empty()) plistFd.reset(::open(plist.c_str(), O_EVTONLY | O_CLOEXEC));
+    if (plistFd) {
         struct kevent ev;
-        EV_SET(&ev, static_cast<uintptr_t>(fd), EVFILT_VNODE,
+        EV_SET(&ev, static_cast<uintptr_t>(plistFd.get()), EVFILT_VNODE,
                EV_ADD | EV_ENABLE | EV_CLEAR,
                NOTE_WRITE | NOTE_DELETE | NOTE_RENAME, 0, nullptr);
-        ::kevent(kq, &ev, 1, nullptr, 0, nullptr);
+        ::kevent(kq.get(), &ev, 1, nullptr, 0, nullptr);
     }
     struct kevent evPipe;
-    EV_SET(&evPipe, static_cast<uintptr_t>(stopPipe[0]), EVFILT_READ,
+    EV_SET(&evPipe, static_cast<uintptr_t>(stopRead.get()), EVFILT_READ,
            EV_ADD | EV_ENABLE, 0, 0, nullptr);
-    ::kevent(kq, &evPipe, 1, nullptr, 0, nullptr);
+    ::kevent(kq.get(), &evPipe, 1, nullptr, 0, nullptr);
 
     struct kevent evs[8];
     while (!st.stop_requested()) {
-        const int n = ::kevent(kq, nullptr, 0, evs, 8, nullptr);
+        const int n = ::kevent(kq.get(), nullptr, 0, evs, 8, nullptr);
         if (n < 0) {
             if (errno == EINTR) continue;
             break;
@@ -198,15 +181,14 @@ void watchLoop(std::stop_token st) {
                 markThemeDirty();
                 // 文件被原子替换（rename/delete）：重挂 watch 到新 inode。
                 if (evs[i].fflags & (NOTE_DELETE | NOTE_RENAME)) {
-                    ::close(fd);
-                    fd = ::open(plist.c_str(), O_EVTONLY | O_CLOEXEC);
-                    if (fd >= 0) {
+                    plistFd.reset(::open(plist.c_str(), O_EVTONLY | O_CLOEXEC));
+                    if (plistFd) {
                         struct kevent ev;
-                        EV_SET(&ev, static_cast<uintptr_t>(fd), EVFILT_VNODE,
+                        EV_SET(&ev, static_cast<uintptr_t>(plistFd.get()), EVFILT_VNODE,
                                EV_ADD | EV_ENABLE | EV_CLEAR,
                                NOTE_WRITE | NOTE_DELETE | NOTE_RENAME, 0,
                                nullptr);
-                        ::kevent(kq, &ev, 1, nullptr, 0, nullptr);
+                        ::kevent(kq.get(), &ev, 1, nullptr, 0, nullptr);
                     }
                 }
             } else if (evs[i].filter == EVFILT_READ) {
@@ -214,10 +196,6 @@ void watchLoop(std::stop_token st) {
             }
         }
     }
-    if (fd >= 0) ::close(fd);
-    ::close(kq);
-    ::close(stopPipe[0]);
-    ::close(stopPipe[1]);
 }
 
 #elif defined(_WIN32)
@@ -228,8 +206,38 @@ LRESULT CALLBACK themeWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     return ::DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
+class ThemeWindowOwner {
+public:
+    explicit ThemeWindowOwner(HWND hwnd) noexcept : hwnd_(hwnd) {}
+    ~ThemeWindowOwner() { if (hwnd_) ::DestroyWindow(hwnd_); }
+    ThemeWindowOwner(const ThemeWindowOwner&) = delete;
+    ThemeWindowOwner& operator=(const ThemeWindowOwner&) = delete;
+    HWND get() const noexcept { return hwnd_; }
+
+private:
+    HWND hwnd_ = nullptr;
+};
+
+class ThemeClassOwner {
+public:
+    ThemeClassOwner(const wchar_t* name, HINSTANCE instance, bool owns) noexcept
+        : name_(name), instance_(instance), owns_(owns) {}
+    ~ThemeClassOwner() { if (owns_) ::UnregisterClassW(name_, instance_); }
+    ThemeClassOwner(const ThemeClassOwner&) = delete;
+    ThemeClassOwner& operator=(const ThemeClassOwner&) = delete;
+
+private:
+    const wchar_t* name_;
+    HINSTANCE instance_;
+    bool owns_;
+};
+
 void watchLoop(std::stop_token st) {
     const DWORD tid = ::GetCurrentThreadId();
+    MSG msg{};
+    // Ensure the thread queue exists before registering the stop callback so
+    // an early request_stop cannot lose its PostThreadMessage.
+    ::PeekMessageW(&msg, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
     // 停止：PostThreadMessage(WM_QUIT) → GetMessage 返回 0 → 退出循环。
     std::stop_callback stopCb(st, [tid] { ::PostThreadMessageW(tid, WM_QUIT, 0, 0); });
 
@@ -237,19 +245,20 @@ void watchLoop(std::stop_token st) {
     wc.lpfnWndProc = themeWndProc;
     wc.hInstance = ::GetModuleHandleW(nullptr);
     wc.lpszClassName = L"TinyNextThemeWatcher";
-    ::RegisterClassW(&wc);
+    const bool ownsClass = ::RegisterClassW(&wc) != 0;
+    if (!ownsClass && ::GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return;
+    ThemeClassOwner classOwner(wc.lpszClassName, wc.hInstance, ownsClass);
 
     // 隐藏 message-only 窗口：系统把 WM_SETTINGCHANGE / "ImmersiveColorSet" 广播到
     // 所有顶层窗口，message-only 窗口同样能收到（Chromium 等通用做法）。
-    const HWND hwnd = ::CreateWindowExW(
+    ThemeWindowOwner window(::CreateWindowExW(
         0, wc.lpszClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr,
-        wc.hInstance, nullptr);
+        wc.hInstance, nullptr));
+    if (!window.get()) return;
 
-    MSG msg;
     while (::GetMessageW(&msg, nullptr, 0, 0) > 0) {
         // 只 pump；WM_SETTINGCHANGE 由 themeWndProc 处理。
     }
-    if (hwnd) ::DestroyWindow(hwnd);
 }
 
 #endif
