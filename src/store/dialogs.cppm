@@ -1,4 +1,4 @@
-// store/dialogs.cppm — 视图 store：各弹窗（添加下载 / 镜像源 / 删除确认 / 关于）
+// store/dialogs.cppm — 视图 store：各弹窗（添加下载 / 镜像源 / 删除确认）
 // 的打开状态与未提交输入，以及弹窗的提交动作（addDownload / requestDelete）。
 // 不 import eui：弹窗的"状态机"与渲染分离，downloads_page 只负责画。
 //
@@ -17,7 +17,6 @@ import tinynext.utils; // trimText
 // ---- 弹窗开关 / 通用 ----
 
 export bool g_addOpen = false;   // “添加下载”弹窗是否打开
-export bool g_aboutOpen = false; // “关于”弹窗是否打开
 // “需要重启”弹窗：设置页改了「关闭时缩到托盘」并保存后弹出（eui 只在启动时
 // 读一次 .tray() 开关，改动必须重启进程才生效）。由 settings_page 渲染。
 export bool g_restartPromptOpen = false;
@@ -161,4 +160,3 @@ export void requestInfo(const dl::TaskView& task) {
     snap.path = task.destPathUtf8.empty() ? snap.name : task.destPathUtf8;
     g_pendingInfo = std::move(snap);
 }
-

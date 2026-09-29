@@ -16,7 +16,6 @@
 //   tinynext.ui.cards         the download task card
 //   tinynext.ui.downloads_page  downloads page + add-download dialog
 //   tinynext.ui.settings_page   settings page
-//   tinynext.ui.about_dialog    about dialog
 //   tinynext.cli              single-instance + CLI (boot + inbox polling)
 //
 // eui_neo.h is included HERE for the DslAppConfig / app::compose declarations.
@@ -39,13 +38,11 @@ import tinynext.ui.widgets;
 import tinynext.ui.downloads_page;
 import tinynext.ui.settings_page;
 import tinynext.ui.engine_page;
-import tinynext.ui.about_dialog;
 import tinynext.ui.platform;
 import tinynext.ui.housekeep;
 import tinynext.store.tasks;    // g_tasks（启动预热 warmup）
 import tinynext.component_updater;  // 组件更新（设置页「组件」分组）
 import tinynext.store.ui;       // 状态消息 / 页面
-import tinynext.store.dialogs;  // g_aboutOpen
 
 namespace app {
 
@@ -250,11 +247,6 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                                  theme,
                                  [] { g_page_view = Page::Monitor; });
 
-                    // 关于：信息图标（circle-info）排在导航下方，同列同风格。
-                    railY += 44.0f;
-                    drawRailItem(ui, "rail.info", railY, kRailWidth, 0xF05A,  // circle-info
-                                 tr("app.nav.about"), false, theme,
-                                 [] { g_aboutOpen = true; });
                 })
                 .build();
 
@@ -264,9 +256,6 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 case Page::Settings:  drawSettingsPage(ui, screen, theme);  break;
                 case Page::Monitor:   drawEnginePage(ui, screen, theme);    break;
             }
-
-            // 关于弹窗（所有页面可见）。
-            drawAboutDialog(ui, screen, theme);
         })
         .build();
 }

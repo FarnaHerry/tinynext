@@ -35,7 +35,7 @@ mcpp run            # 启动 GUI 窗口
 用等宽字体（JetBrains Mono）点缀。色板集中在 `src/ui/theme.cppm`。
 
 - **左侧图标导航栏**：图标 + 文字标签导航（下载列表 / 设置 / 引擎监控），激活项
-  是灰阶圆角块指示；底部「关于」入口；左上角应用 logo（反白方块 "TN"）。
+  是灰阶圆角块指示；左上角应用 logo（反白方块 "TN"）。
 - **下载状态子侧边栏**：下载页内容区左侧的 **所有 / 下载中 / 已完成** 筛选（灰阶
   激活块 + 等宽计数徽标）。
 - **内容大卡**：下载页的工具栏 + 任务列表 + 翻页收在同一张卡片里。
@@ -113,8 +113,8 @@ eui-neo 0.5.7 起提供**原生全局缩放**：`DslAppConfig::uiScale(scale)` �
   覆盖、完成后命令、完成后移除控制文件、磁盘缓存。
 - **完整性校验**：检查完整性（`--check-integrity`）、校验和（`--checksum`）。
 - 新下载立即生效；daemon 级参数在 aria2 daemon 已启动时需重启才生效。
-- 所有设置点「保存」落盘到 `tinynext.conf`（JSON），「放弃」回滚；左侧栏底部 ⓘ
-  打开「关于」弹窗（含项目 GitHub 链接）。
+- 所有设置点「保存」落盘到 `tinynext.conf`（JSON），「放弃」回滚；「关于」标签页
+  显示应用与组件版本及项目主页链接。
 - 配置与 aria2 会话文件放在 **per-user 配置目录**（Windows `%APPDATA%\TinyNext` /
   macOS `~/Library/Application Support/TinyNext` / Linux `$XDG_CONFIG_HOME/tinynext`，
   回退 `~/.config/tinynext`）——安装版经快捷方式启动时 cwd 可能是 System32 等不可写
@@ -226,7 +226,6 @@ runner。）
 | `tinynext.ui.cards` | `src/ui/cards.cppm` | 下载任务卡片 |
 | `tinynext.ui.downloads_page` | `src/ui/downloads_page.cppm` | 下载页 + 添加下载弹窗 |
 | `tinynext.ui.settings_page` | `src/ui/settings_page.cppm` | 设置页 |
-| `tinynext.ui.about_dialog` | `src/ui/about_dialog.cppm` | 关于弹窗 |
 | `src/app.cpp` | —（普通 TU） | 薄入口：`app::dslAppConfig()` + `app::compose()` 分发 |
 
 页面按职责拆成独立模块（原 `tinynext.ui.pages` / `pages.cppm` 已删除）。
