@@ -630,7 +630,9 @@ CapturedProc runCapture(const std::string& exe,
         if (n <= 0) break;
         result.out.append(buf, (std::size_t)n);
     }
-    if (exited && WIFEXITED(child.status())) result.exitCode = WEXITSTATUS(child.status());
+    // Darwin's wait-status macros take an lvalue (they expand through an address).
+    const int childStatus = child.status();
+    if (exited && WIFEXITED(childStatus)) result.exitCode = WEXITSTATUS(childStatus);
     return result;
 #endif
 }
