@@ -585,7 +585,7 @@ export void drawSidebarItem(eui::Ui& ui, const std::string& id, float x, float y
     }
 }
 
-// 图标导航栏项：32 高激活指示块（图标居中，radius 6），无文字标签——名称经
+// 图标导航栏项：32×32 激活指示块（图标居中，radius 6），无文字标签——名称经
 // hover 延迟气泡提示（tooltip 参数，出现在图标栏右侧，带尾巴指向按钮）。
 // 激活 = surfaceContainerHigh 底 + onSurface 图标；非激活 = onSurfaceVariant；
 // hover 叠 onSurface state layer。
@@ -598,7 +598,7 @@ export void drawRailItem(eui::Ui& ui, const std::string& id, float y, float rail
     const core::Color iconColor =
         active ? theme.onSurface : theme.onSurfaceVariant;
     const float pillH = 32.0f;
-    const float pillW = 56.0f;
+    const float pillW = pillH;
     const float pillX = (railWidth - pillW) * 0.5f;
 
     // 激活指示块。
