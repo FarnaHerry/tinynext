@@ -24,9 +24,9 @@ import tinynext.ui.platform;
 // （g_pendingTheme/g_dark/...）归位在 tinynext.ui.theme。
 
 // 设置页顶部标签分组：每组一个独立"子页面"，避免全部参数挤在一屏滚动过长。
-// 分组对齐 MotrixNext：通用 / 下载 / BitTorrent / ED2K / 网络 / 高级（MotrixNext
-// 同为 aria2-next 引擎，其分组是此类下载器的标准布局）。
-enum class SettingsTab { General, Download, BitTorrent, Ed2k, Network, Advanced, Components };
+// 分组对齐 MotrixNext：通用 / 下载 / BitTorrent / ED2K / 网络 / 高级，并包含组件
+// 管理与关于信息页。
+enum class SettingsTab { General, Download, BitTorrent, Ed2k, Network, Advanced, Components, About };
 SettingsTab g_settingsTab = SettingsTab::General;
 // 下载目录待提交值（默认保存目录；点「保存」才写入配置）。
 std::string g_downloadDirText = cfg::downloadDir().string();
@@ -230,6 +230,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         {tr("settings.tab.network"), "network", SettingsTab::Network},
         {tr("settings.tab.advanced"), "advanced", SettingsTab::Advanced},
         {tr("settings.tab.components"), "components", SettingsTab::Components},
+        {tr("settings.tab.about"), "about", SettingsTab::About},
     };
     constexpr int kTabCount = static_cast<int>(std::size(kTabs));
     constexpr float kTabGap = 4.0f;
@@ -878,6 +879,85 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 });
             }  // 高级 tab 结束
 
+            // ---- 关于 tab：版本信息与项目主页链接。----
+            if (g_settingsTab == SettingsTab::About) {
+                row("about.title", 28.0f, [&](eui::Ui& r, float w) {
+                    components::text(r, "st.about.title")
+                        .position(0, 2.0f)
+                        .size(w, 24.0f)
+                        .text(tr("about.title"))
+                        .fontSize(16.0f)
+                        .lineHeight(24.0f)
+                        .color(theme.titleText)
+                        .build();
+                });
+
+                // 版本来自实际组件配置；aria2-next 版本来自 daemon 的 health 缓存。
+                const std::string appVersion(cfg::kAppVersion);
+                const std::string uiVersion =
+                    std::string("EUI-NEO ") + std::string(cfg::kEuiVersion);
+                const auto toolRow = [](const char* name, const std::string& ver) {
+                    return ver.empty() ? std::string(name) : std::string(name) + " " + ver;
+                };
+                struct AboutRow { const char* label; std::string value; };
+                const AboutRow kAboutRows[] = {
+                    {tr("about.app_name"), tr("about.app_name_value")},
+                    {tr("about.version"), appVersion},
+                    {tr("about.ui_framework"), uiVersion},
+                    {tr("about.engine"), toolRow("aria2-next", g_tasks.health().version)},
+                    {tr("about.transport"), tr("about.transport_value")},
+                    {tr("about.build_tool"), "mcpp（C++23）"},
+                };
+                for (int i = 0; i < static_cast<int>(std::size(kAboutRows)); ++i) {
+                    const std::string rowId = "about.info." + std::to_string(i);
+                    row(rowId, 24.0f, [&, i](eui::Ui& r, float w) {
+                        components::text(r, "st." + rowId + ".label")
+                            .position(0, 1.0f)
+                            .size(kLabelW, 22.0f)
+                            .text(kAboutRows[i].label)
+                            .fontSize(11.0f)
+                            .lineHeight(22.0f)
+                            .color(theme.metaText)
+                            .build();
+                        components::text(r, "st." + rowId + ".value")
+                            .position(kLabelW + 8.0f, 1.0f)
+                            .size(std::max(0.0f, w - kLabelW - 8.0f), 22.0f)
+                            .text(kAboutRows[i].value)
+                            .fontSize(11.0f)
+                            .fontFamily(kMonoFont)
+                            .lineHeight(22.0f)
+                            .color(theme.nameText)
+                            .build();
+                    });
+                }
+
+                row("about.links.header", 24.0f, [&](eui::Ui& r, float w) {
+                    components::text(r, "st.about.links.header")
+                        .position(0, 1.0f)
+                        .size(w, 22.0f)
+                        .text(tr("about.project_home"))
+                        .fontSize(12.0f)
+                        .lineHeight(22.0f)
+                        .color(theme.titleText)
+                        .build();
+                });
+
+                struct AboutLink { const char* label; const char* url; };
+                const AboutLink kAboutLinks[] = {
+                    {tr("about.app_name_value"), "https://github.com/FarnaHerry/tinynext"},
+                    {tr("about.build_tool_value"), "https://github.com/mcpp-community/mcpp"},
+                    {tr("about.ui_framework_value"), "https://github.com/sudoevolve/EUI-NEO"},
+                };
+                for (int i = 0; i < static_cast<int>(std::size(kAboutLinks)); ++i) {
+                    const std::string rowId = "about.link." + std::to_string(i);
+                    row(rowId, 30.0f, [&, i, rowId](eui::Ui& r, float) {
+                        drawTextButton(r, "st." + rowId, 0.0f, 0.0f, 220.0f,
+                                       kCompactButtonHeight, kAboutLinks[i].label, theme,
+                                       [url = std::string(kAboutLinks[i].url)] { openUrl(url); });
+                    });
+                }
+            }  // 关于 tab 结束
+
             // ---- 组件 tab：aria2-next 在线检查+更新（下载走引擎静默通道 +
             //      sha256 校验）。----
             if (g_settingsTab == SettingsTab::Components) {
@@ -971,6 +1051,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         })
         .build();
 
+    if (g_settingsTab != SettingsTab::About) {
     // ---- 操作行（固定窗口底部）：恢复默认路径（text）/ 保存（filled）/ 放弃（text）----
     drawTextButton(ui, "settings.path.reset", infoX + kLabelW, actionY,
                    76.0f, kButtonHeight, tr("settings.reset"), theme,
@@ -1249,6 +1330,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_ed2kUploadSlotsText = std::to_string(a2.ed2kUploadSlots);
             showStatus(tr("settings.changes_discarded"));
         });
+    }  // 关于页展示只读信息，不需要设置操作行。
 
     // ---- 「需要重启」弹窗（关闭时缩到托盘改动保存后）----
     // eui-neo 0.5.7 只在启动时读一次 .tray() 开关（WindowState::trayAvailable 此后
