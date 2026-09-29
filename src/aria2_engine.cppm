@@ -88,7 +88,7 @@ private:
     // WebSocket 推送事件回调（IXWebSocket 后台线程）。持锁按 gid 更新状态。
     void handleWsEvent(const std::string& method, const std::string& gid) const;
 
-    // daemon 生命周期成员（port_/secret_/daemonSpawned_/ws_/processHandle_/
+    // daemon 生命周期成员（port_/secret_/daemonSpawned_/ws_/process_/
     // lastError_）由 UI 线程（start/retry/shutdown）与启动预热后台线程（warmup，
     // 见 app.cpp）共享，一律经 daemonMutex_ 访问；锁序固定 daemonMutex_ →
     // tasksMutex_（recoverSession 在 ensureDaemon 内取 tasksMutex_）。
@@ -105,9 +105,18 @@ private:
     mutable int port_ = 0;
     mutable std::string secret_;
     mutable std::string lastError_;   // 最近一次 daemon 启动失败原因（仅 UI 线程）
-    mutable void* processHandle_ = nullptr;   // HANDLE on Windows
+    struct Process;
+    struct NetworkSession;
+    mutable std::unique_ptr<NetworkSession> networkSession_;
+    mutable std::unique_ptr<Process> process_;
     mutable std::chrono::steady_clock::time_point lastPoll_{};
     mutable std::unique_ptr<WsNotifier> ws_;  // 事件监听（仅收推送，请求仍走 HTTP）
+
+    // 静默下载 worker（组件更新）由引擎持有；shutdown 请求停止并 join，确保
+    // worker 不再访问 this 后才关闭 daemon/析构成员。
+    mutable std::mutex downloadThreadMutex_;
+    mutable std::jthread downloadThread_;
+    mutable bool downloadShutdown_ = false;
 
     // 健康缓存：refreshHealth（后台命令线程）写，health()（UI 线程）读，互斥保护。
     mutable std::mutex healthMutex_;

@@ -54,6 +54,8 @@ namespace app {
 std::atomic<bool> g_warmupFailed{false};
 // 预热完成（无论成败）：compose 消费后按配置对恢复出的失败任务自动重试。
 std::atomic<bool> g_warmupDone{false};
+std::atomic<bool> g_appShuttingDown{false};
+std::thread g_warmupThread;
 
 const DslAppConfig& dslAppConfig() {
     static const DslAppConfig config = DslAppConfig{}
@@ -96,22 +98,35 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
     static bool housekeepingStarted = false;
     if (!housekeepingStarted) {
         housekeepingStarted = true;
+        // Register engine shutdown before the workers below: atexit runs in
+        // reverse order, so warmup/housekeeping/CLI/updater workers stop first.
+        std::atexit([] { g_tasks.shutdown(); });
+        // 组件更新（领域层无 eui）：注入 UI 唤醒，工作线程状态变化才能刷新界面。
+        updater::setWakeUi([] {
+            if (!g_appShuttingDown.load()) core::platform::requestUiUpdate();
+        });
+        updater::prepareForShutdown(g_tasks.engine());
         cli::startCliIpc();
         housekeep::startHousekeeping();
-        // 组件更新（领域层无 eui）：注入 UI 唤醒，工作线程状态变化才能刷新界面。
-        updater::setWakeUi([] { core::platform::requestUiUpdate(); });
         // 启动即后台拉起引擎并恢复上次会话的历史任务（此前是懒惰拉取：首次
         // 下载才 spawn daemon，历史记录要等下一次下载才出现）。与 UI 线程的
         // start() 经引擎内部 daemonMutex_ 互斥；完成后唤醒 UI 渲染任务列表。
-        std::thread([] {
+        g_warmupThread = std::thread([] {
             g_tasks.warmup();
             if (!g_tasks.engineActive()) g_warmupFailed.store(true);
             g_warmupDone.store(true);
             // 顺手探测引擎版本（组件更新页的当前版本；一次进程启动，放预热
             // 线程而非 UI 线程做）。
             updater::probeAria2Version();
-            core::platform::requestUiUpdate();
-        }).detach();
+            if (!g_appShuttingDown.load()) core::platform::requestUiUpdate();
+        });
+        // g_tasks is a process-lifetime singleton. Join its warmup worker before
+        // explicit engine shutdown and static teardown.
+        std::atexit([] {
+            if (g_warmupThread.joinable()) g_warmupThread.join();
+        });
+        // Set this before joining warmup so it skips its final UI wake during exit.
+        std::atexit([] { g_appShuttingDown.store(true); });
     }
 
     // 预热失败（如引擎完整性校验不通过）：在 UI 线程给出具体原因。

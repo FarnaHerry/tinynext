@@ -13,8 +13,10 @@ module;
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include "native_resource.hpp"
 #else
 #include <cstdio>  // popen/fgets/pclose（POSIX，osDark 探测系统深色）— before import std
+#include "native_resource.hpp"
 #endif
 
 // 版本宏（TINY_APP_VERSION / TINY_EUI_VERSION / ...）由 scripts/gen-versions.ps1 /
@@ -110,17 +112,17 @@ export std::filesystem::path defaultDownloadDir() {
     // Downloads. shell32/ole32 are loaded dynamically so no link change is needed.
     using ShGetKnownFolderPathFn = HRESULT(WINAPI*)(const GUID&, DWORD, HANDLE, PWSTR*);
     using CoTaskMemFreeFn = void(WINAPI*)(void*);
-    static const ShGetKnownFolderPathFn shGet = []() -> ShGetKnownFolderPathFn {
-        HMODULE m = LoadLibraryW(L"shell32.dll");
-        if (!m) return nullptr;
+    static const tinynext::native::UniqueModule shell32(LoadLibraryW(L"shell32.dll"));
+    static const ShGetKnownFolderPathFn shGet = [&]() -> ShGetKnownFolderPathFn {
+        if (!shell32) return nullptr;
         return reinterpret_cast<ShGetKnownFolderPathFn>(
-            reinterpret_cast<void*>(GetProcAddress(m, "SHGetKnownFolderPath")));
+            reinterpret_cast<void*>(GetProcAddress(shell32.get(), "SHGetKnownFolderPath")));
     }();
-    static const CoTaskMemFreeFn coFree = []() -> CoTaskMemFreeFn {
-        HMODULE m = LoadLibraryW(L"ole32.dll");
-        if (!m) return nullptr;
+    static const tinynext::native::UniqueModule ole32(LoadLibraryW(L"ole32.dll"));
+    static const CoTaskMemFreeFn coFree = [&]() -> CoTaskMemFreeFn {
+        if (!ole32) return nullptr;
         return reinterpret_cast<CoTaskMemFreeFn>(
-            reinterpret_cast<void*>(GetProcAddress(m, "CoTaskMemFree")));
+            reinterpret_cast<void*>(GetProcAddress(ole32.get(), "CoTaskMemFree")));
     }();
     if (shGet && coFree) {
         // FOLDERID_Downloads = {374DE290-123F-4565-9164-39C4925E467B}
@@ -128,8 +130,8 @@ export std::filesystem::path defaultDownloadDir() {
             {0x91, 0x64, 0x39, 0xc4, 0x92, 0x5e, 0x46, 0x7b}};
         PWSTR raw = nullptr;
         if (SUCCEEDED(shGet(kDownloads, 0, nullptr, &raw)) && raw) {
+            tinynext::native::UniqueCoTaskMem owner(raw, coFree);
             std::filesystem::path result(raw);
-            coFree(raw);
             return result;
         }
     }
@@ -275,11 +277,11 @@ export bool osDark() {
     // AppsUseLightTheme (HKCU\...\Themes\Personalize): 0 = dark, 1 = light.
     // SHGetValueW 是 shlwapi.dll 的导出（不是 shell32），动态加载避免链接 shlwapi。
     using ShGetValueFn = LSTATUS(WINAPI*)(HKEY, LPCWSTR, LPCWSTR, DWORD*, void*, DWORD*);
-    static const ShGetValueFn shGetValue = []() -> ShGetValueFn {
-        HMODULE m = LoadLibraryW(L"shlwapi.dll");
-        if (!m) return nullptr;
+    static const tinynext::native::UniqueModule shlwapi(LoadLibraryW(L"shlwapi.dll"));
+    static const ShGetValueFn shGetValue = [&]() -> ShGetValueFn {
+        if (!shlwapi) return nullptr;
         return reinterpret_cast<ShGetValueFn>(
-            reinterpret_cast<void*>(GetProcAddress(m, "SHGetValueW")));
+            reinterpret_cast<void*>(GetProcAddress(shlwapi.get(), "SHGetValueW")));
     }();
     if (shGetValue) {
         DWORD type = 0, value = 1, size = sizeof(value);
@@ -312,12 +314,11 @@ export bool osDark() {
     // Linux best-effort（从最通用到最旧的顺序）。事件驱动：由 theme_watch 在 OS
     // 主题变化时触发调用一次（不再每 2s 轮询 spawn 探测进程）。
     auto shellOut = [](const char* c) -> std::string {
-        FILE* pipe = ::popen(c, "r");
+        tinynext::native::UniqueFile pipe(::popen(c, "r"), ::pclose);
         if (!pipe) return {};
         std::string out;
         char buf[128];
-        while (::fgets(buf, sizeof(buf), pipe)) out += buf;
-        ::pclose(pipe);
+        while (::fgets(buf, sizeof(buf), pipe.get())) out += buf;
         return out;
     };
     auto lower = [](std::string s) {

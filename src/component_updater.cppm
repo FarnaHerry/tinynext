@@ -26,13 +26,16 @@ module;
 #define NOMINMAX
 #endif
 #include <windows.h>  // 版本探测 spawn（CreateProcessW）/ GetModuleFileNameW
+#include "native_resource.hpp"
 #else
+#include <cerrno>
 #include <sys/types.h>   // pid_t
 #include <sys/wait.h>    // waitpid, WNOHANG
 #include <signal.h>      // kill, SIGKILL
 #include <spawn.h>       // posix_spawn
 #include <fcntl.h>       // fcntl, O_NONBLOCK, open
 #include <unistd.h>      // pipe/read/close/usleep
+#include "native_resource.hpp"
 #ifdef __APPLE__
 #include <mach-o/dyld.h> // _NSGetExecutablePath
 #endif
@@ -73,6 +76,7 @@ struct ComponentSnapshot {
 
 ComponentSnapshot snapshot();
 void setWakeUi(std::function<void()> fn);   // app.cpp 注入 requestUiUpdate
+void prepareForShutdown(dl::DownloadEngine& eng); // 退出时停止引擎下载并 join updater worker
 void probeAria2Version();   // 跑 aria2-next --version（后台线程调用，可能数秒）
 void checkLatest(dl::DownloadEngine& eng);
 void startUpdate(dl::DownloadEngine& eng);
@@ -80,6 +84,71 @@ void startUpdate(dl::DownloadEngine& eng);
 } // namespace updater
 
 namespace {
+
+struct UpdaterWorker {
+    std::thread thread;
+    std::shared_ptr<std::atomic_bool> finished;
+};
+
+std::mutex g_workersMutex;
+std::vector<UpdaterWorker> g_workers;
+std::once_flag g_workerExitHook;
+std::atomic<dl::DownloadEngine*> g_workerEngine{nullptr};
+std::atomic_bool g_workersShuttingDown{false};
+
+void joinUpdaterWorkers() {
+    std::vector<UpdaterWorker> workers;
+    {
+        std::lock_guard lock(g_workersMutex);
+        workers.swap(g_workers);
+    }
+    for (auto& worker : workers) {
+        if (worker.thread.joinable()) worker.thread.join();
+    }
+}
+
+void stopAndJoinUpdaterWorkers() {
+    g_workersShuttingDown.store(true, std::memory_order_release);
+    if (dl::DownloadEngine* engine = g_workerEngine.load(std::memory_order_acquire)) {
+        // Cancels any silent download first; its completion callback releases the
+        // updater worker from downloadSync(), allowing the join below to finish.
+        engine->shutdown();
+    }
+    joinUpdaterWorkers();
+}
+
+void reapUpdaterWorkers() {
+    std::lock_guard lock(g_workersMutex);
+    for (auto it = g_workers.begin(); it != g_workers.end();) {
+        if (it->finished->load(std::memory_order_acquire)) {
+            if (it->thread.joinable()) it->thread.join();
+            it = g_workers.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void launchUpdaterWorker(dl::DownloadEngine& engine, std::function<void()> work) {
+    g_workerEngine.store(&engine, std::memory_order_release);
+    std::call_once(g_workerExitHook, [] { std::atexit(stopAndJoinUpdaterWorkers); });
+    reapUpdaterWorkers();
+    auto finished = std::make_shared<std::atomic_bool>(false);
+    std::thread thread([work = std::move(work), finished] {
+        struct Completion {
+            std::shared_ptr<std::atomic_bool> finished;
+            ~Completion() { finished->store(true, std::memory_order_release); }
+        } completion{finished};
+        work();
+    });
+    try {
+        std::lock_guard lock(g_workersMutex);
+        g_workers.push_back({std::move(thread), std::move(finished)});
+    } catch (...) {
+        if (thread.joinable()) thread.join();
+        throw;
+    }
+}
 
 // ---- SHA-256（紧凑 public-domain 实现：只为校验一个文件，不值得引入 crypto 依赖）----
 
@@ -327,6 +396,85 @@ struct CapturedProc {
     bool timedOut = false;
 };
 
+#ifdef _WIN32
+class ChildProcess {
+public:
+    explicit ChildProcess(HANDLE process) noexcept : process_(process) {}
+    ~ChildProcess() { terminate(); }
+    ChildProcess(const ChildProcess&) = delete;
+    ChildProcess& operator=(const ChildProcess&) = delete;
+
+    bool exited() noexcept {
+        if (!process_ || finished_) return true;
+        if (WaitForSingleObject(process_.get(), 0) == WAIT_OBJECT_0) {
+            finished_ = true;
+            return true;
+        }
+        return false;
+    }
+    void terminate() noexcept {
+        if (process_ && !exited()) {
+            TerminateProcess(process_.get(), 1);
+            WaitForSingleObject(process_.get(), INFINITE);
+        }
+        finished_ = true;
+        process_.reset();
+    }
+    DWORD exitCode() const noexcept {
+        DWORD code = 1;
+        if (process_) GetExitCodeProcess(process_.get(), &code);
+        return code;
+    }
+
+private:
+    tinynext::native::UniqueHandle process_;
+    bool finished_ = false;
+};
+#else
+class ChildProcess {
+public:
+    explicit ChildProcess(pid_t pid) noexcept : pid_(pid) {}
+    ~ChildProcess() { terminate(); }
+    ChildProcess(const ChildProcess&) = delete;
+    ChildProcess& operator=(const ChildProcess&) = delete;
+
+    bool exited() noexcept {
+        if (pid_ <= 0 || reaped_) return true;
+        pid_t result;
+        do {
+            result = ::waitpid(pid_, &status_, WNOHANG);
+        } while (result < 0 && errno == EINTR);
+        if (result == pid_ || (result < 0 && errno == ECHILD)) {
+            reaped_ = true;
+            pid_ = -1;
+            return true;
+        }
+        return false;
+    }
+    void terminate() noexcept {
+        if (pid_ <= 0 || reaped_ || exited()) return;
+        ::kill(pid_, SIGTERM);
+        for (int i = 0; i < 50; ++i) {
+            if (exited()) return;
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        if (!exited()) ::kill(pid_, SIGKILL);
+        pid_t result;
+        do {
+            result = ::waitpid(pid_, &status_, 0);
+        } while (result < 0 && errno == EINTR);
+        reaped_ = true;
+        pid_ = -1;
+    }
+    int status() const noexcept { return status_; }
+
+private:
+    pid_t pid_ = -1;
+    int status_ = 0;
+    bool reaped_ = false;
+};
+#endif
+
 CapturedProc runCapture(const std::string& exe,
                         const std::vector<std::string>& args,
                         const std::filesystem::path& stderrFile,
@@ -336,49 +484,68 @@ CapturedProc runCapture(const std::string& exe,
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
     sa.bInheritHandle = TRUE;
-    HANDLE readPipe = nullptr, writePipe = nullptr;
-    if (!CreatePipe(&readPipe, &writePipe, &sa, 0)) return result;
-    SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);  // 读端不遗传
+    HANDLE rawReadPipe = nullptr, rawWritePipe = nullptr;
+    if (!CreatePipe(&rawReadPipe, &rawWritePipe, &sa, 0)) return result;
+    tinynext::native::UniqueHandle readPipe(rawReadPipe);
+    tinynext::native::UniqueHandle writePipe(rawWritePipe);
+    SetHandleInformation(readPipe.get(), HANDLE_FLAG_INHERIT, 0);  // 读端不遗传
+    tinynext::native::UniqueHandle childInput(CreateFileW(
+        L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (!childInput) return result;
 
     // stderr → 文件（可继承句柄）。
-    HANDLE errFile = CreateFileW(utf8ToWide(stderrFile.string()).c_str(),
-                                 GENERIC_WRITE, FILE_SHARE_READ, &sa,
-                                 CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    tinynext::native::UniqueHandle errFile(CreateFileW(
+        utf8ToWide(stderrFile.string()).c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+        &sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
 
     std::wstring cmd = quoteArg(exe);
     for (const auto& a : args) { cmd += L" "; cmd += quoteArg(a); }
 
-    STARTUPINFOW si{};
-    si.cb = sizeof(si);
+    STARTUPINFOEXW startup{};
+    STARTUPINFOW& si = startup.StartupInfo;
     si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdOutput = writePipe;
-    si.hStdError = errFile != INVALID_HANDLE_VALUE ? errFile : writePipe;
-    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = writePipe.get();
+    si.hStdError = errFile ? errFile.get() : writePipe.get();
+    si.hStdInput = childInput.get();
+    std::vector<HANDLE> inheritedHandles{childInput.get(), writePipe.get()};
+    if (errFile) inheritedHandles.push_back(errFile.get());
+    tinynext::native::UniqueProcThreadAttributeList attributes;
+    if (!attributes.initialize(inheritedHandles.data(),
+                               static_cast<DWORD>(inheritedHandles.size()))) {
+        return result;
+    }
+    startup.lpAttributeList = attributes.get();
+    si.cb = sizeof(startup);
     PROCESS_INFORMATION pi{};
     std::vector<wchar_t> cmdBuf(cmd.begin(), cmd.end());
     cmdBuf.push_back(L'\0');
     const BOOL ok = CreateProcessW(nullptr, cmdBuf.data(), nullptr, nullptr, TRUE,
-                                   CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
-    CloseHandle(writePipe);  // 父进程关闭写端，才能读到 EOF
-    if (errFile != INVALID_HANDLE_VALUE) CloseHandle(errFile);
-    if (!ok) { CloseHandle(readPipe); return result; }
+                                   CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
+                                   nullptr, nullptr, &si, &pi);
+    writePipe.reset();  // 父进程关闭写端，才能读到 EOF
+    childInput.reset();
+    errFile.reset();
+    if (!ok) return result;
+    ChildProcess process(pi.hProcess);
+    tinynext::native::UniqueHandle thread(pi.hThread);
 
     const DWORD deadline = GetTickCount() + (DWORD)timeoutSec * 1000;
     bool exited = false;
     for (;;) {
         DWORD avail = 0;
-        if (PeekNamedPipe(readPipe, nullptr, 0, nullptr, &avail, nullptr) && avail > 0) {
+        if (PeekNamedPipe(readPipe.get(), nullptr, 0, nullptr, &avail, nullptr) && avail > 0) {
             char buf[8192];
             DWORD got = 0;
             const DWORD want = avail < sizeof(buf) ? avail : (DWORD)sizeof(buf);
-            if (ReadFile(readPipe, buf, want, &got, nullptr) && got > 0) {
+            if (ReadFile(readPipe.get(), buf, want, &got, nullptr) && got > 0) {
                 result.out.append(buf, got);
             }
             continue;
         }
-        if (WaitForSingleObject(pi.hProcess, 0) == WAIT_OBJECT_0) { exited = true; break; }
+        if (process.exited()) { exited = true; break; }
         if (GetTickCount() > deadline) {
-            TerminateProcess(pi.hProcess, 1);
+            process.terminate();
             result.timedOut = true;
             break;
         }
@@ -387,33 +554,26 @@ CapturedProc runCapture(const std::string& exe,
     // 进程退出后再尽力排空管道里剩余数据。
     for (;;) {
         DWORD avail = 0;
-        if (!PeekNamedPipe(readPipe, nullptr, 0, nullptr, &avail, nullptr) || avail == 0) break;
+        if (!PeekNamedPipe(readPipe.get(), nullptr, 0, nullptr, &avail, nullptr) ||
+            avail == 0) break;
         char buf[8192];
         DWORD got = 0;
         const DWORD want = avail < sizeof(buf) ? avail : (DWORD)sizeof(buf);
-        if (!ReadFile(readPipe, buf, want, &got, nullptr) || got == 0) break;
+        if (!ReadFile(readPipe.get(), buf, want, &got, nullptr) || got == 0) break;
         result.out.append(buf, got);
     }
     if (exited) {
-        DWORD code = 1;
-        GetExitCodeProcess(pi.hProcess, &code);
-        result.exitCode = (int)code;
+        result.exitCode = static_cast<int>(process.exitCode());
     }
-    CloseHandle(readPipe);
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
     return result;
 #else
     int pipefd[2];
     if (pipe(pipefd) != 0) return result;
-    const int errFd = open(stderrFile.string().c_str(),
-                           O_WRONLY | O_CREAT | O_TRUNC, 0644);
-
-    posix_spawn_file_actions_t fa;
-    posix_spawn_file_actions_init(&fa);
-    posix_spawn_file_actions_adddup2(&fa, pipefd[1], STDOUT_FILENO);
-    if (errFd >= 0) posix_spawn_file_actions_adddup2(&fa, errFd, STDERR_FILENO);
-    posix_spawn_file_actions_addclose(&fa, pipefd[0]);
+    tinynext::native::UniqueFd readPipe(pipefd[0]);
+    tinynext::native::UniqueFd writePipe(pipefd[1]);
+    if (!readPipe || !writePipe) return result;
+    tinynext::native::UniqueFd errFile(open(
+        stderrFile.string().c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644));
 
     std::vector<std::string> argStorage;
     argStorage.push_back(exe);
@@ -424,24 +584,40 @@ CapturedProc runCapture(const std::string& exe,
     argv.push_back(nullptr);
 
     pid_t pid = 0;
-    const int rc = posix_spawn(&pid, exe.c_str(), &fa, nullptr, argv.data(), environ);
-    posix_spawn_file_actions_destroy(&fa);
-    close(pipefd[1]);
-    if (errFd >= 0) close(errFd);
-    if (rc != 0) { close(pipefd[0]); return result; }
+    int rc = 0;
+    {
+        posix_spawn_file_actions_t fa;
+        if (posix_spawn_file_actions_init(&fa) != 0) return result;
+        struct ActionsGuard {
+            posix_spawn_file_actions_t* actions;
+            ~ActionsGuard() { posix_spawn_file_actions_destroy(actions); }
+        } actionsGuard{&fa};
+        posix_spawn_file_actions_adddup2(&fa, writePipe.get(), STDOUT_FILENO);
+        if (errFile) posix_spawn_file_actions_adddup2(&fa, errFile.get(), STDERR_FILENO);
+        posix_spawn_file_actions_addclose(&fa, readPipe.get());
+        if (writePipe.get() != STDOUT_FILENO && writePipe.get() != STDERR_FILENO) {
+            posix_spawn_file_actions_addclose(&fa, writePipe.get());
+        }
+        if (errFile && errFile.get() != STDERR_FILENO) {
+            posix_spawn_file_actions_addclose(&fa, errFile.get());
+        }
+        rc = posix_spawn(&pid, exe.c_str(), &fa, nullptr, argv.data(), environ);
+    }
+    writePipe.reset();
+    errFile.reset();
+    if (rc != 0) return result;
+    ChildProcess child(pid);
 
-    fcntl(pipefd[0], F_SETFL, O_NONBLOCK);
+    fcntl(readPipe.get(), F_SETFL, O_NONBLOCK);
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeoutSec);
-    int status = 0;
     bool exited = false;
     for (;;) {
         char buf[8192];
-        const ssize_t n = read(pipefd[0], buf, sizeof(buf));
+        const ssize_t n = read(readPipe.get(), buf, sizeof(buf));
         if (n > 0) { result.out.append(buf, (std::size_t)n); continue; }
-        if (waitpid(pid, &status, WNOHANG) == pid) { exited = true; break; }
+        if (child.exited()) { exited = true; break; }
         if (std::chrono::steady_clock::now() > deadline) {
-            kill(pid, SIGKILL);
-            waitpid(pid, &status, 0);
+            child.terminate();
             result.timedOut = true;
             break;
         }
@@ -450,12 +626,11 @@ CapturedProc runCapture(const std::string& exe,
     // 排空剩余。
     for (;;) {
         char buf[8192];
-        const ssize_t n = read(pipefd[0], buf, sizeof(buf));
+        const ssize_t n = read(readPipe.get(), buf, sizeof(buf));
         if (n <= 0) break;
         result.out.append(buf, (std::size_t)n);
     }
-    close(pipefd[0]);
-    if (exited && WIFEXITED(status)) result.exitCode = WEXITSTATUS(status);
+    if (exited && WIFEXITED(child.status())) result.exitCode = WEXITSTATUS(child.status());
     return result;
 #endif
 }
@@ -517,7 +692,7 @@ CompState g_state;
 std::function<void()> g_wakeUi;
 
 void wakeUi() {
-    if (g_wakeUi) g_wakeUi();
+    if (!g_workersShuttingDown.load(std::memory_order_acquire) && g_wakeUi) g_wakeUi();
 }
 
 // 锁内改状态、锁外唤醒 UI。
@@ -614,6 +789,11 @@ void setWakeUi(std::function<void()> fn) {
     g_wakeUi = std::move(fn);
 }
 
+void prepareForShutdown(dl::DownloadEngine& eng) {
+    g_workerEngine.store(&eng, std::memory_order_release);
+    std::call_once(g_workerExitHook, [] { std::atexit(stopAndJoinUpdaterWorkers); });
+}
+
 // 预热线程调用：跑 aria2-next --version 填充当前版本。
 void probeAria2Version() {
     mutate([](CompState& s) { s.current = probeVersion(); });
@@ -629,8 +809,8 @@ void checkLatest(dl::DownloadEngine& eng) {
         g_state.progress = 0;
     }
     wakeUi();
-    // eng 是 g_tasks 持有的长命对象（与进程同寿），引用捕获安全。
-    std::thread([&eng] {
+    // Track the worker so shutdown can cancel its download and join before teardown.
+    launchUpdaterWorker(eng, [&eng] {
         const std::filesystem::path tmp = std::filesystem::temp_directory_path() /
             "tinynext-update" / "aria2-next-latest.json";
         std::error_code ec;
@@ -669,7 +849,7 @@ void checkLatest(dl::DownloadEngine& eng) {
                            ? CompStatus::UpdateAvailable
                            : CompStatus::UpToDate;
         });
-    }).detach();
+    });
 }
 
 void startUpdate(dl::DownloadEngine& eng) {
@@ -686,7 +866,8 @@ void startUpdate(dl::DownloadEngine& eng) {
         tag = g_state.tag;
     }
     wakeUi();
-    std::thread([&eng, ver, tag] {
+    // Same tracked lifetime as checkLatest(): join before g_tasks destruction.
+    launchUpdaterWorker(eng, [&eng, ver, tag] {
         auto failWith = [](std::string e) {
             mutate([&](CompState& s) {
                 s.busy = false;
@@ -745,22 +926,32 @@ void startUpdate(dl::DownloadEngine& eng) {
         //    重拉起）换文件并自动重拉起。
         mutate([](CompState& s) { s.status = CompStatus::Replacing; });
         {
-            std::mutex mu;
-            std::condition_variable cv;
-            bool finished = false;
-            bool ok = false;
+            struct RestartWait {
+                std::mutex mutex;
+                std::condition_variable cv;
+                bool finished = false;
+                bool ok = false;
+            };
+            const auto wait = std::make_shared<RestartWait>();
             eng.restartEngine(
-                [&](bool success) {
+                [wait](bool success) {
                     {
-                        std::lock_guard lock(mu);
-                        finished = true;
-                        ok = success;
+                        std::lock_guard lock(wait->mutex);
+                        wait->finished = true;
+                        wait->ok = success;
                     }
-                    cv.notify_one();
+                    wait->cv.notify_one();
                 },
-                [&] { return replaceBinary(binFile, target).empty(); });
-            std::unique_lock lock(mu);
-            cv.wait_for(lock, std::chrono::seconds(60), [&] { return finished; });
+                [binFile, target] { return replaceBinary(binFile, target).empty(); });
+            std::unique_lock lock(wait->mutex);
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+            while (!wait->finished &&
+                   !g_workersShuttingDown.load(std::memory_order_acquire) &&
+                   std::chrono::steady_clock::now() < deadline) {
+                wait->cv.wait_for(lock, std::chrono::milliseconds(100));
+            }
+            const bool ok = wait->finished && wait->ok;
+            if (g_workersShuttingDown.load(std::memory_order_acquire)) return;
             if (!ok) {
                 failWith(tr("comp.error.restart"));
                 return;
@@ -776,7 +967,7 @@ void startUpdate(dl::DownloadEngine& eng) {
             s.progress = 100;
             s.current = std::move(current);
         });
-    }).detach();
+    });
 }
 
 } // namespace updater

@@ -19,6 +19,7 @@ module;
 #define NOMINMAX
 #endif
 #include <windows.h>  // GetCommandLineW / LocalFree
+#include "native_resource.hpp"
 #elif defined(__APPLE__)
 #include <crt_externs.h>  // _NSGetArgc/_NSGetArgv
 #endif
@@ -43,21 +44,22 @@ std::vector<std::string> commandLineArgs() {
         std::vector<std::string> args;
 #ifdef _WIN32
         using CmdToArgvFn = LPWSTR*(WINAPI*)(LPCWSTR, int*);
-        static const CmdToArgvFn cmdToArgv = []() -> CmdToArgvFn {
-            HMODULE m = LoadLibraryW(L"shell32.dll");
-            if (!m) return nullptr;
+        static const tinynext::native::UniqueModule shell32(LoadLibraryW(L"shell32.dll"));
+        static const CmdToArgvFn cmdToArgv = [&]() -> CmdToArgvFn {
+            if (!shell32) return nullptr;
             return reinterpret_cast<CmdToArgvFn>(
-                reinterpret_cast<void*>(GetProcAddress(m, "CommandLineToArgvW")));
+                reinterpret_cast<void*>(GetProcAddress(shell32.get(), "CommandLineToArgvW")));
         }();
         if (cmdToArgv) {
             int argc = 0;
             LPWSTR* wargv = cmdToArgv(GetCommandLineW(), &argc);
             if (wargv) {
+                tinynext::native::UniqueLocalAlloc argsOwner(
+                    static_cast<HLOCAL>(wargv));
                 for (int i = 1; i < argc; ++i) {
                     const std::wstring w(wargv[i]);
                     args.push_back(std::string(w.begin(), w.end()));
                 }
-                LocalFree(static_cast<HLOCAL>(wargv));
             }
         }
 #elif defined(__APPLE__)
