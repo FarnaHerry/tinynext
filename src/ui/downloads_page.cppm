@@ -303,15 +303,13 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 .gap(kPagerGap)
                 .alignItems(core::Align::CENTER)
                 .content([&] {
-                    components::button(ui, "pager.prev")
+                    ui.stack("pager.prev")
                         .size(kChevWidth, kChevWidth)
-                        .icon(0xF053)  // chevron-left
-                        .text("")
-                        .iconSize(kCompactButtonFontSize)
-                        .theme(theme.components, false)
-                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                        .disabled(g_page <= 1)
-                        .onClick([] { if (g_page > 1) --g_page; })
+                        .content([&] {
+                            drawToolbarIconButton(ui, "pager.prev.icon", 0, 0,
+                                kChevWidth, kChevWidth, 0xF053, false, theme,
+                                [] { if (g_page > 1) --g_page; }, false, g_page > 1);
+                        })
                         .build();
 
                     components::text(ui, "pager.label")
@@ -325,15 +323,14 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .color(theme.metaText)
                         .build();
 
-                    components::button(ui, "pager.next")
+                    ui.stack("pager.next")
                         .size(kChevWidth, kChevWidth)
-                        .icon(0xF054)  // chevron-right
-                        .text("")
-                        .iconSize(kCompactButtonFontSize)
-                        .theme(theme.components, false)
-                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                        .disabled(g_page >= totalPages)
-                        .onClick([totalPages] { if (g_page < totalPages) ++g_page; })
+                        .content([&] {
+                            drawToolbarIconButton(ui, "pager.next.icon", 0, 0,
+                                kChevWidth, kChevWidth, 0xF054, false, theme,
+                                [totalPages] { if (g_page < totalPages) ++g_page; },
+                                false, g_page < totalPages);
+                        })
                         .build();
 
                     // 分页大小（5/10/20/50/100，纯文本"数字/页"无边框），跟在下一页后面。
@@ -349,14 +346,13 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                                         g_page = 1;
                                     });
 
-                    components::button(ui, "pager.settings")
+                    ui.stack("pager.settings")
                         .size(kChevWidth, kChevWidth)
-                        .icon(0xF013)  // gear
-                        .text("")
-                        .iconSize(kCompactButtonFontSize)
-                        .theme(theme.components, false)
-                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                        .onClick([] { g_page_view = Page::Settings; })
+                        .content([&] {
+                            drawToolbarIconButton(ui, "pager.settings.icon", 0, 0,
+                                kChevWidth, kChevWidth, 0xF013, false, theme,
+                                [] { g_page_view = Page::Settings; });
+                        })
                         .build();
                 })
                 .build();

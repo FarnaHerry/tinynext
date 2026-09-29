@@ -201,7 +201,7 @@ export void drawVDivider(eui::Ui& ui, const std::string& id, float x, float y,
 export void drawToolbarIconButton(eui::Ui& ui, const std::string& id, float x, float y,
                                   float w, float h, unsigned int icon, bool primary,
                                   const AppTheme& theme, std::function<void()> onClick,
-                                  bool fab = false) {
+                                  bool fab = false, bool enabled = true) {
     const auto& tokens = theme.components;
     const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
     const core::Color transparent{0.0f, 0.0f, 0.0f, 0.0f};
@@ -227,11 +227,14 @@ export void drawToolbarIconButton(eui::Ui& ui, const std::string& id, float x, f
     ui.rect(id + ".fill")
         .position(x, y)
         .size(w, h)
-        .states(transparent, stateLayer(theme.onSurface, 0.08f),
-                stateLayer(theme.onSurface, 0.12f))
+        .states(transparent,
+                enabled ? stateLayer(theme.onSurface, 0.08f) : transparent,
+                enabled ? stateLayer(theme.onSurface, 0.12f) : transparent)
         .radius(radius)
         .transition(transition)
-        .onClick(std::move(onClick))
+        .onClick([enabled, action = std::move(onClick)] {
+            if (enabled) action();
+        })
         .build();
 
     ui.text(id + ".icon")
@@ -240,7 +243,7 @@ export void drawToolbarIconButton(eui::Ui& ui, const std::string& id, float x, f
         .icon(icon)
         .fontSize(13.0f)
         .lineHeight(h)
-        .color(tokens.text)
+        .color(enabled ? tokens.text : theme.metaText)
         .horizontalAlign(core::HorizontalAlign::Center)
         .verticalAlign(core::VerticalAlign::Center)
         .build();
