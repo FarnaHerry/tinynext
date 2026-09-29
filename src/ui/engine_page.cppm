@@ -1,10 +1,10 @@
-// ui/engine_page.cppm — aria2-next 引擎监控页：健康状态 + 全局统计 + 重启。
+// ui/engine_page.cppm — Settings 内的 aria2-next 引擎监控标签内容。
 //
-// 与设置页同款「整页单岛」布局：引擎二进制 / 守护进程 / RPC / WS / 版本 /
-// RPC 端点逐行体检 + 右下全局统计卡 + 底部操作行（立即检测 / 重启引擎 / 打开日志）。
+// 引擎二进制 / 守护进程 / RPC / WS / 版本 / RPC 端点逐行体检 + 全局统计卡，
+// 以及立即检测 / 重启引擎 / 打开日志操作行。
 //
 // 健康数据源：g_tasks.health() 是纯读缓存（UI 线程每帧读，不发 RPC）；内容由
-// g_tasks.refreshHealth() 在后台命令线程刷新（housekeep 在监控页打开时 ~2s 一次，
+// g_tasks.refreshHealth() 在后台命令线程刷新（housekeep 在引擎标签打开时 ~2s 一次，
 // 「立即检测」按钮手动触发）。重启走 g_tasks.restartEngine()：保存会话 → 优雅退出
 // → 重新拉起，进行中的下载经 .aria2 控制文件续传、不丢。
 module;
@@ -18,9 +18,8 @@ import tinynext.config;          // cfg::configDir（打开引擎日志）
 import tinynext.download_engine; // dl::HealthInfo
 import tinynext.i18n;            // tr（监控页文案）
 import tinynext.ui.theme;
-import tinynext.ui.utils;        // kRailWidth/kRightMargin/kIslandVInset/kPanelPad
-                                 // + formatBytes/formatSpeed（转发自 tinynext.utils）
-import tinynext.ui.widgets;      // drawPanel / onPrimaryColor
+import tinynext.ui.utils;        // formatBytes/formatSpeed（转发自 tinynext.utils）
+import tinynext.ui.widgets;      // onPrimaryColor
 import tinynext.store.tasks;     // g_tasks.health/refreshHealth/restartEngine
 import tinynext.store.ui;        // postStatus（后台回调 → UI 状态条）
 import tinynext.ui.platform;     // openFile（打开引擎日志）
@@ -34,25 +33,10 @@ std::atomic<bool> g_checking{false};  // 「立即检测」进行中
 
 } // namespace
 
-export void drawEnginePage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
-    const float islandTop = kIslandVInset;
-    const float islandH = screen.height - 2.0f * kIslandVInset;
-    const float islandX = kRailWidth;
-    const float islandW = screen.width - islandX - kRightMargin;
-    const float pad = kPanelPad;
-    const float infoX = islandX + pad;
-    const float innerW = islandW - 2.0f * pad;
+export void drawEnginePage(eui::Ui& ui, const AppTheme& theme, float infoX,
+                           float innerW, float scrollTop, float actionY) {
     constexpr float kLabelW = 96.0f;
-
-    // 整页一张岛卡（无二级侧边栏，监控内容无需分栏）。
-    drawPanel(ui, "engine.island", islandX, islandTop, islandW, islandH, theme);
-
-    // ---- 操作行（固定窗口底部）：立即检测 / 重启引擎 / 打开日志 ---
-    // 先算出 actionY，scrollView 高度以此下界。
-    const float actionY = islandTop + islandH - pad - kButtonHeight;
-
     // ---- 滚动内容区（标题 + 状态 + 体检 + 统计 + 参数）----
-    const float scrollTop = islandTop + pad;
     const float scrollH = std::max(0.0f, actionY - scrollTop - 10.0f);
 
     components::scrollView(ui, "engine.scroll")

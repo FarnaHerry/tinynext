@@ -105,11 +105,11 @@ void housekeepLoop() {
         if (g_tasks.busy()) {
             core::platform::requestUiUpdate();
         }
-        // 引擎监控页打开时 ~2s 刷新一次健康信息（getVersion/getGlobalStat RPC 在
+        // 设置页的引擎监控标签打开时 ~2s 刷新一次健康信息（getVersion/getGlobalStat RPC 在
         // 后台命令线程执行，不阻塞 UI）。离开监控页即停，空闲时零额外开销。
         const auto now = std::chrono::steady_clock::now();
         static auto lastHealthRefresh = now;
-        if (g_page_view == Page::Monitor &&
+        if (g_page_view == Page::Settings && g_engineMonitorTabActive.load() &&
             now - lastHealthRefresh >= std::chrono::seconds(2)) {
             lastHealthRefresh = now;
             g_tasks.refreshHealth([](const dl::HealthInfo&) {

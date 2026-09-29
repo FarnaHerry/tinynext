@@ -256,6 +256,7 @@ export constexpr Entry kEntries[] = {
     Entry{"settings.tab.ed2k",    "ED2K", "ED2K", "ED2K"},
     Entry{"settings.tab.network", "网络", "網路", "Network"},
     Entry{"settings.tab.advanced","高级", "進階", "Advanced"},
+    Entry{"settings.tab.engine", "引擎", "引擎", "Engine"},
 
     // ---- settings：通用 tab ----
     Entry{"settings.theme",       "主题", "佈景主題", "Theme"},

@@ -34,10 +34,8 @@ import tinynext.cli;
 import tinynext.ui.utils;
 import tinynext.ui.theme_watch;
 import tinynext.ui.theme;
-import tinynext.ui.widgets;
 import tinynext.ui.downloads_page;
 import tinynext.ui.settings_page;
-import tinynext.ui.engine_page;
 import tinynext.ui.platform;
 import tinynext.ui.housekeep;
 import tinynext.store.tasks;    // g_tasks（启动预热 warmup）
@@ -199,62 +197,10 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 .color(theme.components.background)
                 .build();
 
-            // ===================== 主侧边栏（图标栏） =====================
-            // 总侧边栏不套卡片、也不铺底色：整列直接透明，logo/导航/底部按钮浮在
-            // 页面背景上，让主题背景透出来更突出。左侧这列 kRailWidth 宽作为锚点，
-            // 悬浮的"岛"卡片（状态子侧边栏 / 内容卡）从它右侧起排。
-            ui.stack("sidebar")
-                .position(0, 0)
-                .size(kRailWidth, screen.height)
-                .zIndex(5)
-                .content([&] {
-
-                    // 应用 logo：项目名缩写 "TN"（TinyNext）。黑白极客风：反白方块
-                    // （暗主题白底黑字 / 亮主题黑底白字）+ 等宽字，水平居中于 rail。
-                    ui.rect("sidebar.logo.bg")
-                        .position((kRailWidth - 20.0f) * 0.5f, 10.0f)
-                        .size(20.0f, 20.0f)
-                        .color(theme.primary)
-                        .radius(4.0f)
-                        .build();
-                    ui.text("sidebar.logo")
-                        .position(0, 10.0f)
-                        .size(kRailWidth, 20.0f)
-                        .text("TN")
-                        .fontSize(9.0f)
-                        .fontFamily(kMonoFont)
-                        .lineHeight(20.0f)
-                        .color(theme.onPrimary)
-                        .horizontalAlign(core::HorizontalAlign::Center)
-                        .verticalAlign(core::VerticalAlign::Center)
-                        .build();
-
-                    // 应用页导航（图标块，名称走 hover 提示气泡）：下载 / 设置 /
-                    // 引擎监控。y 步进 44（32 高块 + 12 间隙）。
-                    float railY = 44.0f;
-                    drawRailItem(ui, "nav.downloads", railY, kRailWidth, 0xF03A,
-                                 tr("app.tab.downloads"), g_page_view == Page::Downloads,
-                                 theme,
-                                 [] { g_page_view = Page::Downloads; });
-                    railY += 44.0f;
-                    drawRailItem(ui, "nav.settings", railY, kRailWidth, 0xF013,
-                                 tr("app.tab.settings"), g_page_view == Page::Settings,
-                                 theme,
-                                 [] { g_page_view = Page::Settings; });
-                    railY += 44.0f;
-                    drawRailItem(ui, "nav.engine", railY, kRailWidth, 0xF233,  // fa-server
-                                 tr("app.tab.monitor"), g_page_view == Page::Monitor,
-                                 theme,
-                                 [] { g_page_view = Page::Monitor; });
-
-                })
-                .build();
-
-            // ===================== 内容区（页面分发） =====================
+            // 页面直接铺在主题背景上，由下载页分页器进入设置页。
             switch (g_page_view) {
                 case Page::Downloads: drawDownloadsPage(ui, screen, theme); break;
                 case Page::Settings:  drawSettingsPage(ui, screen, theme);  break;
-                case Page::Monitor:   drawEnginePage(ui, screen, theme);    break;
             }
         })
         .build();

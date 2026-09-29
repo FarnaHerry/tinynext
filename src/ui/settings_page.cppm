@@ -11,9 +11,11 @@ import tinynext.config;
 import tinynext.i18n;         // tr() + setLanguage（语言切换）
 import tinynext.ui.theme;
 import tinynext.ui.utils;
-import tinynext.ui.widgets;   // drawPanel（设置页大卡背景）
+import tinynext.ui.widgets;   // 页面按钮与表单控件
+import tinynext.ui.engine_page;
+import tinynext.download_engine; // dl::HealthInfo
 import tinynext.store.tasks;  // g_tasks.engineActive（保存 daemon 参数时提示重启）
-import tinynext.store.ui;     // showStatus
+import tinynext.store.ui;     // showStatus / page state
 import tinynext.store.dialogs;  // g_restartPromptOpen（关闭行为变更的重启提示弹窗）
 import tinynext.component_updater;  // 组件更新（aria2-next）
 import tinynext.ui.platform;
@@ -23,10 +25,11 @@ import tinynext.ui.platform;
 // 「保存」时写入配置并生效，点「放弃」回滚到已保存值。主题相关的 pending
 // （g_pendingTheme/g_dark/...）归位在 tinynext.ui.theme。
 
-// 设置页顶部标签分组：每组一个独立"子页面"，避免全部参数挤在一屏滚动过长。
-// 分组对齐 MotrixNext：通用 / 下载 / BitTorrent / ED2K / 网络 / 高级，并包含组件
-// 管理与关于信息页。
-enum class SettingsTab { General, Download, BitTorrent, Ed2k, Network, Advanced, Components, About };
+// 设置页顶部标签分组：每组一个独立子页面，避免全部参数挤在一屏滚动过长。
+// 包含常规配置、组件、引擎监控和关于信息。
+enum class SettingsTab {
+    General, Download, BitTorrent, Ed2k, Network, Advanced, Engine, Components, About
+};
 SettingsTab g_settingsTab = SettingsTab::General;
 // 下载目录待提交值（默认保存目录；点「保存」才写入配置）。
 std::string g_downloadDirText = cfg::downloadDir().string();
@@ -186,19 +189,15 @@ void applyThemeChoice(int i) {
 } // namespace
 
 // ===================== 设置页 =====================
-// 岛屿卡片风：整页一张浮岛卡，卡内顶部是「页面标题 + 配置分组标签栏」行（标签栏
-// 镜像下载页的分段切换样式），下方是滚动表单区，底部操作行固定在大卡底部。
+// 页面直接铺在背景上：顶部标签栏、滚动内容和固定操作区。
 export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
     const float islandTop = kIslandVInset;
     const float islandH = screen.height - 2.0f * kIslandVInset;
-    const float contentX = kRailWidth;
-    const float contentW = screen.width - contentX - kRightMargin;
+    const float contentX = 0.0f;
+    const float contentW = screen.width - kRightMargin;
     const float pad = kPanelPad;
     const float infoX = contentX + pad;
     const float innerW = contentW - 2.0f * pad;
-
-    // 整页一张岛卡。
-    drawPanel(ui, "settings.island", contentX, islandTop, contentW, islandH, theme);
 
     // ---- 顶部行：页面标题（左）+ 配置分组标签栏（标题右侧）----
     // 标签栏镜像下载页筛选标签的分段切换样式：容器 surfaceContainer + hairline，
@@ -229,6 +228,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         {tr("settings.tab.ed2k"), "ed2k", SettingsTab::Ed2k},
         {tr("settings.tab.network"), "network", SettingsTab::Network},
         {tr("settings.tab.advanced"), "advanced", SettingsTab::Advanced},
+        {tr("settings.tab.engine"), "engine", SettingsTab::Engine},
         {tr("settings.tab.components"), "components", SettingsTab::Components},
         {tr("settings.tab.about"), "about", SettingsTab::About},
     };
@@ -241,8 +241,8 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         labelWSum += tabW[i];
     }
     const float tabsX = infoX + titleW + 16.0f;
-    const float tabsAvail =
-        std::max(0.0f, contentX + contentW - pad - tabsX);
+    const float tabsAvail = std::max(0.0f, contentX + contentW - pad - tabsX -
+                                           kToolbarButtonSize - 8.0f);
     const float gapsW = kTabGap * static_cast<float>(kTabCount - 1);
     float tabPadH = 12.0f;
     if (labelWSum + 2.0f * tabPadH * kTabCount + gapsW > tabsAvail) {
@@ -290,7 +290,15 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .size(tabW[i], kTabH)
                     .color({0.0f, 0.0f, 0.0f, 0.0f})
                     .radius(kButtonRadius)
-                    .onClick([tab = kTabs[i].tab] { g_settingsTab = tab; })
+                    .onClick([tab = kTabs[i].tab] {
+                        g_settingsTab = tab;
+                        g_engineMonitorTabActive.store(tab == SettingsTab::Engine);
+                        if (tab == SettingsTab::Engine) {
+                            g_tasks.refreshHealth([](const dl::HealthInfo&) {
+                                core::platform::requestUiUpdate();
+                            });
+                        }
+                    })
                     .build();
                 components::text(ui, segId + ".label")
                     .position(segX, 0.0f)
@@ -307,6 +315,11 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         })
         .build();
 
+    drawToolbarIconButton(ui, "settings.close",
+                          contentX + contentW - pad - kToolbarButtonSize, headerY,
+                          kToolbarButtonSize, kToolbarButtonSize, 0xF00D, false,
+                          theme, [] { g_page_view = Page::Downloads; });
+
     // ---- 布局常量 ----
     constexpr float kLabelW = 90.0f;
     constexpr float kFieldH = 26.0f;
@@ -316,6 +329,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
 
     // 设置项较多，正文放进 scrollView（主题/路径/aria2 参数）；底部操作行
     // 固定在窗口底部，始终可见。
+    if (g_settingsTab == SettingsTab::Engine) {
+        drawEnginePage(ui, theme, infoX, innerW, scrollTop, actionY);
+    } else {
     components::scrollView(ui, "settings.scroll")
         .position(infoX, scrollTop)
         .size(innerW, scrollHeight)
@@ -1050,8 +1066,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             }  // 组件 tab 结束
         })
         .build();
+    }
 
-    if (g_settingsTab != SettingsTab::About) {
+    if (g_settingsTab != SettingsTab::About && g_settingsTab != SettingsTab::Engine) {
     // ---- 操作行（固定窗口底部）：恢复默认路径（text）/ 保存（filled）/ 放弃（text）----
     drawTextButton(ui, "settings.path.reset", infoX + kLabelW, actionY,
                    76.0f, kButtonHeight, tr("settings.reset"), theme,

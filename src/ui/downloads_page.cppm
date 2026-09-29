@@ -26,8 +26,7 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
                         const TaskInfoSnapshot& task);
 
 // ===================== 下载页 =================
-// 布局：整页一张浮岛卡，卡内顶部是工具栏行（左：筛选标签 所有/下载中/已完成，
-// 右：全部暂停 / 全部继续 / 排序 / 添加），下方是卡片任务列表 + 翻页控件组。
+// 布局：筛选与下载操作悬浮在页面背景上，下方是任务列表和分页控件。
 export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
     // ---- 数据：筛选 + 排序 + 分页切片（每帧重跑，跟随下载线程实时刷新）----
     const auto tasks = g_tasks.snapshot();
@@ -88,18 +87,13 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const int start = (g_page - 1) * g_pageSize;
     const int end = std::min(totalCount, start + g_pageSize);
 
-    // ---- 布局尺寸（岛屿卡片风：整页一张浮岛卡）----
-    // 图标栏占满左缘（整高竖条、不套卡片）；内容岛卡紧贴图标栏右侧，上下各留
-    // kIslandVInset 空隙，仅右侧留 kRightMargin。筛选标签在工具栏行内，不再占
-    // 子侧边栏。
+    // ---- 页面布局 ----
     const float islandTop = kIslandVInset;
     const float islandH = screen.height - 2.0f * kIslandVInset;
-    const float contentX = kRailWidth;
-    const float contentW = screen.width - contentX - kRightMargin;
-    // 整页一张岛：从图标栏右缘到内容区右缘。
-    const float islandW = contentW;
+    const float contentX = 0.0f;
+    const float contentW = screen.width - kRightMargin;
 
-    // 内容大卡：内边距 kPanelPad，卡内依次是 工具栏 / 任务列表 / 状态消息 / 翻页。
+    // 工具栏 / 任务列表 / 状态消息 / 翻页直接放在背景上。
     const float pad = kPanelPad;
     const float toolY = islandTop + pad;
     const float pagerY = islandTop + islandH - pad - kPagerHeight;
@@ -107,9 +101,6 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const float listHeight = std::max(0.0f, pagerY - listTop - 4.0f);
     const float listX = contentX + pad;
     const float listW = contentW - 2.0f * pad;
-
-    // 整页一张岛卡。
-    drawPanel(ui, "dl.island", contentX, islandTop, islandW, islandH, theme);
 
     // ---- 筛选标签（工具栏行左侧）：所有 / 下载中 / 已完成，分段切换样式 ----
     // 样式同添加弹窗的分段规范：容器 surfaceContainer + hairline，选中指示块
@@ -275,18 +266,18 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         })
         .build();
 
-    // ---- 翻页控件组：◀ 页码 ▶ [数字/页]，整组收进一张小卡片 ----
+    // ---- 翻页控件组：◀ 页码 ▶ [数字/页] [设置] ----
     // 简洁版：中间只显示当前页码数字（不再显示"第 X / Y 页"），分页大小是
-    // 无边框的纯文本"数字/页"。整组控件包在一张圆角小卡里（岛内小岛）。
+    // 无边框的纯文本"数字/页"，末尾齿轮直接进入设置页。
     constexpr float kChevWidth = kStepperButtonSize;
     constexpr float kPageLabelWidth = 28.0f;   // 仅当前页码
     constexpr float kPageSizeWidth = 52.0f;    // "数字/页" 纯文本
     constexpr float kPagerGap = 4.0f;
-    constexpr float kPagerPadH = 10.0f;        // 卡片水平内边距
-    constexpr float kPagerPadV = 3.0f;         // 卡片垂直内边距
+    constexpr float kPagerPadH = 10.0f;
+    constexpr float kPagerPadV = 3.0f;
     const float groupWidth = kChevWidth + kPagerGap + kPageLabelWidth +
                              kPagerGap + kChevWidth + kPagerGap +
-                             kPageSizeWidth;
+                             kPageSizeWidth + kPagerGap + kChevWidth;
     const float pagerCardW = groupWidth + 2.0f * kPagerPadH;
     const float pagerCardH = kPagerHeight + 2.0f * kPagerPadV;
     const float pagerCardX = contentX + (contentW - pagerCardW) * 0.5f;
@@ -297,7 +288,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         .size(pagerCardW, pagerCardH)
         .zIndex(10)
         .content([&] {
-            // 岛内小岛 = cardBg 底（比岛卡收一层）+ 小圆角 + hairline 描边，无投影。
+            // 轻量浮动的分页控件底。
             ui.rect("pager.card.bg")
                 .position(0, 0)
                 .size(pagerCardW, pagerCardH)
@@ -357,6 +348,16 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                                         g_pageSize = kPageSizes[i];
                                         g_page = 1;
                                     });
+
+                    components::button(ui, "pager.settings")
+                        .size(kChevWidth, kChevWidth)
+                        .icon(0xF013)  // gear
+                        .text("")
+                        .iconSize(kCompactButtonFontSize)
+                        .theme(theme.components, false)
+                        .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
+                        .onClick([] { g_page_view = Page::Settings; })
+                        .build();
                 })
                 .build();
         })
