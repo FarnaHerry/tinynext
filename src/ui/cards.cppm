@@ -1,4 +1,4 @@
-// ui/cards.cppm — the download task card (filename + status, progress, info
+// ui/cards.cppm — the download task card (filename, progress, info
 // row with per-state icon actions).
 module;
 
@@ -30,7 +30,7 @@ export eui::Color stateColor(dl::State state) {
     return theme.idle;
 }
 
-// 卡片右上角的状态短标签。
+// 任务状态短标签（任务信息弹窗使用）。
 export std::string stateLabel(dl::State state) {
     switch (state) {
         case dl::State::Queued:      return tr("card.state.queued");
@@ -128,7 +128,7 @@ export std::string cardInfoText(const dl::TaskView& task) {
 
 // 卡片式下载项：名称、进度、各种信息在卡片内纵向排布。
 // 卡片作为 scrollview 纵向流的一个子项；卡片内部用绝对定位布局三行：
-//   第 1 行  文件名（左）+ 状态标签（右）
+//   第 1 行  文件名
 //   第 2 行  进度条（横贯卡片）
 //   第 3 行  信息文本（左）+ 操作按钮（右）
 export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth) {
@@ -161,10 +161,8 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .border(kHairline, theme.outline)
                 .build();
 
-            // ---- 第 1 行：文件名 + 状态 chip ----（文件名超长用省略号截断成单行）
-            const float chipW = 54.0f;
-            const float stateW = chipW - 8.0f;
-            const float nameW = inner - chipW - 6.0f;
+            // ---- 第 1 行：文件名 ----（文件名超长用省略号截断成单行）
+            const float nameW = inner;
             components::text(ui, fid + ".name")
                 .position(kCardPad, 9.0f)
                 .size(nameW, 15.0f)
@@ -174,23 +172,6 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .maxWidth(nameW)
                 .color(theme.nameText)
                 .build();
-            // 状态标签 chip：哑化状态色 @12% 底 + 状态色字，小圆角。
-            ui.rect(fid + ".state.bg")
-                .position(cardWidth - kCardPad - chipW, 8.0f)
-                .size(chipW, 16.0f)
-                .color(components::theme::withAlpha(stateColor(task.state), 0.12f))
-                .radius(kChipRadius)
-                .build();
-            components::text(ui, fid + ".state")
-                .position(cardWidth - kCardPad - chipW, 8.0f)
-                .size(chipW, 16.0f)
-                .text(stateLabel(task.state))
-                .fontSize(10.0f)
-                .lineHeight(16.0f)
-                .horizontalAlign(core::HorizontalAlign::Center)
-                .color(stateColor(task.state))
-                .build();
-
             // ---- 第 2 行：进度条（4px 高，active=反白主色）----
             ui.stack(fid + ".progress.slot")
                 .position(kCardPad, 29.0f)
