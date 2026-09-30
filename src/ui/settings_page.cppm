@@ -190,11 +190,12 @@ void applyThemeChoice(int i) {
 // ===================== 设置页 =====================
 // 页面直接铺在背景上：顶部标签栏、滚动内容和固定操作区。
 export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
+    const bool compact = isCompactLayout(screen.width);
     const float islandTop = kIslandVInset;
     const float islandH = screen.height - 2.0f * kIslandVInset;
-    const float contentX = 0.0f;
-    const float contentW = screen.width - kRightMargin;
-    const float pad = kPanelPad;
+    const float contentX = pageContentX(screen.width);
+    const float contentW = pageContentWidth(screen.width);
+    const float pad = compact ? 8.0f : kPanelPad;
     const float infoX = contentX + pad;
     const float innerW = contentW - 2.0f * pad;
 
@@ -202,8 +203,8 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     // 标签栏镜像下载页筛选标签的分段切换样式：容器 surfaceContainer + hairline，
     // 选中指示块 surfaceContainerHighest（带过渡动画），选中文字 onSurface /
     // 未选中 onSurfaceVariant。段宽随文字自适应（measureTextWidth + 水平内边距），
-    // 窗口过窄时收窄段内边距，保证 7 个分组标签完整可见。
-    const float headerY = islandTop + 16.0f;
+    // 窄窗口时将标签移到标题下一行，并收窄段内边距，保证分组导航完整可见。
+    const float headerY = islandTop + (compact ? 8.0f : 16.0f);
     constexpr float kTabH = 28.0f;
     const char* titleText = tr("app.tab.settings");
     const float titleW =
@@ -238,13 +239,18 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         tabW[i] = core::TextPrimitive::measureTextWidth(kTabs[i].label, "", 12.0f);
         labelWSum += tabW[i];
     }
-    const float tabsX = infoX + titleW + 16.0f;
-    const float tabsAvail = std::max(0.0f, contentX + contentW - pad - tabsX -
-                                           kToolbarButtonSize - 8.0f);
     const float gapsW = kTabGap * static_cast<float>(kTabCount - 1);
+    const float inlineTabsX = infoX + titleW + 16.0f;
+    const float inlineTabsAvail = std::max(0.0f,
+        contentX + contentW - pad - inlineTabsX - kToolbarButtonSize - 8.0f);
+    const float minimumTabsW = labelWSum + 8.0f * kTabCount + gapsW;
+    // 窄窗口把分组导航放到标题下方，保证每个标签完整可读，并为关闭按钮留出独立区域。
+    const bool tabsOnSecondRow = compact || minimumTabsW > inlineTabsAvail;
+    const float tabsX = tabsOnSecondRow ? infoX : inlineTabsX;
+    const float tabsAvail = tabsOnSecondRow ? innerW : inlineTabsAvail;
     float tabPadH = 12.0f;
     if (labelWSum + 2.0f * tabPadH * kTabCount + gapsW > tabsAvail) {
-        tabPadH = std::max(4.0f,
+        tabPadH = std::max(3.0f,
             (tabsAvail - gapsW - labelWSum) / (2.0f * kTabCount));
     }
     float tabsTotalW = gapsW;
@@ -258,7 +264,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     }
 
     ui.stack("settings.tabs")
-        .position(tabsX, headerY)
+        .position(tabsX, headerY + (tabsOnSecondRow ? kTabH + 6.0f : 0.0f))
         .size(tabsTotalW, kTabH)
         .content([&] {
             const auto segTransition =
@@ -322,7 +328,8 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     constexpr float kLabelW = 90.0f;
     constexpr float kFieldH = 26.0f;
     const float actionY = islandTop + islandH - pad - kButtonHeight;
-    const float scrollTop = headerY + kTabH + 12.0f;
+    const float scrollTop = headerY + (tabsOnSecondRow ? 2.0f * kTabH + 18.0f
+                                                       : kTabH + 12.0f);
     const float scrollHeight = std::max(0.0f, actionY - 10.0f - scrollTop);
 
     // 设置项较多，正文放进 scrollView（主题/路径/aria2 参数）；底部操作行

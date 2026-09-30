@@ -88,16 +88,19 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const int end = std::min(totalCount, start + g_pageSize);
 
     // ---- 页面布局 ----
+    const bool compact = isCompactLayout(screen.width);
     const float islandTop = kIslandVInset;
     const float islandH = screen.height - 2.0f * kIslandVInset;
-    const float contentX = 0.0f;
-    const float contentW = screen.width - kRightMargin;
+    const float contentX = pageContentX(screen.width);
+    const float contentW = pageContentWidth(screen.width);
 
     // 工具栏 / 任务列表 / 状态消息 / 翻页直接放在背景上。
-    const float pad = kPanelPad;
+    const float pad = compact ? 8.0f : kPanelPad;
     const float toolY = islandTop + pad;
+    const float actionsY = compact ? toolY + 34.0f : toolY;
+    const float toolbarHeight = compact ? 62.0f : 28.0f;
     const float pagerY = islandTop + islandH - pad - kPagerHeight;
-    const float listTop = toolY + kInputHeight + 8.0f;
+    const float listTop = toolY + toolbarHeight + 8.0f;
     const float listHeight = std::max(0.0f, pagerY - listTop - 4.0f);
     const float listX = contentX + pad;
     const float listW = contentW - 2.0f * pad;
@@ -121,7 +124,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         };
         const Filter tabFilters[] = {Filter::All, Filter::Active, Filter::Done};
         constexpr float kTabH = 28.0f;      // 与右侧工具栏按钮同高
-        constexpr float kTabPadH = 12.0f;   // 段内水平内边距
+        const float kTabPadH = compact ? 8.0f : 12.0f; // 窄窗压缩段内边距
         constexpr float kTabGap = 4.0f;
         float tabW[3];
         float tabsTotalW = kTabGap * 2.0f;
@@ -197,7 +200,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const char* kSortLabels[] = {tr("dl.sort_newest"), tr("dl.sort_status_first"),
                                  tr("dl.col_filename"), tr("dl.col_size"), tr("dl.col_progress")};
     ui.stack("tool.sort.wrap")
-        .position(sortX, toolY)
+        .position(sortX, actionsY)
         .size(toolW, toolW)
         .zIndex(30)
         .content([&] {
@@ -214,7 +217,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         .build();
 
     // 全部继续：恢复所有已暂停任务（正圆，默认无描边，hover 才浮现）。
-    drawToolbarIconButton(ui, "tool.startAll", startAllX, toolY, toolW, toolW,
+    drawToolbarIconButton(ui, "tool.startAll", startAllX, actionsY, toolW, toolW,
                           0xF04B, false, theme,
                           [] {
                               g_tasks.resumeAll();
@@ -222,7 +225,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                           });
 
     // 全部暂停：暂停所有排队/进行中任务（正圆，默认无描边，hover 才浮现）。
-    drawToolbarIconButton(ui, "tool.pauseAll", pauseAllX, toolY, toolW, toolW,
+    drawToolbarIconButton(ui, "tool.pauseAll", pauseAllX, actionsY, toolW, toolW,
                           0xF04C, false, theme,
                           [] {
                               g_tasks.pauseAll();
@@ -230,7 +233,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                           });
 
     // 添加下载：反白主色方钮（主行动强调），点击弹出对话框。
-    drawToolbarIconButton(ui, "add.btn", addX, toolY, toolW, toolW,
+    drawToolbarIconButton(ui, "add.btn", addX, actionsY, toolW, toolW,
                           0xF067, true, theme,
                           [] {
                               // 打开弹窗：恢复默认选项——连接数填配置的 split 值，下载目录填配置

@@ -47,15 +47,26 @@ export void drawEnginePage(eui::Ui& ui, const AppTheme& theme, float infoX,
         .scrollbarWidth(kScrollbarWidth)
         .scrollbarGap(kScrollbarGap)
         .content([&](eui::Ui& sv, float contentWidth, float) {
-            // 固定高度 canvas（内容总高 ~360，430 留底部余量，保证可滚动到底）
-            constexpr float kCanvasH = 430.0f;
+            const float cvW = contentWidth;
+            const dl::HealthInfo h = g_tasks.health();
+            const int statCols = cvW >= 1000.0f ? 5 : cvW >= 700.0f ? 3 : 2;
+            const int statRows = (5 + statCols - 1) / statCols;
+            const float statGap = 8.0f;
+            const float statRowGap = 6.0f;
+            const float statAreaH = statRows * 46.0f + (statRows - 1) * statRowGap;
+            const int paramCols = cvW < 560.0f ? 1 : 2;
+            const int paramRows = (6 + paramCols - 1) / paramCols;
+            float rowY = 30.0f + 6.0f * 22.0f;
+            if (!h.error.empty()) rowY += 24.0f;
+            const float statTop = rowY + 10.0f;
+            const float paramsTop = statTop + statAreaH + 14.0f;
+            const float canvasH = paramsTop + 18.0f + paramRows * 20.0f + 20.0f;
             sv.stack("engine.canvas")
                 .width(contentWidth)
-                .height(kCanvasH)
+                .height(canvasH)
                 .content([&] {
                     // canvas 内坐标相对（0, 0）
                     const float cvX = 0.0f;
-                    const float cvW = contentWidth;
 
                     components::text(sv, "engine.title")
                         .position(cvX, 0.0f)
@@ -67,7 +78,6 @@ export void drawEnginePage(eui::Ui& ui, const AppTheme& theme, float infoX,
                         .build();
 
                     // ---- 健康快照 + 顶部状态（圆点 + 标签）----
-                    const dl::HealthInfo h = g_tasks.health();
                     const char* statusLabel = tr("eng.checking");
                     eui::Color statusColor = theme.metaText;
                     if (h.checked) {
@@ -103,7 +113,7 @@ export void drawEnginePage(eui::Ui& ui, const AppTheme& theme, float infoX,
                         .build();
 
                     // ---- 体检行：标签 + 值 ----
-                    float rowY = 30.0f;
+                    rowY = 30.0f;
                     const auto statusRow = [&](const std::string& id, const char* label,
                                                const std::string& value, const eui::Color& color) {
                         components::text(sv, id + ".label")
@@ -206,20 +216,21 @@ export void drawEnginePage(eui::Ui& ui, const AppTheme& theme, float infoX,
                         {tr("eng.stopped"), std::to_string(h.stoppedDownloads)},
                     };
                     constexpr int kStatCount = 5;
-                    const float statGap = 8.0f;
-                    const float statW = (cvW - statGap * (kStatCount - 1)) / kStatCount;
-                    const float statTop = rowY + 10.0f;
-                    float sx = cvX;
+                    const float statW = (cvW - statGap * (statCols - 1)) / statCols;
                     for (int i = 0; i < kStatCount; ++i) {
+                        const int col = i % statCols;
+                        const int row = i / statCols;
+                        const float sx = cvX + col * (statW + statGap);
+                        const float sy = statTop + row * (46.0f + statRowGap);
                         sv.rect(std::format("engine.stat.{}.bg", i))
-                            .position(sx, statTop)
+                            .position(sx, sy)
                             .size(statW, 46.0f)
                             .color(theme.cardBg)
                             .radius(kCardRadius)
                             .border(kHairline, theme.outline)
                             .build();
                         components::text(sv, std::format("engine.stat.{}.value", i))
-                            .position(sx, statTop + 5.0f)
+                            .position(sx, sy + 5.0f)
                             .size(statW, 19.0f)
                             .text(kStats[i].value)
                             .fontSize(12.0f)
@@ -229,7 +240,7 @@ export void drawEnginePage(eui::Ui& ui, const AppTheme& theme, float infoX,
                             .horizontalAlign(core::HorizontalAlign::Center)
                             .build();
                         components::text(sv, std::format("engine.stat.{}.label", i))
-                            .position(sx, statTop + 26.0f)
+                            .position(sx, sy + 26.0f)
                             .size(statW, 15.0f)
                             .text(kStats[i].label)
                             .fontSize(10.0f)
@@ -237,7 +248,6 @@ export void drawEnginePage(eui::Ui& ui, const AppTheme& theme, float infoX,
                             .color(theme.metaText)
                             .horizontalAlign(core::HorizontalAlign::Center)
                             .build();
-                        sx += statW + statGap;
                     }
 
                     // ---- 运行参数 ----
@@ -254,7 +264,6 @@ export void drawEnginePage(eui::Ui& ui, const AppTheme& theme, float infoX,
                         {tr("eng.proxy"), a2.proxy.empty() ? tr("eng.none") : a2.proxy},
                         {tr("eng.cookie"), a2.loadCookies.empty() ? tr("eng.none") : a2.loadCookies},
                     };
-                    const float paramsTop = statTop + 46.0f + 14.0f;
                     components::text(sv, "engine.params.header")
                         .position(cvX, paramsTop)
                         .size(cvW, 16.0f)
@@ -263,15 +272,13 @@ export void drawEnginePage(eui::Ui& ui, const AppTheme& theme, float infoX,
                         .lineHeight(16.0f)
                         .color(theme.titleText)
                         .build();
-                    constexpr int kParamCols = 2;
-                    constexpr int kParamRows = 3;
                     const float paramGap = 8.0f;
-                    const float paramColW = (cvW - paramGap) / kParamCols;
+                    const float paramColW = (cvW - paramGap * (paramCols - 1)) / paramCols;
                     const float paramRowH = 20.0f;
-                    const float paramLabelW = 84.0f;
-                    for (int i = 0; i < kParamCols * kParamRows; ++i) {
-                        const int col = i % kParamCols;
-                        const int r = i / kParamCols;
+                    const float paramLabelW = std::min(84.0f, paramColW * 0.38f);
+                    for (int i = 0; i < 6; ++i) {
+                        const int col = i % paramCols;
+                        const int r = i / paramCols;
                         const float px = cvX + col * (paramColW + paramGap);
                         const float py = paramsTop + 18.0f + r * paramRowH;
                         components::text(sv, std::format("engine.params.{}.label", i))

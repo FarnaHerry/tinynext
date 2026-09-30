@@ -18,11 +18,21 @@ export import tinynext.utils;
 // dpiScale*uiScale 统一放大；kUI 仍是唯一的缩放旋钮（传给 uiScale + 决定窗口物理尺寸）。
 export constexpr float kUI = 1.4f;
 
-// 布局尺寸都按“设计逻辑像素”书写，并尽量用 screen.width/height 推算，
-// 随窗口缩放自适应。
-// 当前仅卡片的右边缘与窗口边之间留 kRightMargin（图标栏占满左缘、卡片顶/底贴齐）。
-export constexpr float kRightMargin = 6.0f;
-export constexpr float kInputHeight = 26.0f;
+// 响应式页面令牌（设计逻辑像素）。窄窗口将工具栏和设置分组拆行；宽窗口的
+// 主内容限宽并居中，避免任务卡/表单在超宽屏上被拉得过长。
+export constexpr float kCompactBreakpoint = 820.0f;
+export constexpr float kMaxPageContentWidth = 1440.0f;
+export bool isCompactLayout(float width) { return width < kCompactBreakpoint; }
+export float pageContentWidth(float viewportWidth) {
+    const float inset = isCompactLayout(viewportWidth) ? 8.0f : 16.0f;
+    return std::min(kMaxPageContentWidth, std::max(0.0f, viewportWidth - 2.0f * inset));
+}
+export float pageContentX(float viewportWidth) {
+    return (viewportWidth - pageContentWidth(viewportWidth)) * 0.5f;
+}
+
+// 布局尺寸都按“设计逻辑像素”书写，并用 screen.width/height 推算；
+// 页面共用 pageContentWidth/pageContentX 做窄屏留白与宽屏限宽居中。
 export constexpr float kPagerHeight = 24.0f;        // 翻页行高
 export constexpr float kCardHeight = 68.0f;         // 卡片高
 export constexpr float kCardPad = 10.0f;

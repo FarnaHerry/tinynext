@@ -64,6 +64,9 @@ const DslAppConfig& dslAppConfig() {
         // 物理尺寸 = 设计尺寸 * kUI（eui 创建窗口时按物理像素，不会自动乘 uiScale）。
         .uiScale(kUI)
         .windowSize(static_cast<int>(1120.0f * kUI), static_cast<int>(720.0f * kUI))
+        // 窗口最小尺寸按设计逻辑像素定义，再乘 uiScale 转成 GLFW 窗口像素。
+        // 700×500 的逻辑画布可容纳窄屏两行工具栏、滚动正文和底部操作区。
+        .minWindowSize(static_cast<int>(700.0f * kUI), static_cast<int>(500.0f * kUI))
         // 最大帧率写 0 = 自动匹配显示器刷新率（eui 的 updateFrameInterval 在
         // limit<=0 时直接用 getWindowRefreshRate）。
         .fps(0.0)
