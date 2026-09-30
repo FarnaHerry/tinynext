@@ -24,6 +24,8 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
 // 任务信息弹窗（定义在文件末尾；drawDownloadsPage 调用它）。
 void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme,
                         const TaskInfoSnapshot& task);
+void drawTorrentSelectionDialog(eui::Ui& ui, const eui::Screen& screen,
+                                const AppTheme& theme);
 
 // ===================== 下载页 =================
 // 布局：筛选与下载操作悬浮在页面背景上，下方是任务列表和分页控件。
@@ -249,6 +251,11 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                               g_urlText.clear();
                               g_addTorrentPath.clear();
                               g_addMirror = false;
+                              g_addPauseMetadata = false;
+                              g_addMediaModeIndex = 0;
+                              g_addMediaFormatIndex = 0;
+                              g_addMediaModeOpen = false;
+                              g_addMediaFormatOpen = false;
                               g_addTab = AddTab::Direct;
                               const std::string clip = trimText(getClipboardText());
                               if (!clip.empty() && isDownloadableSource(clip)) {
@@ -410,7 +417,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     // ---- 添加下载弹窗（模态）：链接 + 每任务高级选项 ----
     if (g_addOpen) {
         const float dlgW = 320.0f;
-        const float dlgH = 316.0f;
+        const float dlgH = g_addTab == AddTab::Direct ? 350.0f : 220.0f;
         const float dlgX = (screen.width - dlgW) * 0.5f;
         const float dlgY = (screen.height - dlgH) * 0.5f;
         const float labelX = 16.0f;
@@ -424,8 +431,9 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         const float splitY = 122.0f;   // 直链：分片数
         const float renameY = 156.0f;  // 直链：重命名
         const float dirY = 190.0f;     // 直链：下载目录
-        const float mirrorY = 224.0f;  // 直链：镜像多源开关
-        const float btnY = 276.0f;
+        const float mediaY = 224.0f;   // 直链：HLS/DASH 类型与输出容器
+        const float mirrorY = 258.0f;   // 直链：镜像多源 / 磁力文件选择
+        const float btnY = dlgH - 40.0f;
         const float torY = 66.0f;      // 种子 tab：种子文件行
         const float torDirY = 102.0f;  // 种子 tab：下载目录行
         const float torHintY = 138.0f; // 种子 tab：提示文字
@@ -543,15 +551,26 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     //      （aria2 多源并发下载同一文件，源挂自动切换；实验性）----
                     components::text(ui, "add.mirror.label")
                         .position(labelX, mirrorY)
-                        .size(dlgW - 16.0f - 60.0f, 28.0f)
+                        .size(88.0f, 28.0f)
                         .text(tr("dl.merge_mirror"))
                         .fontSize(12.0f)
                         .lineHeight(28.0f)
                         .color(theme.metaText)
                         .build();
-                    buildToggleSwitch(ui, "add.mirror.toggle", dlgW - 16.0f - 36.0f, mirrorY + 4.0f,
+                    buildToggleSwitch(ui, "add.mirror.toggle", 108.0f, mirrorY + 4.0f,
                                       36.0f, 20.0f, g_addMirror, theme,
                                       [](bool v) { g_addMirror = v; });
+                    components::text(ui, "add.btselect.label")
+                        .position(160.0f, mirrorY)
+                        .size(102.0f, 28.0f)
+                        .text(tr("dl.media_pause_metadata"))
+                        .fontSize(11.0f)
+                        .lineHeight(28.0f)
+                        .color(theme.metaText)
+                        .build();
+                    buildToggleSwitch(ui, "add.btselect.toggle", 268.0f, mirrorY + 4.0f,
+                                      36.0f, 20.0f, g_addPauseMetadata, theme,
+                                      [](bool v) { g_addPauseMetadata = v; });
 
                     // ---- 分片数（0=配置默认；仅 aria2 生效）----
                     components::text(ui, "add.conn.label")
@@ -621,6 +640,46 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                             if (!picked.empty()) {
                                 g_addDirText = picked.string();
                             }
+                        })
+                        .build();
+
+                    const char* mediaModes[] = {tr("dl.media_auto"), tr("dl.media_file"),
+                                                tr("dl.media_hls"), tr("dl.media_dash")};
+                    const char* mediaFormats[] = {"MP4", "MKV"};
+                    components::text(ui, "add.media.mode.label")
+                        .position(labelX, mediaY)
+                        .size(labelW, 28.0f)
+                        .text(tr("dl.media_mode"))
+                        .fontSize(12.0f)
+                        .lineHeight(28.0f)
+                        .color(theme.metaText)
+                        .build();
+                    ui.stack("add.media.mode.wrap")
+                        .position(inputX, mediaY + 1.0f)
+                        .size(112.0f, 26.0f)
+                        .content([&] {
+                            buildListPicker(ui, "add.media.mode", 112.0f, 26.0f, theme,
+                                            g_addMediaModeOpen, mediaModes, 4,
+                                            g_addMediaModeIndex, false, PickerField::Text,
+                                            [](int i) { g_addMediaModeIndex = i; }, 112.0f);
+                        })
+                        .build();
+                    components::text(ui, "add.media.format.label")
+                        .position(196.0f, mediaY)
+                        .size(42.0f, 28.0f)
+                        .text(tr("dl.media_format"))
+                        .fontSize(11.0f)
+                        .lineHeight(28.0f)
+                        .color(theme.metaText)
+                        .build();
+                    ui.stack("add.media.format.wrap")
+                        .position(238.0f, mediaY + 1.0f)
+                        .size(66.0f, 26.0f)
+                        .content([&] {
+                            buildListPicker(ui, "add.media.format", 66.0f, 26.0f, theme,
+                                            g_addMediaFormatOpen, mediaFormats, 2,
+                                            g_addMediaFormatIndex, false, PickerField::Text,
+                                            [](int i) { g_addMediaFormatIndex = i; }, 66.0f);
                         })
                         .build();
                 } else {
@@ -854,6 +913,9 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     if (g_mirrorOpen) {
         drawMirrorDialog(ui, screen, theme);
     }
+    if (g_pendingTorrentSelection.has_value()) {
+        drawTorrentSelectionDialog(ui, screen, theme);
+    }
 }
 
 // 任务信息弹窗：点卡片「i」按钮打开。完整展示源 URL / 真实报错全文（卡片上被
@@ -1067,6 +1129,205 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
         .build();
 }
 
+// 磁力元数据就绪后选择要下载的文件；选中项提交给 aria2.changeOption(select-file)。
+void drawTorrentSelectionDialog(eui::Ui& ui, const eui::Screen& screen,
+                                const AppTheme& theme) {
+    if (!g_pendingTorrentSelection) return;
+    auto& selection = *g_pendingTorrentSelection;
+    const float dlgW = 430.0f;
+    const float dlgH = 388.0f;
+    const float dlgX = (screen.width - dlgW) * 0.5f;
+    const float dlgY = (screen.height - dlgH) * 0.5f;
+    const float btnY = dlgH - 40.0f;
+
+    ui.rect("btselect.backdrop")
+        .position(0, 0)
+        .size(screen.width, screen.height)
+        .zIndex(300)
+        .color(theme.scrim)
+        .onClick([] { g_pendingTorrentSelection.reset(); })
+        .build();
+
+    ui.stack("btselect.dialog")
+        .position(dlgX, dlgY)
+        .size(dlgW, dlgH)
+        .zIndex(301)
+        .content([&] {
+            ui.rect("btselect.dialog.bg")
+                .size(dlgW, dlgH)
+                .color(theme.surfaceContainerLow)
+                .radius(kDialogRadius)
+                .border(kHairline, theme.outline)
+                .shadow(16.0f, 4.0f,
+                        theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.40f}
+                                   : core::Color{0.0f, 0.0f, 0.0f, 0.12f})
+                .onClick([] {})
+                .build();
+
+            components::text(ui, "btselect.title")
+                .position(16.0f, 12.0f)
+                .size(dlgW - 32.0f, 22.0f)
+                .text(tr("dl.bt_select_title"))
+                .fontSize(16.0f)
+                .lineHeight(22.0f)
+                .color(theme.titleText)
+                .build();
+            components::text(ui, "btselect.name")
+                .position(16.0f, 38.0f)
+                .size(dlgW - 32.0f, 18.0f)
+                .text(ellipsizeText(selection.name, dlgW - 32.0f, 11.0f))
+                .fontSize(11.0f)
+                .lineHeight(18.0f)
+                .color(theme.metaText)
+                .build();
+
+            drawTextButton(ui, "btselect.all", 16.0f, 62.0f, 54.0f, 24.0f,
+                           tr("dl.bt_select_all"), theme, [] {
+                               if (!g_pendingTorrentSelection) return;
+                               for (auto& file : g_pendingTorrentSelection->files) {
+                                   file.selected = true;
+                               }
+                           });
+            drawTextButton(ui, "btselect.none", 72.0f, 62.0f, 64.0f, 24.0f,
+                           tr("dl.bt_select_none"), theme, [] {
+                               if (!g_pendingTorrentSelection) return;
+                               for (auto& file : g_pendingTorrentSelection->files) {
+                                   file.selected = false;
+                               }
+                           });
+            components::text(ui, "btselect.hint")
+                .position(144.0f, 62.0f)
+                .size(dlgW - 160.0f, 24.0f)
+                .text(tr("dl.bt_select_hint"))
+                .fontSize(10.0f)
+                .lineHeight(24.0f)
+                .color(theme.metaText)
+                .build();
+
+            components::scrollView(ui, "btselect.list")
+                .position(16.0f, 92.0f)
+                .size(dlgW - 32.0f, 236.0f)
+                .gap(3.0f)
+                .scrollbarWidth(kScrollbarWidth)
+                .scrollbarGap(kScrollbarGap)
+                .theme(theme.components)
+                .content([&](eui::Ui& sv, float w, float) {
+                    for (std::size_t i = 0; i < selection.files.size(); ++i) {
+                        const auto& file = selection.files[i];
+                        const std::string rowId = "btselect.row." + std::to_string(i);
+                        sv.stack(rowId)
+                            .width(w)
+                            .height(28.0f)
+                            .content([&] {
+                                sv.rect(rowId + ".hit")
+                                    .size(w, 28.0f)
+                                    .states(theme.cardBg,
+                                            stateLayer(theme.onSurface, 0.06f),
+                                            stateLayer(theme.onSurface, 0.10f))
+                                    .radius(kChipRadius)
+                                    .onClick([i] {
+                                        if (!g_pendingTorrentSelection ||
+                                            i >= g_pendingTorrentSelection->files.size()) return;
+                                        auto& item = g_pendingTorrentSelection->files[i];
+                                        item.selected = !item.selected;
+                                    })
+                                    .build();
+                                sv.rect(rowId + ".check")
+                                    .position(6.0f, 6.0f)
+                                    .size(16.0f, 16.0f)
+                                    .color(file.selected ? theme.primary
+                                                         : theme.surfaceContainer)
+                                    .radius(3.0f)
+                                    .border(kHairline, theme.outline)
+                                    .build();
+                                if (file.selected) {
+                                    sv.text(rowId + ".mark")
+                                        .position(6.0f, 6.0f)
+                                        .size(16.0f, 16.0f)
+                                        .icon(0xF00C)
+                                        .fontSize(10.0f)
+                                        .lineHeight(16.0f)
+                                        .color(onPrimaryColor(theme))
+                                        .horizontalAlign(core::HorizontalAlign::Center)
+                                        .verticalAlign(core::VerticalAlign::Center)
+                                        .build();
+                                }
+                                const float sizeW = 72.0f;
+                                sv.text(rowId + ".size")
+                                    .position(w - sizeW - 6.0f, 0.0f)
+                                    .size(sizeW, 28.0f)
+                                    .text(formatBytes(file.length))
+                                    .fontSize(10.0f)
+                                    .fontFamily(kMonoFont)
+                                    .lineHeight(28.0f)
+                                    .horizontalAlign(core::HorizontalAlign::Right)
+                                    .color(theme.metaText)
+                                    .build();
+                                const float nameX = 30.0f;
+                                const float nameW = w - nameX - sizeW - 16.0f;
+                                components::text(sv, rowId + ".path")
+                                    .position(nameX, 0.0f)
+                                    .size(nameW, 28.0f)
+                                    .text(ellipsizeText(file.path, nameW, 11.0f))
+                                    .fontSize(11.0f)
+                                    .lineHeight(28.0f)
+                                    .maxWidth(nameW)
+                                    .color(theme.nameText)
+                                    .build();
+                            })
+                            .build();
+                    }
+                })
+                .build();
+
+            components::text(ui, "btselect.footer")
+                .position(16.0f, 330.0f)
+                .size(dlgW - 32.0f, 18.0f)
+                .text(trf("dl.bt_selected_count",
+                          std::ranges::count_if(selection.files,
+                              [](const dl::TorrentFileView& file) { return file.selected; }),
+                          selection.files.size()))
+                .fontSize(10.0f)
+                .lineHeight(18.0f)
+                .color(theme.metaText)
+                .build();
+
+            drawTextButton(ui, "btselect.cancel", dlgW - 16.0f - 76.0f - 8.0f - 76.0f,
+                           btnY, 76.0f, kButtonHeight, tr("dl.cancel"), theme,
+                           [] { g_pendingTorrentSelection.reset(); });
+            components::button(ui, "btselect.submit")
+                .position(dlgW - 16.0f - 76.0f, btnY)
+                .size(76.0f, kButtonHeight)
+                .text(tr("dl.submit"))
+                .fontSize(kButtonFontSize)
+                .theme(theme.components, true)
+                .radius(kButtonRadius)
+                .textColor(onPrimaryColor(theme))
+                .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
+                .onClick([] {
+                    if (!g_pendingTorrentSelection) return;
+                    std::vector<int> indexes;
+                    for (const auto& file : g_pendingTorrentSelection->files) {
+                        if (file.selected) indexes.push_back(file.index);
+                    }
+                    if (indexes.empty()) {
+                        showStatus(tr("dl.bt_select_empty"));
+                        return;
+                    }
+                    const std::uint64_t taskId = g_pendingTorrentSelection->taskId;
+                    g_pendingTorrentSelection.reset();
+                    g_tasks.selectTorrentFiles(taskId, indexes,
+                        [](bool ok, std::string error) {
+                            postStatus(ok ? tr("dl.bt_select_sent")
+                                          : trf("dl.bt_select_failed", error));
+                            core::platform::requestUiUpdate();
+                        });
+                })
+                .build();
+        })
+        .build();
+}
+
 // 镜像源管理弹窗：查看实时源列表（aria2 uris 去重）+ 移除坏源 + 添加新源。
 // 仅活动任务可增删（aria2.changeUri 对 active/waiting/paused 有效）。
 void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
@@ -1252,7 +1513,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                             showStatus(tr("dl.enter_mirror_url"));
                             return;
                         }
-                        if (!isDownloadableSource(url) || url.starts_with("magnet:")) {
+                        if (!isMirrorableSource(url)) {
                             showStatus(tr("dl.mirror_url_invalid"));
                             return;
                         }

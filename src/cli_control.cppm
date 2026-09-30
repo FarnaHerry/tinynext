@@ -114,6 +114,9 @@ unsigned long long currentPid() {
 // 0-100；未知大小（aria2 total -1）返回 -1（文本显示 "?"）。
 double progressPct(const dl::TaskView& t) {
     if (t.state == dl::State::Done) return 100.0;
+    if (t.isMedia) {
+        return t.mediaLive ? -1.0 : std::clamp(t.mediaProgress, 0.0, 1.0) * 100.0;
+    }
     if (t.totalBytes > 0) {
         return static_cast<double>(t.downloadedBytes) * 100.0 /
                static_cast<double>(t.totalBytes);
@@ -267,6 +270,28 @@ nlohmann::json taskJson(const dl::TaskView& t) {
     const double pct = progressPct(t);
     if (pct >= 0.0) j["progress"] = std::round(pct * 10.0) / 10.0;
     else j["progress"] = nullptr;   // 大小未知（流式下载）
+    if (t.isMedia) {
+        j["media"] = {
+            {"protocol", t.mediaProtocol},
+            {"state", t.mediaState},
+            {"live", t.mediaLive},
+            {"progress", t.mediaLive ? nlohmann::json(nullptr)
+                                      : nlohmann::json(std::round(t.mediaProgress * 1000.0) / 10.0)},
+            {"durationMs", t.mediaDurationMs},
+            {"completedDurationMs", t.mediaCompletedDurationMs},
+            {"downloadedBytes", t.mediaDownloadedBytes},
+        };
+    }
+    if (t.awaitingTorrentFileSelection) {
+        j["bittorrent"] = { {"fileSelectionState", "awaiting"} };
+        j["files"] = nlohmann::json::array();
+        for (const auto& file : t.torrentFiles) {
+            j["files"].push_back({
+                {"index", file.index}, {"path", file.path}, {"length", file.length},
+                {"selected", file.selected}
+            });
+        }
+    }
     if (!t.error.empty()) j["error"] = t.error;
     return j;
 }
@@ -472,7 +497,7 @@ std::string handleRetry(const std::vector<std::string>& tokens,
         } else {
             g_tasks.retry(id);
             results.push_back({true, "retry requested for #" + std::to_string(id) + " " +
-                                      taskDisplayName(*t) + " (continues from .aria2 control file)"});
+                                      taskDisplayName(*t) + " (resumes from aria2-next state)"});
         }
     }
     for (const auto& b : bad) results.push_back({false, "invalid task id '" + b + "'"});
@@ -494,7 +519,7 @@ std::string handleRemove(const std::vector<std::string>& tokens,
         if (!t) {
             results.push_back({false, "no task #" + std::to_string(id)});
         } else {
-            // 只删记录（含 .aria2 控制文件），已下载文件不动——删源文件请走 UI
+            // 只删记录与内核恢复数据；已下载文件不动——删源文件请走 UI
             // 删除弹窗（有回收站/永久删除选项，需要用户决策，不适合 CLI 盲操作）。
             g_tasks.deleteRecord(*t);
             results.push_back({true, "removed record #" + std::to_string(id) + " " +

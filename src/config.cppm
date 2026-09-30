@@ -421,7 +421,6 @@ export struct Aria2Config {
     int maxTries = 5;                   // --max-tries；0 = 无限重试
     int retryWait = 0;                  // --retry-wait（秒）
     int maxConcurrentDownloads = 5;     // --max-concurrent-downloads
-    bool removeControlFile = false;     // --remove-control-file；完成后移除 .aria2
     std::string onDownloadComplete = "";// --on-download-complete；完成后命令，空=不执行
     std::string userAgent = "";         // --user-agent；空 = aria2 默认
     std::string referer = "";           // --referer；空 = 无
@@ -486,10 +485,6 @@ export Aria2Config aria2Config() {
         if (a.contains("max_concurrent_downloads") &&
             a["max_concurrent_downloads"].is_number_integer()) {
             c.maxConcurrentDownloads = a["max_concurrent_downloads"].get<int>();
-        }
-        if (a.contains("remove_control_file") &&
-            a["remove_control_file"].is_boolean()) {
-            c.removeControlFile = a["remove_control_file"].get<bool>();
         }
         if (a.contains("on_download_complete") &&
             a["on_download_complete"].is_string()) {
@@ -589,7 +584,7 @@ export void setAria2Config(const Aria2Config& c) {
     a["max_tries"] = std::clamp(c.maxTries, 0, 100);
     a["retry_wait"] = std::clamp(c.retryWait, 0, 600);
     a["max_concurrent_downloads"] = std::clamp(c.maxConcurrentDownloads, 1, 64);
-    a["remove_control_file"] = c.removeControlFile;
+    a.erase("remove_control_file"); // aria2-next 2.8.x stores resume state in its state-dir.
     a["on_download_complete"] = c.onDownloadComplete;
     a["user_agent"] = c.userAgent;
     a["referer"] = c.referer;

@@ -47,16 +47,29 @@ export std::string percentDecode(std::string s) {
     return out;
 }
 
-// 可下载源的 URL 前缀白名单：http(s) / ftp(s) / sftp 直链 + magnet 磁力。
+// aria2-next 2.8.x 支持的下载 URL：http(s) / sftp / ED2K file / magnet。
 // CLI / TaskStore::startFromUrl / 添加弹窗剪贴板预填 共用（一处维护，避免三处漂移）。
 // 本地 .torrent 文件路径不在这里（它不是 URL），由各调用方按扩展名单独放行。
 export bool isDownloadableSource(const std::string& s) {
     return s.starts_with("http://") || s.starts_with("https://") ||
-           s.starts_with("ftp://") || s.starts_with("ftps://") ||
-           s.starts_with("sftp://") || s.starts_with("magnet:");
+           s.starts_with("sftp://") || s.starts_with("magnet:") ||
+           s.starts_with("ed2k://|file|");
+}
+
+export bool isMirrorableSource(const std::string& s) {
+    return s.starts_with("http://") || s.starts_with("https://") ||
+           s.starts_with("sftp://");
 }
 
 export std::string fileNameFromUrl(const std::string& url) {
+    // ED2K file link: ed2k://|file|<name>|<size>|<hash>|/
+    if (url.starts_with("ed2k://|file|")) {
+        const std::size_t nameStart = std::string_view("ed2k://|file|").size();
+        const std::size_t nameEnd = url.find('|', nameStart);
+        if (nameEnd != std::string::npos && nameEnd > nameStart) {
+            return percentDecode(url.substr(nameStart, nameEnd - nameStart));
+        }
+    }
     const std::size_t cut = url.find_first_of("?#");
     const std::string base = cut == std::string::npos ? url : url.substr(0, cut);
     const std::size_t slash = base.find_last_of('/');

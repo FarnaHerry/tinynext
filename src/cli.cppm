@@ -482,7 +482,7 @@ export std::vector<std::string> commandLineArgs() {
     return cached;
 }
 
-// Command-line arguments that look like download sources (http(s)/ftp(s)/sftp
+// Command-line arguments that look like download sources (http(s)/sftp/ED2K
 // URLs, magnet:, or a local .torrent path), in order. Parsed once and cached.
 // Note: magnet was filtered out here before (a bug) — a second instance passing
 // a magnet URL must forward it to the primary just like http(s).
@@ -526,8 +526,7 @@ namespace {
 
 // 镜像只能合并且只能合并普通 URL（magnet / .torrent 没有"多源"概念）。
 bool isMirrorableUrl(const std::string& u) {
-    return isDownloadableSource(u) && !u.starts_with("magnet:") &&
-           !u.ends_with(".torrent");
+    return isMirrorableSource(u);
 }
 
 } // namespace
@@ -568,12 +567,12 @@ ADD DOWNLOADS (the GUI auto-starts when it is not running)
   tinynext add <url> ...                 Same thing ("add" is an optional word).
   tinynext --mirror <url1> <url2> [...]  One task, many sources: url1 is primary, the rest
                                          are mirrors of the SAME file (aria2 splits across
-                                         sources, auto-failover). Plain http(s)/ftp(s)/sftp
+                                         sources, auto-failover). Plain http(s)/sftp
                                          links only (no magnet / .torrent).
   tinynext --headless <url> [...]        Script mode: NO window, TinyNext's own config
                                          (dir / connections) applies, exits 0 when all
                                          downloads finished, 1 on any failure.
-  Accepted sources: http:// https:// ftp:// ftps:// sftp:// magnet:, local .torrent paths.
+  Accepted sources: http:// https:// sftp:// ed2k://|file| magnet:, local .torrent paths.
   Other arguments are ignored. http is used as-is (not upgraded to https). Files land in
   the configured download directory; names come from the URL / torrent / magnet metadata.
 
@@ -591,8 +590,8 @@ OPERATE THE RUNNING APP (task ids come from `tinynext list`)
   tinynext pause <id...> | pause all     Pause active task(s) (they keep the partial file).
   tinynext resume <id...> | resume all   Resume paused task(s).
   tinynext cancel <id...>                Stop a task; record + partial file stay, retryable.
-  tinynext retry <id...>                 Re-download failed/cancelled (continues from the
-                                         .aria2 control file — real resume, not restart).
+  tinynext retry <id...>                 Retry failed/cancelled tasks using aria2-next's
+                                         persistent state and original task GID.
   tinynext remove <id...>                Delete a task record (files on disk are NOT touched).
   tinynext clear done                    Delete all completed records.
   tinynext quit                          Save session and exit the app.

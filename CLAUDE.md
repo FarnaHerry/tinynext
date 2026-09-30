@@ -46,7 +46,7 @@ tinynext agent                           # 打印 CLI 使用教学（给 AI 用�
 - **单实例**：第二实例经 TCP loopback socket 把 URL 直发主实例（回退写
   `<temp>/tinynext.inbox`；主实例后台线程阻塞 accept，收到即唤醒 UI），Windows 上
   还聚焦窗口）后退出，不弹新窗口。
-- 接受 `http://` / `https://` / `ftp://` / `ftps://` / `sftp://` 前缀、`magnet:` 磁力、
+- 接受 `http://` / `https://` / `sftp://` / `ed2k://|file|` / `magnet:` 磁力、
   或以 `.torrent` 结尾的本地文件路径；其他参数忽略。http 不强制升级 https。白名单
   统一在 `isDownloadableSource`（`src/utils.cppm`，`tinynext.utils`）。
 - 不记得用法时先跑 `tinynext agent`。详细见 `docs/cli.md`。
@@ -125,8 +125,8 @@ tellActive/tellWaiting/tellStopped 重建任务表。
    确认），优先级功能已移除，别再加回去。
 5. **磁力**：magnet 任务不设 `out`，真实路径由 `refreshStates` 从 `files[0].path` 更新；
    重命名 / 下载目录解析逻辑都在 `TaskStore::startFromUrl`。
-6. **重新下载**：Failed/Cancelled 卡片 ↻ 调 `g_tasks.retry(id)`，aria2 复用原 URL+路径
-   + `continue=true` 从 `.aria2` 续传。
+6. **重新下载**：Failed/Cancelled 卡片 ↻ 调 `g_tasks.retry(id)`，aria2-next 复用原 GID、
+   URL 与输出路径，从 state-dir 恢复已提交数据。
 7. **aria2 字段名**：用 `connections`（不是 `numConnections`）；进程名 Windows 是
    `aria2-next.exe`、unix 是 `aria2-next`。RPC 只监听 127.0.0.1 + 随机 `--rpc-secret`。
 8. **Winsock**：Windows 本地 socket 需 `WSAStartup`，由 `LocalSocket::platformInit()`

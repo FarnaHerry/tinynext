@@ -6,7 +6,7 @@
 // 健康数据源：g_tasks.health() 是纯读缓存（UI 线程每帧读，不发 RPC）；内容由
 // g_tasks.refreshHealth() 在后台命令线程刷新（housekeep 在引擎标签打开时 ~2s 一次，
 // 「立即检测」按钮手动触发）。重启走 g_tasks.restartEngine()：保存会话 → 优雅退出
-// → 重新拉起，进行中的下载经 .aria2 控制文件续传、不丢。
+// → 重新拉起，进行中的下载经 aria2-next state-dir 恢复、不丢。
 module;
 
 #include "eui_ui.h"

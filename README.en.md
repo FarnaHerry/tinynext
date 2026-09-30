@@ -6,9 +6,9 @@ TinyNext is a cross-platform desktop downloader written in C++23. It uses the
 EUI-NEO GUI framework and runs **aria2-next** as its download engine. The
 project builds with the `mcpp` package manager.
 
-Supported input sources in TinyNext include HTTP(S), FTP(S), SFTP, magnet links,
-and local `.torrent` files. The engine provides multi-connection downloads,
-pause and resume, session recovery, and BitTorrent support.
+Supported input sources include HTTP(S), SFTP, ED2K file links, magnet links,
+and local `.torrent` files. aria2-next also provides native HLS/DASH downloads,
+multi-connection transfers, pause and resume, and persistent session recovery.
 
 ## Build and Run
 
@@ -27,7 +27,7 @@ destination in Settings.
   brings the existing window to the foreground.
 - **Add downloads:** `tinynext <source>` opens the application if needed and
   adds the source. Multiple sources can be passed at once.
-- Accepted sources are HTTP(S), FTP(S), SFTP, `magnet:` links, and local
+- Accepted sources are HTTP(S), SFTP, ED2K file links, `magnet:` links, and local
   `.torrent` paths. See [`docs/cli.md`](docs/cli.md) for full CLI usage.
 - Run `tinynext agent` to print CLI instructions intended for AI assistants.
 - The project guidelines for contributors and coding agents are in
@@ -46,7 +46,11 @@ progress, and version numbers.
   actions.
 - **Add Download:** Enter one or more URLs, set a connection count, rename the
   output, choose a destination, or select a local torrent file. Multiple
-  compatible URLs can be combined as mirror sources for one task.
+  compatible URLs can be combined as mirror sources for one task. Choose
+  automatic media detection or force HLS/DASH, select MP4/MKV output, and
+  optionally pause magnet links after metadata so you can select torrent files.
+- **Media tasks:** Show presentation-time progress for HLS/DASH downloads. Live
+  recordings can be finalized from the task card.
 - **Settings:** Configure the theme, download directory, connection behavior,
   network options, BitTorrent options, file handling, and integrity checks.
   The Engine tab shows aria2-next health and statistics and provides controls
@@ -61,7 +65,7 @@ responsive layout remains usable.
 
 ## Basic Usage
 
-1. Click **＋** and enter an HTTP(S), FTP(S), or SFTP URL, a magnet link, or
+1. Click **＋** and enter an HTTP(S) or SFTP URL, an ED2K file link, a magnet link, or
    choose a local `.torrent` file.
 2. Optionally set the connection count, output name, and destination directory.
    For torrent and magnet tasks, the content name comes from the torrent
@@ -80,7 +84,9 @@ StatusNotifierItem (SNI) service.
 Task controls use aria2-next's JSON-RPC interface. TinyNext saves and restores
 the engine session so unfinished tasks can be recovered after an application
 or engine restart. TinyNext's session file and aria2 log are kept in the
-per-user TinyNext configuration directory.
+per-user TinyNext configuration directory. aria2-next 2.8.3 stores HTTP,
+BitTorrent, ED2K, and media recovery data in `aria2-state/` under that directory;
+retries preserve the original task GID and output path.
 
 ## Settings
 
@@ -113,7 +119,7 @@ TinyNext launches the bundled `engines/aria2-next` executable and communicates
 with it through a local JSON-RPC socket. The RPC listener is bound to localhost
 and protected by a generated secret.
 
-The engine release currently pinned by CI is aria2-next **2.8.2**. CI downloads
+The engine release currently pinned by CI is aria2-next **2.8.3**. CI downloads
 the platform binary and verifies it against `engines/checksums.sha256` before
 packaging it with the application.
 
@@ -125,9 +131,9 @@ aria2-next binary during release builds.
 
 | Platform | aria2-next asset | Packaged as |
 | --- | --- | --- |
-| Windows x64 | `aria2-next-2.8.2-windows-x86_64.exe` | `engines/aria2-next.exe` |
-| Linux x86_64 | `aria2-next-2.8.2-linux-x86_64` | `engines/aria2-next` |
-| macOS Apple Silicon | `aria2-next-2.8.2-macos-arm64` | `engines/aria2-next` |
+| Windows x64 | `aria2-next-2.8.3-windows-x86_64.exe` | `engines/aria2-next.exe` |
+| Linux x86_64 | `aria2-next-2.8.3-linux-x86_64` | `engines/aria2-next` |
+| macOS Apple Silicon | `aria2-next-2.8.3-macos-arm64` | `engines/aria2-next` |
 
 Download engine binaries from the [aria2-next releases page](https://github.com/AnInsomniacy/aria2-next/releases).
 
@@ -170,7 +176,7 @@ the application sources.
 | --- | --- | --- |
 | Toolchain | LLVM/Clang from `mcpp.toml` | 22.1.8 |
 | UI framework | `compat:eui-neo` | See `mcpp.toml` |
-| Download engine | aria2-next external process | 2.8.2 in the current CI workflow |
+| Download engine | aria2-next external process | 2.8.3 in the current CI workflow |
 | JSON | `nlohmann:json` | 3.12.0 |
 
 ## License

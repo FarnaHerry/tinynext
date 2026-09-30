@@ -2,8 +2,8 @@
 //
 // Spawns the bundled aria2-next.exe (engines/) as a local JSON-RPC daemon and
 // drives it with addUri/pause/unpause/remove/tellStatus. Multi-connection
-// sharding (-x 16 -s 16), resume (.aria2 control files) and all the aria2
-// protocol support come for free.
+// sharding, state-dir recovery, and aria2-next protocol extensions share this
+// process boundary.
 //
 // Threading: requests still run on the UI thread (single-threaded), but a
 // background WebSocket connection (compat.websocket / IXWebSocket) receives
@@ -49,6 +49,10 @@ public:
                    std::function<void(bool)> onDone) override;
     void removeMirror(std::uint64_t id, const std::string& url,
                       std::function<void(bool)> onDone) override;
+    void selectTorrentFiles(std::uint64_t id, const std::vector<int>& indexes,
+                            std::function<void(bool, std::string)> onDone) override;
+    void finishMedia(std::uint64_t id,
+                     std::function<void(bool, std::string)> onDone) override;
     std::vector<TaskView> snapshot() const override;
     void pollProgress() override;
     HealthInfo health() const override;
@@ -71,7 +75,7 @@ private:
     // 写会话文件（saveSession）前的统一闸门：「启动时自动重试失败任务」关闭时，
     // 把 Failed/Cancelled 记录从 daemon 结果列表清掉，使其不进入会话文件——
     // aria2 的 --save-session 会连 error 记录一起保存，下次启动 --input-file 会
-    // 自动重新添加并直接开下载（旧 gid 还按 .aria2 控制文件续传），整条路径绕过
+    // 自动重新添加并直接开下载，整条路径绕过
     // 应用层开关（实测：开关关闭后失败任务重启仍被自动重新下载）。开启时不清，
     // 失败记录进会话、aria2 自动续传，与开关语义一致。
     void purgeFailedBeforeSessionSave() const;

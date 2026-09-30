@@ -431,7 +431,6 @@ std::vector<std::pair<std::string, std::string>> daemonExtraOpts(
     if (a2.maxTries > 0) add("max-tries", std::to_string(a2.maxTries));
     if (a2.retryWait > 0) add("retry-wait", std::to_string(a2.retryWait));
     add("max-concurrent-downloads", std::to_string(a2.maxConcurrentDownloads));
-    if (a2.removeControlFile) add("remove-control-file", "true");
     if (!a2.onDownloadComplete.empty()) {
         add("on-download-complete", a2.onDownloadComplete);
     }
@@ -500,6 +499,12 @@ std::vector<std::pair<std::string, std::string>> daemonExtraOpts(
     if (a2.ed2kUploadSlots > 0) {
         add("ed2k-upload-slots", std::to_string(a2.ed2kUploadSlots));
     }
+    // aria2-next 的 HTTP/BT/ED2K/media 恢复数据必须落在稳定的 state-dir；
+    // 绝不能放临时/cache 目录。下载目录不再生成旁置 .aria2 控制文件。
+    const std::filesystem::path stateDir = cfg::configDir() / "aria2-state";
+    std::error_code stateEc;
+    std::filesystem::create_directories(stateDir, stateEc);
+    add("state-dir", utf8FromPath(stateDir));
     // 会话恢复：shutdown 前用 aria2.saveSession 持久化未完成任务，下次启动用
     // --input-file 载入续传。首次运行会话文件不存在，跳过 --input-file。
     // 会话文件放 per-user 配置目录：安装版经快捷方式启动时 cwd 可能是 System32
@@ -507,9 +512,9 @@ std::vector<std::pair<std::string, std::string>> daemonExtraOpts(
     const std::filesystem::path sessionPath = cfg::configDir() / "tinynext.session";
     std::error_code ec;
     std::filesystem::create_directories(sessionPath.parent_path(), ec);
-    add("save-session", sessionPath.string());
+    add("save-session", utf8FromPath(sessionPath));
     if (std::filesystem::exists(sessionPath, ec)) {
-        add("input-file", sessionPath.string());
+        add("input-file", utf8FromPath(sessionPath));
     }
     // 磁力/BT：保存元数据为 .torrent + 显式开启 DHT / PEX。
     add("bt-save-metadata", "true");
@@ -638,6 +643,16 @@ struct Aria2Engine::Task {
     std::string displayName;      // BT/磁力拿到元数据后的真实名（bittorrent.info.name）
     std::vector<dl::MirrorSource> mirrors;  // 实时源列表（去重，aria2 uris 按 URL 合并，含状态）
     bool fromSession = false;     // 从会话恢复的历史任务（不触发完成/失败通知）
+    bool isMedia = false;
+    std::string mediaProtocol;
+    std::string mediaState;
+    bool mediaLive = false;
+    double mediaProgress = 0.0;
+    std::int64_t mediaDurationMs = 0;
+    std::int64_t mediaCompletedDurationMs = 0;
+    std::int64_t mediaDownloadedBytes = 0;
+    bool awaitingTorrentFileSelection = false;
+    std::vector<TorrentFileView> torrentFiles;
 };
 
 Aria2Engine::Aria2Engine() {
@@ -807,9 +822,24 @@ bool Aria2Engine::ensureDaemon() const {
 #ifdef _WIN32
     process_ = std::make_unique<Process>();
     const std::wstring wExe = std::filesystem::path(exe).wstring();
-    // 值含空格时用引号包起来（aria2 的 cmdline 解析按 MSVCRT 规则分词）。
-    const auto winValue = [](const std::string& v) -> std::wstring {
-        std::wstring w(v.begin(), v.end());
+    // daemon 参数值按 UTF-8 解码成 Windows UTF-16；状态/会话目录通常位于
+    // 用户目录下，可能包含非 ASCII 字符。值含空格时再按 MSVCRT 规则加引号。
+    const auto utf8ToWide = [](std::string_view value) -> std::wstring {
+        if (value.empty()) return {};
+        const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                               value.data(),
+                                               static_cast<int>(value.size()),
+                                               nullptr, 0);
+        if (count <= 0) return {};
+        std::wstring wide(static_cast<std::size_t>(count), L'\0');
+        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                static_cast<int>(value.size()), wide.data(), count) <= 0) {
+            return {};
+        }
+        return wide;
+    };
+    const auto winValue = [&](const std::string& v) -> std::wstring {
+        std::wstring w = utf8ToWide(v);
         if (v.find_first_of(" \t") != std::string::npos) {
             return L"\"" + w + L"\"";
         }
@@ -824,7 +854,7 @@ bool Aria2Engine::ensureDaemon() const {
                            L"--min-split-size=" + winValue(a2.minSplitSize) + L" "
                            L"--console-log-level=warn";
     for (const auto& [name, value] : extra) {
-        cmdLine += L" --" + std::wstring(name.begin(), name.end()) + L"=" + winValue(value);
+        cmdLine += L" --" + utf8ToWide(name) + L"=" + winValue(value);
     }
 
     // 重定向 daemon 的 stdout/stderr 到日志文件，避免 aria2 的进度摘要 / 错误刷进
@@ -1013,16 +1043,14 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
     optionsJ["split"] = std::to_string(connections);
     optionsJ["max-connection-per-server"] = std::to_string(connections);
     optionsJ["min-split-size"] = a2.minSplitSize;
-    // continue 只对 HTTP(S)/FTP 生效。仅当目标名已有 .aria2 控制文件（真正的部分
-    // 文件待续传）才开：否则一旦目录里已有同名完整文件，continue=true 会让 aria2
-    // 直接判定"已下载完"（不下载也不触发 --auto-file-renaming）——文件冲突应交给
-    // auto-file-renaming 自动改名重新下载（实测：RealName.txt → RealName.1.txt）。
-    // 续传的正式入口是 retry()（那里固定 continue=true 复用原路径），start() 只对
-    // 能按 URL 文件名找到控制文件的情况自动续传。
-    std::filesystem::path control = dir / destPath.filename();
-    control += ".aria2";
-    const bool hasControl = std::filesystem::exists(control, ec);
-    optionsJ["continue"] = hasControl ? "true" : "false";
+    // 新任务不从目标目录继承旧文件。aria2-next 2.8.x 只按 state-dir 中的
+    // GID/URL/输出路径匹配恢复记录，不再读取旁置 .aria2 控制文件。
+    optionsJ["continue"] = "false";
+    if (options.pauseMetadata && url.starts_with("magnet:")) {
+        optionsJ["pause-metadata"] = "true";
+    }
+    if (options.mediaMode != "auto") optionsJ["media"] = options.mediaMode;
+    if (options.mediaFormat == "mkv") optionsJ["media-format"] = "mkv";
 
     // 每任务限速已移除（无意义），统一用配置的 maxDownloadLimit。
     if (a2.maxDownloadLimit > 0) {
@@ -1307,8 +1335,8 @@ void Aria2Engine::retryOnWorker(std::uint64_t id) {
     const auto task = findTask(id);
     if (!task) return;
 
-    // 复用原任务的 URL 与 destPath 重新 addUri；continue=true 时 aria2 会从
-    // 同目录的 .aria2 控制文件续传（真正的断点续传）。
+    // 复用原 GID、URL 与最终输出路径。aria2-next 2.8.x 的断点数据放在 state-dir
+    // SQLite 数据库中；新 GID 或仅凭同名文件重下都会丢失任务隔离与进度。
     const cfg::Aria2Config a2 = cfg::aria2Config();
     const int connections = task->opts.connections > 0
         ? std::clamp(task->opts.connections, 1, 64)
@@ -1318,21 +1346,42 @@ void Aria2Engine::retryOnWorker(std::uint64_t id) {
     optionsJ["split"] = std::to_string(connections);
     optionsJ["max-connection-per-server"] = std::to_string(connections);
     optionsJ["min-split-size"] = a2.minSplitSize;
-    // continue 仅当确有 .aria2 控制文件（真正的部分文件待续传）时开启：失败/取消
-    // 任务续传用；已完成任务没有控制文件 → 不 continue，重新下载走 daemon 的
-    // --auto-file-renaming 改名（避免 aria2 把已存在完整文件判成"已下载完"直接完成，
-    // 那样点重新下载等于没反应）。
-    std::error_code ec;
-    std::filesystem::path control = task->destPath;
-    control += ".aria2";
-    const bool hasControl = std::filesystem::exists(control, ec);
-    optionsJ["continue"] = hasControl ? "true" : "false";
+    optionsJ["continue"] = "true";
+    if (task->opts.pauseMetadata && task->url.starts_with("magnet:")) {
+        optionsJ["pause-metadata"] = "true";
+    }
+    if (task->opts.mediaMode != "auto") optionsJ["media"] = task->opts.mediaMode;
+    if (task->opts.mediaFormat == "mkv") optionsJ["media-format"] = "mkv";
     // 每任务限速已移除（无意义），统一用配置的 maxDownloadLimit。
     if (a2.maxDownloadLimit > 0) {
         optionsJ["max-download-limit"] = std::to_string(a2.maxDownloadLimit);
     }
-    // 磁力/BT 不设 out（内容名由种子决定）；HTTP 仅当显式重命名时才强制 out
-    // （否则重新走 Content-Disposition 解析，避免续传回来仍是 uuid 名）。
+    // 媒体有专用 retryMedia：普通 add/remove 过程会丢弃媒体恢复数据。
+    if (task->isMedia && !task->gid.empty()) {
+        try {
+            rpcCall(port_, secret_, "aria2.retryMedia",
+                    nlohmann::json::array({task->gid}));
+            task->state = State::Queued;
+            task->error.clear();
+            task->speedBps = 0.0;
+        } catch (const std::exception& e) {
+            task->state = State::Failed;
+            task->error = e.what();
+        }
+        return;
+    }
+
+    const std::string originalGid = task->gid;
+    if (!originalGid.empty()) {
+        // stopped 结果占据原 GID。移除结果记录后，用显式 GID 重建请求组；stream
+        // 和 BitTorrent 的恢复数据仍由 state-dir 按这个 GID 取回。
+        try {
+            rpcCall(port_, secret_, "aria2.removeDownloadResult",
+                    nlohmann::json::array({originalGid}));
+        } catch (...) {}
+        optionsJ["gid"] = originalGid;
+    }
+
     nlohmann::json params;
     std::string method = "aria2.addUri";
 
@@ -1354,7 +1403,9 @@ void Aria2Engine::retryOnWorker(std::uint64_t id) {
         params.push_back(optionsJ);
         method = "aria2.addTorrent";
     } else {
-        if (!task->url.starts_with("magnet:") && !task->opts.outputName.empty()) {
+        if (!task->url.starts_with("magnet:")) {
+            // 固定服务端已经解析出的文件名（可能来自 Content-Disposition），
+            // 让 v2.8.3 用相同的 GID/URL/路径匹配恢复记录。
             optionsJ["out"] = utf8FromPath(task->destPath.filename());
         }
         // 重下同样带上镜像源（opts.mirrors 从原任务复用）。
@@ -1455,6 +1506,83 @@ void Aria2Engine::removeMirror(std::uint64_t id, const std::string& url,
     });
 }
 
+void Aria2Engine::selectTorrentFiles(
+    std::uint64_t id, const std::vector<int>& indexes,
+    std::function<void(bool, std::string)> onDone) {
+    std::string gid;
+    std::vector<int> selected;
+    for (const int index : indexes) {
+        if (index <= 0) continue;
+        if (std::ranges::find(selected, index) == selected.end()) {
+            selected.push_back(index);
+        }
+    }
+    if (selected.empty()) {
+        if (onDone) onDone(false, "Select at least one file");
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        const auto task = findTask(id);
+        if (!task || task->gid.empty() || !task->awaitingTorrentFileSelection ||
+            task->state != State::Paused) {
+            if (onDone) onDone(false, "Task is not waiting for file selection");
+            return;
+        }
+        gid = task->gid;
+    }
+    std::string selection;
+    for (const int index : selected) {
+        if (!selection.empty()) selection += ',';
+        selection += std::to_string(index);
+    }
+    enqueue([this, id, gid = std::move(gid), selection = std::move(selection),
+             selected = std::move(selected), onDone = std::move(onDone)] {
+        try {
+            rpcCall(port_, secret_, "aria2.changeOption",
+                    nlohmann::json::array({gid, {{"select-file", selection}}}));
+            rpcCall(port_, secret_, "aria2.unpause", nlohmann::json::array({gid}));
+            {
+                std::lock_guard<std::mutex> lock(tasksMutex_);
+                if (const auto task = findTask(id)) {
+                    task->state = State::Queued;
+                    task->awaitingTorrentFileSelection = false;
+                    for (auto& file : task->torrentFiles) {
+                        file.selected = std::ranges::find(selected, file.index) != selected.end();
+                    }
+                }
+            }
+            if (onDone) onDone(true, {});
+        } catch (const std::exception& e) {
+            if (onDone) onDone(false, e.what());
+        }
+    });
+}
+
+void Aria2Engine::finishMedia(
+    std::uint64_t id, std::function<void(bool, std::string)> onDone) {
+    std::string gid;
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        const auto task = findTask(id);
+        if (!task || task->gid.empty() || !task->isMedia || !task->mediaLive ||
+            (task->mediaState != "recording" && task->mediaState != "paused") ||
+            (task->state != State::Downloading && task->state != State::Paused)) {
+            if (onDone) onDone(false, "Task is not an active live recording");
+            return;
+        }
+        gid = task->gid;
+    }
+    enqueue([this, id, gid = std::move(gid), onDone = std::move(onDone)] {
+        try {
+            rpcCall(port_, secret_, "aria2.finishMedia", nlohmann::json::array({gid}));
+            if (onDone) onDone(true, {});
+        } catch (const std::exception& e) {
+            if (onDone) onDone(false, e.what());
+        }
+    });
+}
+
 // 重启后重建任务表：daemon 用 --input-file 载入了 --save-session 的未完成任务，
 // 这里通过 tellActive/tellWaiting/tellStopped 把它们同步成本地 Task。
 void Aria2Engine::recoverSession() const {
@@ -1527,6 +1655,9 @@ void Aria2Engine::recoverSession() const {
         } else {
             task->state = State::Cancelled;
         }
+        // Recovery snapshots carry the same media phase and BitTorrent file
+        // selection state as live progress snapshots.
+        applyTellStatus(task, st);
         task->fromSession = true;   // 会话恢复的历史任务：不再发完成/失败通知
         recovered.push_back(std::move(task));
     };
@@ -1546,13 +1677,18 @@ void Aria2Engine::recoverSession() const {
             const std::string status = st.value("status", "");
             if (status == "error" && restoreFailedOnRecover_) {
                 // 「启动时自动重试失败任务」开启：失败记录恢复为 Failed 任务
-                // （fromSession 不通知），上层随后 retry 换新 gid。旧 gid 从
-                // daemon 清掉，避免会话文件里同一 URL 的失败记录逐次累积。
+                // （fromSession 不通知），上层随后按原 GID 和 state-dir 数据续传。
+                // daemon stopped 结果先清理，避免会话文件重复载入该记录。
                 addFrom(st);
-                try {
-                    rpcCall(port_, secret_, "aria2.removeDownloadResult",
-                            nlohmann::json::array({st.value("gid", "")}));
-                } catch (...) {}
+                // Media recovery belongs to the stopped result; retryMedia needs
+                // that result and its GID-owned checkpoints intact.
+                const bool mediaTask = st.contains("media") && st["media"].is_object();
+                if (!mediaTask) {
+                    try {
+                        rpcCall(port_, secret_, "aria2.removeDownloadResult",
+                                nlohmann::json::array({st.value("gid", "")}));
+                    } catch (...) {}
+                }
             } else if (status == "error" || status == "removed") {
                 // 失败/已移除的任务不再重挂，从 daemon 清掉避免下次会话又载入。
                 // 注意必须是 removeDownloadResult：aria2.remove 只接受活动/等待/
@@ -1589,6 +1725,42 @@ void Aria2Engine::applyTellStatus(const std::shared_ptr<Task>& task,
     task->downloadedBytes = strI64("completedLength");
     try { task->speedBps = std::stod(st.value("downloadSpeed", "0")); }
     catch (...) { task->speedBps = 0.0; }
+    const auto readString = [](const nlohmann::json& value) -> std::string {
+        if (value.is_string()) return value.get<std::string>();
+        if (value.is_number_integer()) return std::to_string(value.get<std::int64_t>());
+        if (value.is_number_float()) return std::to_string(value.get<double>());
+        if (value.is_boolean()) return value.get<bool>() ? "true" : "false";
+        return {};
+    };
+    const auto mediaIt = st.find("media");
+    task->isMedia = mediaIt != st.end() && mediaIt->is_object();
+    if (task->isMedia) {
+        const auto& media = *mediaIt;
+        task->mediaProtocol = media.value("protocol", "");
+        task->mediaState = media.value("state", "");
+        task->mediaLive = readString(media.value("live", nlohmann::json("false"))) == "true";
+        task->mediaProgress = 0.0;
+        try {
+            task->mediaProgress = std::clamp(
+                std::stod(readString(media.value("progress", nlohmann::json("0")))),
+                0.0, 1.0);
+        } catch (...) {}
+        const auto readMediaI64 = [&](const char* key) -> std::int64_t {
+            try { return std::stoll(readString(media.value(key, nlohmann::json("0")))); }
+            catch (...) { return std::int64_t{0}; }
+        };
+        task->mediaDurationMs = readMediaI64("duration");
+        task->mediaCompletedDurationMs = readMediaI64("completedDuration");
+        task->mediaDownloadedBytes = readMediaI64("downloadedLength");
+    } else {
+        task->mediaProtocol.clear();
+        task->mediaState.clear();
+        task->mediaLive = false;
+        task->mediaProgress = 0.0;
+        task->mediaDurationMs = 0;
+        task->mediaCompletedDurationMs = 0;
+        task->mediaDownloadedBytes = 0;
+    }
     // 磁力/BT 任务拿到元数据后，files[0].path 才是真实下载路径（更新占位）。
     if (st.contains("files") && st["files"].is_array() &&
         !st["files"].empty()) {
@@ -1625,6 +1797,27 @@ void Aria2Engine::applyTellStatus(const std::shared_ptr<Task>& task,
     if (st.contains("bittorrent") && st["bittorrent"].is_object() &&
         st["bittorrent"].contains("info") && st["bittorrent"]["info"].is_object()) {
         task->displayName = st["bittorrent"]["info"].value("name", "");
+    }
+    task->torrentFiles.clear();
+    task->awaitingTorrentFileSelection = false;
+    if (st.contains("bittorrent") && st["bittorrent"].is_object()) {
+        const auto& bt = st["bittorrent"];
+        task->awaitingTorrentFileSelection =
+            bt.value("fileSelectionState", "") == "awaiting";
+        if (task->awaitingTorrentFileSelection) task->opts.pauseMetadata = true;
+        if (st.contains("files") && st["files"].is_array()) {
+            for (const auto& file : st["files"]) {
+                if (!file.is_object()) continue;
+                TorrentFileView entry;
+                try { entry.index = std::stoi(readString(file.value("index", nlohmann::json("0")))); }
+                catch (...) { continue; }
+                entry.path = file.value("path", "");
+                try { entry.length = std::stoll(readString(file.value("length", nlohmann::json("0")))); }
+                catch (...) { entry.length = 0; }
+                entry.selected = readString(file.value("selected", nlohmann::json("false"))) == "true";
+                if (entry.index > 0) task->torrentFiles.push_back(std::move(entry));
+            }
+        }
     }
     // aria2-next reports the field as "connections"; original aria2 uses
     // "numConnections". Accept both so the engine works with either.
@@ -1765,7 +1958,7 @@ void Aria2Engine::refreshHealth(std::function<void(const HealthInfo&)> onDone) {
 
 // 后台命令线程执行：保存会话 → forceShutdown → 停旧 WS → 清任务表（恢复时会
 // 从 --input-file 重建，不清会重复）→ ensureDaemon 重新拉起（内部 recoverSession
-// + 新 WS）。进行中的下载经 .aria2 控制文件续传，不丢。锁纪律与 retryOnWorker
+// + 新 WS）。进行中的下载经原生 state-dir 数据续传，不丢。锁纪律与 retryOnWorker
 // 一致：ensureDaemon 在释放 daemonMutex_ 后调用（避免非递归互斥量死锁）。
 void Aria2Engine::restartEngine(std::function<void(bool)> onDone,
                                 std::function<bool()> beforeRespawn) {
@@ -1835,6 +2028,16 @@ std::vector<TaskView> Aria2Engine::snapshot() const {
         tv.mirrorCount = static_cast<int>(task.opts.mirrors.size());
         tv.mirrors = task.mirrors;
         tv.fromSession = task.fromSession;
+        tv.isMedia = task.isMedia;
+        tv.mediaProtocol = task.mediaProtocol;
+        tv.mediaState = task.mediaState;
+        tv.mediaLive = task.mediaLive;
+        tv.mediaProgress = task.mediaProgress;
+        tv.mediaDurationMs = task.mediaDurationMs;
+        tv.mediaCompletedDurationMs = task.mediaCompletedDurationMs;
+        tv.mediaDownloadedBytes = task.mediaDownloadedBytes;
+        tv.awaitingTorrentFileSelection = task.awaitingTorrentFileSelection;
+        tv.torrentFiles = task.torrentFiles;
         // 在任务数据仍存活时预编码 destPath 到 UTF-8 串，后续读（如任务信息弹窗、终端输出）
         // 不走可能已悬空的 destPath（原生下载分支的遗留问题，见 dialogs.cppm）。
         tv.destPathUtf8 = task.destPath.empty() ? std::string() : utf8FromPath(task.destPath);

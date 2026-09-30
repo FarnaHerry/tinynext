@@ -27,7 +27,8 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
 
 - **单实例**：重复启动不弹新窗口——第二实例经 TCP loopback socket 把 URL 直发
   主实例（回退写 `<temp>/tinynext.inbox`，Windows 上还会聚焦窗口）后退出。
-- 可下载源：`http(s)://` / `ftp(s)://` / `sftp://` 链接、`magnet:` 磁力、`.torrent`
+- 可下载源：aria2-next 2.8.3 支持的 `http(s)://` / `sftp://` / `ed2k://|file|`
+  链接、`magnet:` 磁力、`.torrent`
   本地路径；白名单统一在 `isDownloadableSource`（`src/utils.cppm`，`tinynext.utils`）。
   非下载参数忽略。
 - `agent` / `--agent` / `help` 参数会打印 CLI 使用教学并退出（不进 GUI）——AI
@@ -81,7 +82,8 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
 6. **磁力**：`g_tasks.startFromUrl` 接受 `magnet:` 前缀；magnet 任务不设 `out`，
    destPath 由 `refreshStates` 从 `files[0].path` 更新为真实路径。
 7. **重新下载**：Failed/Cancelled 卡片 ↻ 调 `g_tasks.retry(id)`（委托 `DownloadEngine`
-   接口）。aria2 复用原 URL+路径 + `continue=true` 从 `.aria2` 续传。
+   接口）。aria2-next 复用原 GID + URL + 输出路径，并从 `aria2-state/stream/state.db`
+   恢复已提交分片；旧版旁置 `.aria2` 文件不导入。
 8. **会话恢复**：aria2 daemon 启动带 `--save-session`/`--input-file`（
    `aria2_engine.cpp::daemonExtraOpts`），`shutdown()` 先 `aria2.saveSession` 再
    forceShutdown；重启后 `recoverSession()` 用 `tellActive/tellWaiting/tellStopped`

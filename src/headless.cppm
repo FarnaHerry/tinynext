@@ -7,8 +7,8 @@
 // 接线：cli.cppm 的 CliBoot 在 main 之前检测 --headless 并调 headless::run()，
 // 不抢单实例锁、不进 GUI、不转发 URL —— headless 独立起自己的 daemon 下载。
 // 失败任务是否进会话文件受「启动时自动重试失败任务」开关约束：关闭时退出前
-// 清掉失败/取消记录（不自动续传重开），部分下载仍在的 .aria2 控制文件不受影响，
-// 手动重新添加同一 URL 即可续传。
+// 清掉失败/取消记录（不自动续传重开）；恢复数据由 aria2-next 按 GID 管理，
+// 不从下载目录旁置 .aria2 文件导入。
 module;
 
 #ifdef _WIN32
@@ -106,7 +106,7 @@ export bool requested() {
 // 执行 headless 下载：起 daemon → 逐个加入任务 → 轮询到全部结束 → shutdown。
 // 返回进程 exit code（0 = 全部成功，1 = 任一失败或引擎不可用）。
 export int run() {
-    // 收集可下载源（与 CLI 白名单一致：http(s)/ftp(s)/sftp/magnet/.torrent）。
+    // 收集可下载源（与 CLI 白名单一致：http(s)/sftp/ED2K/magnet/.torrent）。
     std::vector<std::string> urls;
     for (const auto& a : commandLineArgs()) {
         if (a == "--headless") continue;

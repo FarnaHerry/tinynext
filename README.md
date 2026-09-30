@@ -3,7 +3,7 @@
 [English](README.en.md)
 
 一个用 C++23 编写的**跨平台** GUI 下载器：**EUI-NEO** 前端 + **aria2-next**
-外部进程引擎（分片多连接、断点续传、磁力/BT），支持 Windows / Linux / macOS，
+外部进程引擎（分片多连接、断点续传、磁力/BT、HLS/DASH、ED2K），支持 Windows / Linux / macOS，
 全部通过 mcpp 包管理。
 
 ## 构建与运行
@@ -21,7 +21,7 @@ mcpp run            # 启动 GUI 窗口
   而是把命令行参数里的下载链接转发给已运行实例（Windows 上还会把已有窗口
   切到前台），由它自动添加任务。
 - **CLI**：`tinynext <下载源>` 启动即添加下载；如果应用未运行，会自动打开应用并加入
-  下载列表。可一次传多个。可下载源：`http(s)://` / `ftp(s)://` / `sftp://` 链接、
+  下载列表。可一次传多个。可下载源：`http(s)://` / `sftp://` / `ed2k://|file|` 链接、
   `magnet:` 磁力、或以 `.torrent` 结尾的本地文件路径。**详细用法见 `docs/cli.md`**。
 - 转发走临时目录的 `tinynext.inbox` 文件，主实例每 ~0.5s 轮询取走任务。
 - 给 AI 助手的项目指南见 `AGENTS.md`（含构建 / CLI 用法 / 模块约定）。
@@ -65,13 +65,16 @@ eui-neo 0.5.7 起提供**原生全局缩放**：`DslAppConfig::uiScale(scale)` �
 
 ## 使用
 
-1. 点击右上角 **➕** 打开「添加下载」弹窗，粘贴 **HTTP(S) / FTP(S) / SFTP** 链接、
-   **magnet:** 磁力链接，或**选择本地 .torrent 文件**，点「提交」或按回车开始。
-2. 弹窗里可为该任务设置：**连接数**（打开时自动填配置的默认值，可改）、**重命名**（留空=URL 文件名）、**下载目录**（打开时自动填配置的默认目录，可改；磁力链接建议确认，因为种子内容名不由 URL 决定）、**种子文件**（选了种子 URL 可留空）、**多行URL合并为镜像**（实验性）。想先下哪个就暂停其他任务（aria2-next 不支持下载优先级，排队按添加顺序）。
+1. 点击右上角 **➕** 打开「添加下载」弹窗，粘贴 **HTTP(S) / SFTP / ED2K** 链接、
+   **magnet:** 磁力链接或 HLS/DASH 清单地址，或**选择本地 .torrent 文件**，点「提交」开始。
+2. 弹窗可设置连接数、输出名、下载目录和媒体模式/MP4-MKV 封装。磁力任务可选择先
+   读取元数据，再勾选要下载的种子文件；媒体任务可显示时长进度，直播录制可在卡片上结束。
+   多行 URL 也能合并为镜像源（实验性）。想先下哪个就暂停其他任务（aria2-next 不支持
+   下载优先级，排队按添加顺序）。
 3. 卡片操作全部用图标，无文字：
    - **复制链接**、**删除**：所有任务都有；
    - 下载中：**暂停** / **取消**；已暂停：**继续** / **取消**；
-   - 失败 / 已取消：**重新下载**（aria2 从 `.aria2` 控制文件断点续传）；
+   - 失败 / 已取消：**重新下载**（aria2-next 用原任务 GID 从持久恢复数据续传）；
    - 已完成：**打开** / **打开所在文件夹**。
 4. 同名文件自动加 ` (1)`、` (2)` 后缀，不会互相覆盖。
 
@@ -82,13 +85,12 @@ eui-neo 0.5.7 起提供**原生全局缩放**：`DslAppConfig::uiScale(scale)` �
 暂停 / 继续走 aria2 RPC（`aria2.pause` / `aria2.unpause`）：是**真正的中断**，
 不占连接，可随时继续，进度不倒退。
 
-- **重新下载**：失败 / 已取消的卡片 ↻ 按钮用原 URL + 原路径重新入队，aria2 从同
-  目录的 `.aria2` 控制文件续传（真正的断点续传）。
+- **重新下载**：失败 / 已取消的卡片 ↻ 按钮复用原 GID、URL 和输出路径；aria2-next
+  从应用数据目录 `aria2-state/` 内的原生恢复数据库续传。下载目录不创建 `.aria2`
+  控制文件。
 - **重启恢复**：aria2 daemon 启动带 `--save-session` / `--input-file`，退出时先
   `aria2.saveSession` 持久化未完成任务；下次启动自动载入并续传，任务列表由
   `tellActive` / `tellWaiting` / `tellStopped` 枚举重建。
-- 设置页「完成后移除控制文件」开启后，下载完成即删 `.aria2`；未完成（含取消）则
-  保留，供重新下载续传。
 
 ## 设置（⚙ 设置页）
 
@@ -99,7 +101,7 @@ eui-neo 0.5.7 起提供**原生全局缩放**：`DslAppConfig::uiScale(scale)` �
   重启生效，可一键立即重启）、启动时自动重试失败任务（默认关闭，开启后下次
   启动对恢复出的失败任务自动续传）、下载路径（默认系统下载
   目录，可「浏览」用系统选择器或手输）。
-- **直链下载**（HTTP/FTP/SFTP 相关）：分片数、每服务器连接（默认 64，上限 64）、
+- **直链下载**（HTTP/SFTP 相关）：分片数、每服务器连接（默认 64，上限 64）、
   最小分片（≥1M）、每任务限速（KB/s，0=不限）、**代理地址**（HTTP/HTTPS，aria2 不
   支持 SOCKS5）、**不使用代理列表**、**失败重试次数 / 重试等待秒**、
   **User-Agent / Referer**、自定义请求头（多行，每行一个）、Cookie 载入 / 保存
@@ -108,7 +110,7 @@ eui-neo 0.5.7 起提供**原生全局缩放**：`DslAppConfig::uiScale(scale)` �
   （如 `6881-6999`）、局域网发现（`--bt-enable-lpd`）。
 - **下载行为**：**最大同时下载数**（队列并发上限，默认 5，范围 1~64）、全局限速
   （KB/s，区别于每任务限速）、文件分配（默认/none/trunc/falloc）、自动改名、允许
-  覆盖、完成后命令、完成后移除控制文件、磁盘缓存。
+  覆盖、完成后命令、磁盘缓存。
 - **完整性校验**：检查完整性（`--check-integrity`）、校验和（`--checksum`）。
 - 新下载立即生效；daemon 级参数在 aria2 daemon 已启动时需重启才生效。
 - 所有设置点「保存」落盘到 `tinynext.conf`（JSON），「放弃」回滚；「关于」标签页
@@ -124,7 +126,10 @@ UI 只面向抽象 `dl::DownloadEngine` 接口（`src/download_engine.cppm`）�
 `dl::Aria2Engine`（TinyHttpsEngine 已移除）：
 
 - spawn `engines/aria2-next` 守护进程，JSON-RPC 驱动，`-x 64 -s 64` 分片多连接。
-- 断点续传（`.aria2` 控制文件）、磁力/BT、重试、限速、代理等能力来自 aria2 本身。
+- 断点续传使用内核 SQLite 恢复状态（`aria2-state/`）；磁力/BT、HLS/DASH、ED2K、
+  重试、限速和代理能力来自 aria2-next。
+- 添加弹窗可设置媒体自动识别、强制 HLS/DASH 或保存原始清单，并选择 MP4/MKV
+  封装；直播任务可在卡片上结束录制。磁力链接可选择先获取元数据，再勾选要下载的文件。
 - 本地 JSON-RPC 用自写的极简跨平台 socket（`aria2_engine.cpp` 里的 `LocalSocket`），
   无外部 HTTP/网络依赖。
 
@@ -132,12 +137,12 @@ UI 只面向抽象 `dl::DownloadEngine` 接口（`src/download_engine.cppm`）�
 
 三平台都需把对应的 aria2-next 二进制放进 `engines/`（已 gitignore，`checksums.sha256` 保留）：
 
-| 平台 | release 资产（v2.8.2） | 放置为 |
+| 平台 | release 资产（v2.8.3） | 放置为 |
 |------|------------------------|--------|
-| Windows x64 | `aria2-next-2.8.2-windows-x86_64.exe` | `engines/aria2-next.exe` |
-| Linux x64 | `aria2-next-2.8.2-linux-x86_64` | `engines/aria2-next` |
-| macOS (Apple Silicon) | `aria2-next-2.8.2-macos-arm64` | `engines/aria2-next` |
-| macOS (Intel) | `aria2-next-2.8.2-macos-x86_64` | `engines/aria2-next` |
+| Windows x64 | `aria2-next-2.8.3-windows-x86_64.exe` | `engines/aria2-next.exe` |
+| Linux x64 | `aria2-next-2.8.3-linux-x86_64` | `engines/aria2-next` |
+| macOS (Apple Silicon) | `aria2-next-2.8.3-macos-arm64` | `engines/aria2-next` |
+| macOS (Intel) | `aria2-next-2.8.3-macos-x86_64` | `engines/aria2-next` |
 
 下载页：https://github.com/AnInsomniacy/aria2-next/releases
 
@@ -200,7 +205,7 @@ runner。）
 |------|-----|------|
 | 工具链 | LLVM/Clang（`mcpp.toml` 的 `[toolchain]` 固定） | 22.1.8 |
 | UI 框架 | `compat:eui-neo` | 0.5.9（feature: `app-main`；Linux 支持 SNI 系统托盘；配方加 `-fno-char8_t` 修 C++23 构建） |
-| 下载引擎 | `aria2-next`（外部进程） | 2.8.2 |
+| 下载引擎 | `aria2-next`（外部进程） | 2.8.3 |
 | 配置 JSON | `nlohmann:json` | 3.12.0 |
 
 ### 架构

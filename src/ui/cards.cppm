@@ -43,8 +43,34 @@ export std::string stateLabel(dl::State state) {
     return "";
 }
 
+namespace {
+std::string mediaPhaseLabel(std::string_view phase) {
+    if (phase == "waiting") return tr("card.media.waiting");
+    if (phase == "probing") return tr("card.media.probing");
+    if (phase == "awaiting-selection") return tr("card.media.awaiting_selection");
+    if (phase == "downloading") return tr("card.media.downloading");
+    if (phase == "recording") return tr("card.media.recording");
+    if (phase == "finalizing") return tr("card.media.finalizing");
+    if (phase == "paused") return tr("card.media.paused");
+    if (phase == "complete") return tr("card.media.complete");
+    if (phase == "error") return tr("card.media.error");
+    if (phase == "removed") return tr("card.media.removed");
+    return tr("card.state.downloading");
+}
+
+std::string mediaTime(std::int64_t milliseconds) {
+    const std::int64_t total = std::max<std::int64_t>(0, milliseconds / 1000);
+    const std::int64_t hours = total / 3600;
+    const std::int64_t minutes = (total % 3600) / 60;
+    const std::int64_t seconds = total % 60;
+    if (hours > 0) return std::format("{:02}:{:02}:{:02}", hours, minutes, seconds);
+    return std::format("{:02}:{:02}", minutes, seconds);
+}
+}
+
 // 卡片信息行：百分比 · 速度 · 已下载/总大小；非下载中则显示状态/错误。
 export std::string cardInfoText(const dl::TaskView& task) {
+    if (task.awaitingTorrentFileSelection) return tr("card.bt.awaiting_files");
     switch (task.state) {
         case dl::State::Queued: return tr("card.state.wait_queue");
         case dl::State::Paused: return tr("card.state.paused");
@@ -62,6 +88,27 @@ export std::string cardInfoText(const dl::TaskView& task) {
         }
         case dl::State::Downloading:
             break;
+    }
+
+    if (task.isMedia) {
+        std::string parts;
+        const auto push = [&](std::string_view part) {
+            if (part.empty()) return;
+            if (!parts.empty()) parts += "  ·  ";
+            parts += part;
+        };
+        if (!task.mediaProtocol.empty()) push(task.mediaProtocol);
+        push(mediaPhaseLabel(task.mediaState));
+        if (task.mediaLive) {
+            if (task.mediaDownloadedBytes > 0) push(formatBytes(task.mediaDownloadedBytes));
+        } else if (task.mediaDurationMs > 0) {
+            push(std::format("{} / {}", mediaTime(task.mediaCompletedDurationMs),
+                             mediaTime(task.mediaDurationMs)));
+            push(std::format("{:.0f}%", task.mediaProgress * 100.0));
+        }
+        const std::string speed = formatSpeed(task.speedBps);
+        if (!speed.empty()) push(speed);
+        return parts.empty() ? tr("card.state.downloading") : parts;
     }
 
     std::string parts;
@@ -140,6 +187,8 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
     float progress = 0.0f;
     if (task.state == dl::State::Done) {
         progress = 1.0f;
+    } else if (task.isMedia) {
+        progress = task.mediaLive ? 0.0f : static_cast<float>(task.mediaProgress);
     } else if (task.totalBytes > 0) {
         progress = std::clamp(
             static_cast<float>(static_cast<double>(task.downloadedBytes) /
@@ -210,13 +259,18 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
             // 镜像管理：有镜像源（含运行时 changeUri 增删）就显示，可查看源/移除坏源/
             // 添加镜像。
             const bool showMirror = task.mirrorCount > 0 || !task.mirrors.empty();
+            const bool showSelectFiles = task.awaitingTorrentFileSelection;
+            const bool showFinishMedia = task.isMedia && task.mediaLive &&
+                (task.mediaState == "recording" || task.mediaState == "paused") &&
+                (task.state == dl::State::Downloading || task.state == dl::State::Paused);
 
             const int actionCount = (showOpen ? 1 : 0) + (showOpenFolder ? 1 : 0) +
                                     (showDelete ? 1 : 0) + 1 /* 复制链接恒显示 */ +
                                     1 /* 信息恒显示 */ +
                                     (showCancel ? 1 : 0) + (showRetry ? 1 : 0) +
                                     (showPause || showResume ? 1 : 0) +
-                                    (showMirror ? 1 : 0);
+                                    (showMirror ? 1 : 0) + (showSelectFiles ? 1 : 0) +
+                                    (showFinishMedia ? 1 : 0);
             const float iconsW = actionCount * kCardIconW +
                                  (actionCount > 0 ? (actionCount - 1) * kCardIconGap : 0.0f);
 
@@ -288,6 +342,20 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                           g_mirrorTaskId = id;
                           g_mirrorAddText.clear();
                           g_mirrorOpen = true;
+                      });
+            }
+            if (showSelectFiles) {
+                place("selectfiles", 0xF03A, false,  // fa-list-ul
+                      [task] { requestTorrentSelection(task); });
+            }
+            if (showFinishMedia) {
+                place("finishmedia", 0xF04D, false,  // fa-stop
+                      [id = task.id] {
+                          g_tasks.finishMedia(id, [](bool ok, std::string error) {
+                              postStatus(ok ? tr("dl.media_finish_sent")
+                                            : trf("dl.media_finish_failed", error));
+                              core::platform::requestUiUpdate();
+                          });
                       });
             }
         })

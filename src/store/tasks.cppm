@@ -42,7 +42,7 @@ export struct StartResult {
     std::uint64_t id = 0;   // 成功时的任务 id
 };
 
-// 删除任务后清理 aria2 的 .aria2 控制文件（下载缓存）。best-effort，失败静默。
+// 删除任务时顺手清理旧版本遗留的 .aria2 文件；aria2-next 2.8.x 不再创建旁置控制文件。
 void removeControlFile(const std::filesystem::path& destPath) {
     std::filesystem::path control = destPath;
     control += ".aria2";
@@ -128,9 +128,17 @@ public:
                       std::function<void(bool)> onDone) {
         engine_->removeMirror(id, url, std::move(onDone));
     }
+    void selectTorrentFiles(std::uint64_t id, const std::vector<int>& indexes,
+                            std::function<void(bool, std::string)> onDone) {
+        engine_->selectTorrentFiles(id, indexes, std::move(onDone));
+    }
+    void finishMedia(std::uint64_t id,
+                     std::function<void(bool, std::string)> onDone) {
+        engine_->finishMedia(id, std::move(onDone));
+    }
 
-    // 删除任务记录（daemon 会话 + 本地任务表）并清理下载缓存（.aria2 控制
-    // 文件）。源文件是否删除由 UI 层的删除确认弹窗决定，不在本方法职责内。
+    // 删除任务记录（daemon 会话 + 本地任务表）并清理旧版 .aria2 残留。
+    // aria2-next 同时按 GID 清理原生恢复数据；源文件是否删除由 UI 层决定。
     void deleteRecord(const dl::TaskView& task) {
         engine_->remove(task.id);
         removeControlFile(task.destPath);
@@ -149,7 +157,7 @@ public:
         }
 
         const bool magnet = url.starts_with("magnet:");
-        // aria2 原生支持 http/https/ftp/sftp/magnet；http 不再强制升级为 https。
+        // aria2-next 2.8.3 支持 http/https/sftp/ED2K file/magnet；http 不升级。
         // 本地 .torrent 文件路径也放行（走 addTorrent）。
         const bool torrentFile = url.ends_with(".torrent") && std::filesystem::exists(url);
         if (!isDownloadableSource(url) && !torrentFile) {

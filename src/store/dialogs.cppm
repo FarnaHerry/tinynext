@@ -45,6 +45,11 @@ export std::string g_addRenameText;
 export std::string g_addDirText;
 export std::string g_addTorrentPath;
 export bool g_addMirror = false;
+export bool g_addPauseMetadata = false;
+export int g_addMediaModeIndex = 0;
+export int g_addMediaFormatIndex = 0;
+export bool g_addMediaModeOpen = false;
+export bool g_addMediaFormatOpen = false;
 
 // “添加下载”弹窗提交：按顶部切换（直链下载 / 种子）分流。
 // 直链：URL/磁力 + 连接数/重命名/目录/镜像；种子：本地 .torrent + 目录。
@@ -73,6 +78,10 @@ export bool addDownload() {
     }
     opts.outputName = trimText(g_addRenameText);
     opts.dirOverride = trimText(g_addDirText);
+    constexpr const char* kMediaModes[] = {"auto", "file", "hls", "dash"};
+    constexpr const char* kMediaFormats[] = {"mp4", "mkv"};
+    opts.mediaMode = kMediaModes[std::clamp(g_addMediaModeIndex, 0, 3)];
+    opts.mediaFormat = kMediaFormats[std::clamp(g_addMediaFormatIndex, 0, 1)];
     std::string url = g_urlText;
     if (g_addMirror) {
         // 镜像多源：URL 框多行 → 首行为主 URL，其余为同一任务的镜像源（aria2 从
@@ -85,10 +94,17 @@ export bool addDownload() {
             if (!lt.empty()) lines.push_back(lt);
         }
         if (lines.size() > 1) {
+            if (std::ranges::any_of(lines, [](const std::string& source) {
+                    return !isMirrorableSource(source);
+                })) {
+                showStatus(tr("dl.mirror_url_invalid"));
+                return false;
+            }
             url = lines[0];
             opts.mirrors.assign(lines.begin() + 1, lines.end());
         }
     }
+    opts.pauseMetadata = g_addPauseMetadata && url.starts_with("magnet:");
     const auto r = g_tasks.startFromUrl(url, opts);
     showStatus(r.message);
     return r.ok;
@@ -128,6 +144,21 @@ export struct TaskInfoSnapshot {
 };
 
 export std::optional<TaskInfoSnapshot> g_pendingInfo;
+
+export struct TorrentSelectionSnapshot {
+    std::uint64_t taskId = 0;
+    std::string name;
+    std::vector<dl::TorrentFileView> files;
+};
+
+export std::optional<TorrentSelectionSnapshot> g_pendingTorrentSelection;
+
+export void requestTorrentSelection(const dl::TaskView& task) {
+    if (!task.awaitingTorrentFileSelection || task.torrentFiles.empty()) return;
+    g_pendingTorrentSelection = TorrentSelectionSnapshot{
+        task.id, task.displayName.empty() ? task.url : task.displayName,
+        task.torrentFiles};
+}
 
 export void requestInfo(const dl::TaskView& task) {
     // 排障：硬编码路径 + std::endl 强制刷新，避免文件 I/O 缓冲丢失。

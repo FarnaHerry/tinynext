@@ -24,6 +24,14 @@ export struct MirrorSource {
     std::string status;   // aria2: used（在用）/ waiting（备用）/ error（失败）
 };
 
+// One BitTorrent payload file (aria2 file indexes are 1-based).
+export struct TorrentFileView {
+    int index = 0;
+    std::string path;
+    std::int64_t length = 0;
+    bool selected = false;
+};
+
 // 引擎健康信息（监控页展示）。纯读缓存：由 refreshHealth() 在后台线程刷新，
 // health() 只读缓存、绝不发 RPC（UI 线程每帧可调用）。
 export struct HealthInfo {
@@ -60,6 +68,16 @@ export struct TaskView {
     bool fromSession = false;           // 从上次会话恢复的历史任务：不触发「完成/失败」通知
     std::string destPathUtf8;           // destPath 的预编码 UTF-8 串（在快照时任务数据存活时转好，
                                         // 避免后续读 destPath 本体时遇悬空指针崩溃）
+    bool isMedia = false;
+    std::string mediaProtocol;
+    std::string mediaState;
+    bool mediaLive = false;
+    double mediaProgress = 0.0;
+    std::int64_t mediaDurationMs = 0;
+    std::int64_t mediaCompletedDurationMs = 0;
+    std::int64_t mediaDownloadedBytes = 0;
+    bool awaitingTorrentFileSelection = false;
+    std::vector<TorrentFileView> torrentFiles;
 };
 
 // Per-task start options. connections == 0 means "use the engine default from
@@ -71,6 +89,9 @@ export struct StartOptions {
     std::filesystem::path dirOverride;    // 覆盖下载目录；空 = 配置目录（相对按配置目录解析）
     std::filesystem::path torrentPath;    // 本地 .torrent 文件；空 = 普通 URL 下载
     std::vector<std::string> mirrors;     // 镜像源（同一任务多源）；空 = 单 URL
+    bool pauseMetadata = false;            // magnet 元数据就绪后暂停，等待选择种子文件
+    std::string mediaMode = "auto";        // aria2-next: auto/file/hls/dash
+    std::string mediaFormat = "mp4";       // media remux output: mp4/mkv
     // 限速不在这里：每任务单独限速已移除（无意义），统一走配置的 maxDownloadLimit。
     // HTTP 头 / UA / Referer 走 daemon 级配置（aria2Config），无每任务覆盖需求。
 };
@@ -103,8 +124,8 @@ public:
     virtual void resumeAll() = 0;
 
     // Re-download a Failed/Cancelled task using its original URL and destination
-    // path. Engines that support resume (aria2 control files) continue from the
-    // partial file; others restart from scratch.
+    // path. aria2-next resumes from its persistent state database when the
+    // original task GID and output path are reused.
     virtual void retry(std::uint64_t id) = 0;
 
     // Copy of all tasks, newest first. 纯读缓存（内部持锁），绝不发 RPC——UI 线程
@@ -151,6 +172,21 @@ public:
                               std::function<void(bool)> onDone) {
         (void)id; (void)url;
         if (onDone) onDone(false);
+    }
+
+    // Submit a BitTorrent file selection and resume a magnet task waiting for
+    // metadata selection. Implementations without this feature report failure.
+    virtual void selectTorrentFiles(std::uint64_t id, const std::vector<int>& indexes,
+                                    std::function<void(bool, std::string)> onDone) {
+        (void)id; (void)indexes;
+        if (onDone) onDone(false, "BitTorrent file selection not supported");
+    }
+
+    // Finish an active live-media recording and publish its completed output.
+    virtual void finishMedia(std::uint64_t id,
+                             std::function<void(bool, std::string)> onDone) {
+        (void)id;
+        if (onDone) onDone(false, "Media recording not supported");
     }
 
     // True while any task is queued or running.

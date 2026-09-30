@@ -62,7 +62,6 @@ std::string g_maxTriesText = std::to_string(cfg::aria2Config().maxTries);
 std::string g_retryWaitText = std::to_string(cfg::aria2Config().retryWait);
 std::string g_maxConcurrentText =
     std::to_string(cfg::aria2Config().maxConcurrentDownloads);
-bool g_removeControlFile = cfg::aria2Config().removeControlFile;
 std::string g_onCompleteText = cfg::aria2Config().onDownloadComplete;
 std::string g_userAgentText = cfg::aria2Config().userAgent;
 std::string g_refererText = cfg::aria2Config().referer;
@@ -109,7 +108,6 @@ bool sameAria2Config(const cfg::Aria2Config& x, const cfg::Aria2Config& y) {
            x.maxTries == y.maxTries &&
            x.retryWait == y.retryWait &&
            x.maxConcurrentDownloads == y.maxConcurrentDownloads &&
-           x.removeControlFile == y.removeControlFile &&
            x.onDownloadComplete == y.onDownloadComplete &&
            x.userAgent == y.userAgent &&
            x.referer == y.referer &&
@@ -836,19 +834,6 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                       36.0f, 20.0f, g_allowOverwrite, theme,
                                       [](bool v) { g_allowOverwrite = v; });
                 });
-                row("a.remctrl", kFieldH, [&](eui::Ui& r, float) {
-                    components::text(r, "st.a.remctrl.label")
-                        .position(0, 0)
-                        .size(kLabelW, kFieldH)
-                        .text(tr("settings.remove_control_file"))
-                        .fontSize(11.0f)
-                        .lineHeight(kFieldH)
-                        .color(theme.metaText)
-                        .build();
-                    buildToggleSwitch(r, "st.a.remctrl.toggle", kLabelW, 3.0f,
-                                      36.0f, 20.0f, g_removeControlFile, theme,
-                                      [](bool v) { g_removeControlFile = v; });
-                });
                 row("a.oncomplete", kFieldH, [&](eui::Ui& r, float) {
                     field(r, "a.oncomplete", tr("settings.on_complete"), 0, fullW, g_onCompleteText,
                           [](const std::string& v) { g_onCompleteText = v; },
@@ -990,7 +975,6 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_maxTriesText = std::to_string(d.maxTries);
             g_retryWaitText = std::to_string(d.retryWait);
             g_maxConcurrentText = std::to_string(d.maxConcurrentDownloads);
-            g_removeControlFile = d.removeControlFile;
             g_onCompleteText = d.onDownloadComplete;
             g_userAgentText = d.userAgent;
             g_refererText = d.referer;
@@ -1125,7 +1109,6 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             a2.maxTries = maxTriesV;
             a2.retryWait = retryWaitV;
             a2.maxConcurrentDownloads = concurrentV;
-            a2.removeControlFile = g_removeControlFile;
             a2.onDownloadComplete = trimText(g_onCompleteText);
             a2.userAgent = trimText(g_userAgentText);
             a2.referer = trimText(g_refererText);
@@ -1222,7 +1205,6 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             g_maxTriesText = std::to_string(a2.maxTries);
             g_retryWaitText = std::to_string(a2.retryWait);
             g_maxConcurrentText = std::to_string(a2.maxConcurrentDownloads);
-            g_removeControlFile = a2.removeControlFile;
             g_onCompleteText = a2.onDownloadComplete;
             g_userAgentText = a2.userAgent;
             g_refererText = a2.referer;

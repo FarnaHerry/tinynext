@@ -220,6 +220,6 @@ Motrix 经典版 `aria2` npm 包「WS 打开走 WS、否则 HTTP」。故混合 
 `cli::CliBoot` 在 main 之前接管（不抢单实例锁、不进 GUI、不转发 URL）。
 
 - 定位：**TinyNext 用户的脚本工具**，不是给其他包管理器的下载后端。
-- 支持多 URL 逐个任务；接受 http(s)/ftp(s)/sftp / magnet: / 本地 .torrent。
+- 支持多 URL 逐个任务；接受 http(s)/sftp/ED2K file / magnet: / 本地 .torrent。
 - 失败任务保留在会话文件（下次 GUI 启动续传）。daemon 输出重定向到
   `configDir/tinynext-aria2.log`（终端保持干净）。
