@@ -39,7 +39,7 @@ import tinynext.ui.settings_page;
 import tinynext.ui.platform;
 import tinynext.ui.housekeep;
 import tinynext.store.tasks;    // g_tasks（启动预热 warmup）
-import tinynext.component_updater;  // 组件更新（设置页「组件」分组）
+import tinynext.component_updater;  // 引擎更新生命周期与版本探测
 import tinynext.store.ui;       // 状态消息 / 页面
 
 namespace app {

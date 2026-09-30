@@ -104,15 +104,13 @@ eui-neo 0.5.7 起提供**原生全局缩放**：`DslAppConfig::uiScale(scale)` �
   文件路径。
 - **BitTorrent**：做种时间（秒）、做种比率（空=不限）、最大 peers、监听端口
   （如 `6881-6999`）、局域网发现（`--bt-enable-lpd`）。
-- **组件**：aria2-next 的应用内在线更新（检查最新 release → 经引擎静默下载 →
-  sha256 校验 → 原子替换；更新引擎自身时先停 daemon 再换文件并自动重启）。
 - **下载行为**：**最大同时下载数**（队列并发上限，默认 5，范围 1~64）、全局限速
   （KB/s，区别于每任务限速）、文件分配（默认/none/trunc/falloc）、自动改名、允许
   覆盖、完成后命令、完成后移除控制文件、磁盘缓存。
 - **完整性校验**：检查完整性（`--check-integrity`）、校验和（`--checksum`）。
 - 新下载立即生效；daemon 级参数在 aria2 daemon 已启动时需重启才生效。
 - 所有设置点「保存」落盘到 `tinynext.conf`（JSON），「放弃」回滚；「关于」标签页
-  显示应用与组件版本及项目主页链接。
+  显示应用与引擎版本，并提供项目 GitHub 地址和相关项目链接。
 - 配置与 aria2 会话文件放在 **per-user 配置目录**（Windows `%APPDATA%\TinyNext` /
   macOS `~/Library/Application Support/TinyNext` / Linux `$XDG_CONFIG_HOME/tinynext`，
   回退 `~/.config/tinynext`）——安装版经快捷方式启动时 cwd 可能是 System32 等不可写

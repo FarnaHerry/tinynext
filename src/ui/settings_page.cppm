@@ -17,7 +17,6 @@ import tinynext.download_engine; // dl::HealthInfo
 import tinynext.store.tasks;  // g_tasks.engineActive（保存 daemon 参数时提示重启）
 import tinynext.store.ui;     // showStatus / page state
 import tinynext.store.dialogs;  // g_restartPromptOpen（关闭行为变更的重启提示弹窗）
-import tinynext.component_updater;  // 组件更新（aria2-next）
 import tinynext.ui.platform;
 
 // ---- 设置页私有待提交状态（本模块自用，store 化后不再全局导出）----
@@ -26,9 +25,9 @@ import tinynext.ui.platform;
 // （g_pendingTheme/g_dark/...）归位在 tinynext.ui.theme。
 
 // 设置页顶部标签分组：每组一个独立子页面，避免全部参数挤在一屏滚动过长。
-// 包含常规配置、组件、引擎监控和关于信息。
+// 包含常规配置、引擎监控和关于信息。
 enum class SettingsTab {
-    General, Download, BitTorrent, Ed2k, Network, Advanced, Engine, Components, About
+    General, Download, BitTorrent, Ed2k, Network, Advanced, Engine, About
 };
 SettingsTab g_settingsTab = SettingsTab::General;
 // 下载目录待提交值（默认保存目录；点「保存」才写入配置）。
@@ -229,7 +228,6 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         {tr("settings.tab.network"), "network", SettingsTab::Network},
         {tr("settings.tab.advanced"), "advanced", SettingsTab::Advanced},
         {tr("settings.tab.engine"), "engine", SettingsTab::Engine},
-        {tr("settings.tab.components"), "components", SettingsTab::Components},
         {tr("settings.tab.about"), "about", SettingsTab::About},
     };
     constexpr int kTabCount = static_cast<int>(std::size(kTabs));
@@ -958,112 +956,23 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .build();
                 });
 
+                constexpr const char* kTinyNextGitHub =
+                    "https://github.com/FarnaHerry/tinynext";
                 struct AboutLink { const char* label; const char* url; };
                 const AboutLink kAboutLinks[] = {
-                    {tr("about.app_name_value"), "https://github.com/FarnaHerry/tinynext"},
+                    {kTinyNextGitHub, kTinyNextGitHub},
                     {tr("about.build_tool_value"), "https://github.com/mcpp-community/mcpp"},
                     {tr("about.ui_framework_value"), "https://github.com/sudoevolve/EUI-NEO"},
                 };
                 for (int i = 0; i < static_cast<int>(std::size(kAboutLinks)); ++i) {
                     const std::string rowId = "about.link." + std::to_string(i);
                     row(rowId, 30.0f, [&, i, rowId](eui::Ui& r, float) {
-                        drawTextButton(r, "st." + rowId, 0.0f, 0.0f, 220.0f,
+                        drawTextButton(r, "st." + rowId, 0.0f, 0.0f, i == 0 ? 350.0f : 220.0f,
                                        kCompactButtonHeight, kAboutLinks[i].label, theme,
                                        [url = std::string(kAboutLinks[i].url)] { openUrl(url); });
                     });
                 }
             }  // 关于 tab 结束
-
-            // ---- 组件 tab：aria2-next 在线检查+更新（下载走引擎静默通道 +
-            //      sha256 校验）。----
-            if (g_settingsTab == SettingsTab::Components) {
-                // 组件行：名称 + 版本/错误行 + 右侧操作按钮（状态决定文案；
-                // busy 中的重复点击由 updater 内部忽略）。
-                auto compRow = [&](const char* rowId, const char* name) {
-                    const updater::ComponentSnapshot snap = updater::snapshot();
-                    row(rowId, 44.0f, [&](eui::Ui& r, float w) {
-                        const std::string base = std::string("st.") + rowId + ".";
-                        components::text(r, base + "name")
-                            .position(0, 0)
-                            .size(160.0f, 16.0f)
-                            .text(name)
-                            .fontSize(12.0f)
-                            .lineHeight(16.0f)
-                            .color(theme.titleText)
-                            .build();
-
-                        const bool failed =
-                            snap.status == updater::CompStatus::Failed ||
-                            snap.status == updater::CompStatus::CheckFailed;
-                        std::string line;
-                        if (failed && !snap.error.empty()) {
-                            line = snap.error;
-                        } else {
-                            const std::string cur =
-                                snap.current.empty() ? "—" : snap.current;
-                            const std::string lat =
-                                snap.latest.empty() ? "—" : snap.latest;
-                            line = std::string(tr("settings.comp.current")) + " " + cur +
-                                   " · " + tr("settings.comp.latest") + " " + lat;
-                        }
-                        components::text(r, base + "ver")
-                            .position(0, 18.0f)
-                            .size(std::max(60.0f, w - 90.0f), 22.0f)
-                            .text(line)
-                            .fontSize(11.0f)
-                            .lineHeight(13.0f)
-                            .color(failed ? theme.failed : theme.metaText)
-                            .build();
-
-                        std::string btnText;
-                        bool primary = false;
-                        switch (snap.status) {
-                            case updater::CompStatus::UpdateAvailable:
-                                btnText = tr("settings.comp.update"); primary = true; break;
-                            case updater::CompStatus::Checking:
-                                btnText = tr("settings.comp.checking"); break;
-                            case updater::CompStatus::Downloading:
-                                btnText = trf("settings.comp.downloading", snap.progress);
-                                break;
-                            case updater::CompStatus::Verifying:
-                            case updater::CompStatus::Replacing:
-                                btnText = tr("settings.comp.replacing"); break;
-                            case updater::CompStatus::UpToDate:
-                                btnText = tr("settings.comp.uptodate"); break;
-                            case updater::CompStatus::Done:
-                                btnText = tr("settings.comp.done"); break;
-                            case updater::CompStatus::Failed:
-                            case updater::CompStatus::CheckFailed:
-                                btnText = tr("settings.comp.retry"); break;
-                            default:
-                                btnText = tr("settings.comp.check"); break;
-                        }
-                        if (primary) {
-                            components::button(r, base + "btn")
-                                .position(w - 76.0f, 10.0f)
-                                .size(76.0f, kCompactButtonHeight)
-                                .text(btnText)
-                                .fontSize(kCompactButtonFontSize)
-                                .theme(theme.components, true)
-                                .radius(kButtonRadius)
-                                .textColor(onPrimaryColor(theme))
-                                .shadow(0.0f, 0.0f, 0.0f,
-                                        core::Color{0.0f, 0.0f, 0.0f, 0.0f})
-                                .onClick([] {
-                                    updater::startUpdate(g_tasks.engine());
-                                })
-                                .build();
-                        } else {
-                            drawTextButton(r, base + "btn", w - 76.0f, 10.0f,
-                                           76.0f, kCompactButtonHeight, btnText, theme,
-                                           [] {
-                                    updater::checkLatest(g_tasks.engine());
-                                });
-                        }
-                    });
-                };
-                compRow("comp.aria2", "aria2-next");
-            }  // 组件 tab 结束
         })
         .build();
     }
