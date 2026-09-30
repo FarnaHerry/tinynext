@@ -199,24 +199,13 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     const float infoX = contentX + pad;
     const float innerW = contentW - 2.0f * pad;
 
-    // ---- 顶部行：页面标题（左）+ 配置分组标签栏（标题右侧）----
+    // ---- 顶部行：配置分组标签栏（左）+ 关闭按钮（右）----
     // 标签栏镜像下载页筛选标签的分段切换样式：容器 surfaceContainer + hairline，
     // 选中指示块 surfaceContainerHighest（带过渡动画），选中文字 onSurface /
     // 未选中 onSurfaceVariant。段宽随文字自适应（measureTextWidth + 水平内边距），
-    // 分组导航始终紧跟标题；窄窗口时收窄标签内边距以维持单行布局。
+    // 窄窗口时收窄标签内边距以维持单行布局。
     const float headerY = islandTop + (compact ? 8.0f : 16.0f);
     constexpr float kTabH = 28.0f;
-    const char* titleText = tr("app.tab.settings");
-    const float titleW =
-        core::TextPrimitive::measureTextWidth(titleText, "", 20.0f);
-    components::text(ui, "settings.title")
-        .position(infoX, headerY + 2.0f)
-        .size(titleW + 2.0f, 24.0f)
-        .text(titleText)
-        .fontSize(20.0f)
-        .lineHeight(24.0f)
-        .color(theme.titleText)
-        .build();
 
     struct TabItem { const char* label; const char* id; SettingsTab tab; };
     // 对齐 MotrixNext 的设置分组（ed2k 由 aria2-next 原生支持）。
@@ -240,7 +229,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         labelWSum += tabW[i];
     }
     const float gapsW = kTabGap * static_cast<float>(kTabCount - 1);
-    const float inlineTabsX = infoX + titleW + 16.0f;
+    const float inlineTabsX = infoX;
     const float inlineTabsAvail = std::max(0.0f,
         contentX + contentW - pad - inlineTabsX - kToolbarButtonSize - 8.0f);
     const float tabsX = inlineTabsX;
