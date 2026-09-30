@@ -97,15 +97,24 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     // 工具栏 / 任务列表 / 状态消息 / 翻页直接放在背景上。
     const float pad = compact ? 8.0f : kPanelPad;
     const float toolY = islandTop + pad;
-    const float actionsY = compact ? toolY + 34.0f : toolY;
-    const float toolbarHeight = compact ? 62.0f : 28.0f;
+    const float actionsY = toolY;
+    const float toolbarHeight = 28.0f;
     const float pagerY = islandTop + islandH - pad - kPagerHeight;
     const float listTop = toolY + toolbarHeight + 8.0f;
     const float listHeight = std::max(0.0f, pagerY - listTop - 4.0f);
     const float listX = contentX + pad;
     const float listW = contentW - 2.0f * pad;
+    const float toolW = 28.0f;
+    const float toolGap = 4.0f;
+    const float toolRight = contentX + contentW - pad;
+    const float addX = toolRight - toolW;
+    const float sortX = addX - toolGap - toolW;
+    const float startAllX = sortX - toolGap - toolW;
+    const float pauseAllX = startAllX - toolGap - toolW;
+    const float tabsX = contentX + pad;
+    const float tabsAvailW = std::max(0.0f, pauseAllX - 8.0f - tabsX);
 
-    // ---- 筛选标签（工具栏行左侧）：所有 / 下载中 / 已完成，分段切换样式 ----
+    // ---- 筛选标签（工具栏左侧）：与右侧动作按钮组始终同一行左右对齐 ----
     // 样式同添加弹窗的分段规范：容器 surfaceContainer + hairline，选中指示块
     // surfaceContainerHighest（带过渡动画），选中文字 onSurface / 未选中
     // onSurfaceVariant。段宽随文字自适应（measureTextWidth + 水平内边距）。
@@ -124,16 +133,23 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         };
         const Filter tabFilters[] = {Filter::All, Filter::Active, Filter::Done};
         constexpr float kTabH = 28.0f;      // 与右侧工具栏按钮同高
-        const float kTabPadH = compact ? 8.0f : 12.0f; // 窄窗压缩段内边距
         constexpr float kTabGap = 4.0f;
         float tabW[3];
-        float tabsTotalW = kTabGap * 2.0f;
+        float labelWSum = 0.0f;
         for (int i = 0; i < 3; ++i) {
-            tabW[i] = core::TextPrimitive::measureTextWidth(tabLabels[i], "", 12.0f) +
-                      2.0f * kTabPadH;
-            tabsTotalW += tabW[i];
+            tabW[i] = core::TextPrimitive::measureTextWidth(tabLabels[i], "", 12.0f);
+            labelWSum += tabW[i];
         }
-        const float tabsX = contentX + pad;
+        float tabPadH = compact ? 8.0f : 12.0f;
+        if (labelWSum + 2.0f * tabPadH * 3.0f + kTabGap * 2.0f > tabsAvailW) {
+            tabPadH = std::max(2.0f,
+                (tabsAvailW - labelWSum - kTabGap * 2.0f) / 6.0f);
+        }
+        float tabsTotalW = kTabGap * 2.0f;
+        for (float& width : tabW) {
+            width += 2.0f * tabPadH;
+            tabsTotalW += width;
+        }
         ui.stack("tool.tabs")
             .position(tabsX, toolY)
             .size(tabsTotalW, kTabH)
@@ -187,14 +203,6 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     }
 
     // ---- 顶部工具栏（右对齐，收在内容大卡内）：全部暂停 / 全部继续 / 排序 / 添加 ----
-    const float toolW = 28.0f;
-    const float toolGap = 4.0f;
-    const float toolRight = contentX + contentW - pad;
-    const float addX = toolRight - toolW;
-    const float sortX = addX - toolGap - toolW;
-    const float startAllX = sortX - toolGap - toolW;
-    const float pauseAllX = startAllX - toolGap - toolW;
-
     // 排序选择器：图标按钮 + 向下弹出列表（buildListPicker 不设位置，
     // 由外层 stack 绝对定位）。
     const char* kSortLabels[] = {tr("dl.sort_newest"), tr("dl.sort_status_first"),
