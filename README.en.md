@@ -79,8 +79,8 @@ StatusNotifierItem (SNI) service.
 
 Task controls use aria2-next's JSON-RPC interface. TinyNext saves and restores
 the engine session so unfinished tasks can be recovered after an application
-or engine restart. Engine state and logs are kept in the per-user TinyNext
-configuration directory.
+or engine restart. TinyNext's session file and aria2 log are kept in the
+per-user TinyNext configuration directory.
 
 ## Settings
 
