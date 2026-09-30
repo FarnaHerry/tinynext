@@ -107,14 +107,15 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
     `kButtonRadius`=6（pill 已退役）。**等宽字体点缀**：`kMonoFont`
     （JetBrains Mono，assets/ 内置，OFL）用于数字/速度/页码/版本号等纯拉丁片段，
     CJK 靠 eui 字体栈回退（`fontFamily` 带 `.` 按项目资产路径加载）。
-12. **eui 元素 id 全局唯一**：一个 frame 里同名 id 会互相覆盖（如 `components::text`
-    标签与 `buildListPicker(id="x")` 内部的 `x.label` 撞名 → 文字不显示）。新增控件
-    的 id 要避开已有前缀。
+12. **eui 元素 id 全局唯一且稳定**：Runtime 按解析后的 id 索引元素，同一已组合树里重名会互相覆盖，影响绘制、命中和缓存；Stack 不会自动给子元素加命名空间。新增控件先检查同 frame 已有 id 和 builder 内部生成的后缀（如 `buildListPicker(id)` 会创建 `id.label`），子节点统一用根 id 的子前缀。动态列表项用稳定业务 key（任务 id、aria2 文件 index、媒体 track id），不要用可能随排序/过滤变化的数组位置或随机值；回调也按同一 key 找当前数据项。测量型组件的 `content` 回调必须用参数提供的 `eui::Ui&` 构造子项；`scrollView` 会用临时 `Ui` 测量再对真实树 compose，捕获外层 `ui` 会把控件重复塞入真实树。
 13. **非阻塞打开**：`openFile` / `openContainingFolder` / `openUrl` 在 Windows 走
     `ShellExecuteW`（`platform.cppm::shellExecFn()`），立即返回；**不要用
     `std::system("explorer …")`**——explorer 会让调用方同步等窗口关闭，卡 UI 线程。
 14. **下拉点击外部收起**：`buildListPicker` 展开时铺一层全屏透明拦截层（吞掉点击），
     点击弹层外即收起。弹层宽度可用 `popupWidth` 参数（图标字段的弹层要加宽容纳文字）。
+    弹层放不进容器时会被 `scrollView` 的 clip 边界切掉最后一项：放进带裁剪的容器
+    前先用 `pickerOpensUp(字段底边, 项数, viewport 高)`（`tinynext.ui.widgets`）算
+    方向，弹层高度用 `pickerPopupHeight(count)`，不要各处硬编码 22/3/3。
 15. **提交与发布**：改动在 feature 分支提交；验证通过后由助手直接 merge 到 `main`
     并 push 代码。**不要因普通代码改动自动递增版本号、创建或推送 `v*` tag、发布
     GitHub Release**；只有用户明确提出发布新版本时，才更新版本号、创建 tag 并发布。

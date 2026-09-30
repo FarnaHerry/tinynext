@@ -81,6 +81,22 @@ export constexpr float kHairline = 1.0f;       // 统一描边宽（层次主要
 // eui 的 fontFamily 带 '.' 时按项目资产路径加载（text.cpp resolveFontPath）。
 export const char* kMonoFont = "JetBrainsMono-Regular.ttf";
 
+// ---- 动态列表项 id 的稳定 key ----
+// eui 用解析后的 id 索引元素（重名互相覆盖），且 id 里的 '.' 是子节点分隔符。
+// 把任意业务 key（媒体 track id、镜像源 URL……）编码成只含 [0-9a-f] 的串再拼进
+// 元素 id：不同业务 key 不会撞名，键里的 '.'/':'/'/' 也不会把元素 id 拆成意外
+// 的父子关系。列表项一律用它做 key，不要用会随增删/排序变化的数组下标。
+export std::string stableIdKey(std::string_view raw) {
+    constexpr char hex[] = "0123456789abcdef";
+    std::string key;
+    key.reserve(raw.size() * 2);
+    for (const unsigned char byte : raw) {
+        key.push_back(hex[byte >> 4]);
+        key.push_back(hex[byte & 0x0f]);
+    }
+    return key;
+}
+
 namespace {
 // s 里的码点数（UTF-8）。
 std::size_t utf8CodepointCount(const std::string& s) {

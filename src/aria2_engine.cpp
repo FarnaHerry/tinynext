@@ -576,6 +576,15 @@ std::string engineExePath() {
     return {};
 }
 
+bool hasMediaTrackSelectionSupport(const nlohmann::json& versionInfo) {
+    if (!versionInfo.is_object()) return false;
+    const auto it = versionInfo.find("mediaFeatures");
+    if (it == versionInfo.end() || !it->is_array()) return false;
+    return std::ranges::any_of(*it, [](const nlohmann::json& feature) {
+        return feature.is_string() && feature.get<std::string>() == "stable-track-ids";
+    });
+}
+
 } // namespace
 
 // WebSocket 事件监听（compat.websocket / IXWebSocket）：只连 aria2 的 RPC WS 端点
@@ -651,6 +660,8 @@ struct Aria2Engine::Task {
     std::int64_t mediaDurationMs = 0;
     std::int64_t mediaCompletedDurationMs = 0;
     std::int64_t mediaDownloadedBytes = 0;
+    bool awaitingMediaTrackSelection = false;
+    std::vector<MediaTrackView> mediaTracks;
     bool awaitingTorrentFileSelection = false;
     std::vector<TorrentFileView> torrentFiles;
 };
@@ -986,11 +997,13 @@ bool Aria2Engine::ensureDaemon() const {
             // 顺手记下真实引擎版本（关于页展示用，不再硬编码）。
             if (v.is_object()) {
                 const std::string ver = v.value("version", "");
-                if (!ver.empty()) {
-                    std::lock_guard<std::mutex> hlock(healthMutex_);
-                    healthInfo_.version = ver;
-                }
+                std::lock_guard<std::mutex> hlock(healthMutex_);
+                healthInfo_.version = ver;
+                healthInfo_.supportsMediaTrackSelection = hasMediaTrackSelectionSupport(v);
+                healthInfo_.rpcReachable = true;
+                healthInfo_.checked = true;
             }
+            core::platform::requestUiUpdate();
             lastError_.clear();  // 成功拉起即清掉历史启动错误（监控页不再显示旧错误）
             // 首次拉起 daemon 后，重建上次会话（--save-session）里的未完成任务。
             recoverSession();
@@ -1049,6 +1062,7 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
     if (options.pauseMetadata && url.starts_with("magnet:")) {
         optionsJ["pause-metadata"] = "true";
     }
+    if (options.pauseMediaAfterProbe) optionsJ["media-pause-after-probe"] = "true";
     if (options.mediaMode != "auto") optionsJ["media"] = options.mediaMode;
     if (options.mediaFormat == "mkv") optionsJ["media-format"] = "mkv";
 
@@ -1248,12 +1262,21 @@ void Aria2Engine::pause(std::uint64_t id) {
 }
 
 void Aria2Engine::resume(std::uint64_t id) {
+    const bool mediaTrackSelectionSupported = health().supportsMediaTrackSelection;
     std::string gid;
     {
         std::lock_guard<std::mutex> lock(tasksMutex_);
         auto task = findTask(id);
         if (!task || !daemonSpawned_) return;
         if (task->state != State::Paused) return;
+        const bool hasMediaChoices = std::ranges::any_of(
+            task->mediaTracks, [](const MediaTrackView& track) {
+                return track.type == "video" || track.type == "audio" ||
+                       track.type == "subtitle" || track.type == "subtitles";
+        });
+        if (task->awaitingTorrentFileSelection ||
+            (task->awaitingMediaTrackSelection && mediaTrackSelectionSupported &&
+             hasMediaChoices)) return;
         gid = task->gid;
         task->state = State::Downloading;  // 乐观更新
     }
@@ -1286,19 +1309,33 @@ void Aria2Engine::pauseAll() {
 }
 
 void Aria2Engine::resumeAll() {
+    const bool mediaTrackSelectionSupported = health().supportsMediaTrackSelection;
+    std::vector<std::string> gids;
     {
         std::lock_guard<std::mutex> lock(tasksMutex_);
         if (!daemonSpawned_) return;
         for (const auto& task : tasks_) {
             if (task->state == State::Paused) {
+                const bool hasMediaChoices = std::ranges::any_of(
+                    task->mediaTracks, [](const MediaTrackView& track) {
+                        return track.type == "video" || track.type == "audio" ||
+                               track.type == "subtitle" || track.type == "subtitles";
+                    });
+                if (task->awaitingTorrentFileSelection ||
+                    (task->awaitingMediaTrackSelection && mediaTrackSelectionSupported &&
+                     hasMediaChoices)) continue;
                 task->state = State::Downloading;  // 乐观更新
+                if (!task->gid.empty()) gids.push_back(task->gid);
             }
         }
     }
-    enqueue([this] {
-        try {
-            rpcCall(port_, secret_, "aria2.unpauseAll", nlohmann::json::array());
-        } catch (...) {}
+    if (gids.empty()) return;
+    enqueue([this, gids = std::move(gids)] {
+        for (const auto& gid : gids) {
+            try {
+                rpcCall(port_, secret_, "aria2.unpause", nlohmann::json::array({gid}));
+            } catch (...) {}
+        }
     });
 }
 
@@ -1583,6 +1620,58 @@ void Aria2Engine::finishMedia(
     });
 }
 
+void Aria2Engine::selectMediaTracks(
+    std::uint64_t id, const std::string& video, const std::string& audio,
+    const std::string& subtitles, std::function<void(bool, std::string)> onDone) {
+    if (!health().supportsMediaTrackSelection) {
+        if (onDone) onDone(false, {});
+        return;
+    }
+    std::string gid;
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        const auto task = findTask(id);
+        if (!task || task->gid.empty() || !task->isMedia ||
+            !task->awaitingMediaTrackSelection || task->state != State::Paused) {
+            if (onDone) onDone(false, "Task is not waiting for media track selection");
+            return;
+        }
+        if (task->mediaTracks.empty()) {
+            if (onDone) onDone(false, {});
+            return;
+        }
+        gid = task->gid;
+    }
+    enqueue([this, id, gid = std::move(gid), video, audio, subtitles,
+             onDone = std::move(onDone)] {
+        try {
+            rpcCall(port_, secret_, "aria2.changeOption",
+                    nlohmann::json::array({gid, {
+                        {"media-video", video},
+                        {"media-audio", audio},
+                        {"media-subtitles", subtitles},
+                        {"media-pause-after-probe", "false"}
+                    }}));
+            rpcCall(port_, secret_, "aria2.unpause", nlohmann::json::array({gid}));
+            {
+                std::lock_guard<std::mutex> lock(tasksMutex_);
+                if (const auto task = findTask(id)) {
+                    task->opts.pauseMediaAfterProbe = false;
+                    task->state = State::Queued;
+                    task->awaitingMediaTrackSelection = false;
+                    for (auto& track : task->mediaTracks) {
+                        track.selected = track.id == video || track.id == audio ||
+                                         track.id == subtitles;
+                    }
+                }
+            }
+            if (onDone) onDone(true, {});
+        } catch (const std::exception& e) {
+            if (onDone) onDone(false, e.what());
+        }
+    });
+}
+
 // 重启后重建任务表：daemon 用 --input-file 载入了 --save-session 的未完成任务，
 // 这里通过 tellActive/tellWaiting/tellStopped 把它们同步成本地 Task。
 void Aria2Engine::recoverSession() const {
@@ -1752,6 +1841,27 @@ void Aria2Engine::applyTellStatus(const std::shared_ptr<Task>& task,
         task->mediaDurationMs = readMediaI64("duration");
         task->mediaCompletedDurationMs = readMediaI64("completedDuration");
         task->mediaDownloadedBytes = readMediaI64("downloadedLength");
+        task->mediaTracks.clear();
+        const auto tracksIt = media.find("tracks");
+        if (tracksIt != media.end() && tracksIt->is_array()) {
+            for (const auto& item : *tracksIt) {
+                if (!item.is_object()) continue;
+                MediaTrackView track;
+                track.id = readString(item.value("id", nlohmann::json{}));
+                track.type = readString(item.value("type", item.value("kind", nlohmann::json{})));
+                if (track.type == "subtitles") track.type = "subtitle";
+                track.codec = readString(item.value("codec", nlohmann::json{}));
+                track.language = readString(item.value("language", nlohmann::json{}));
+                track.width = readString(item.value("width", nlohmann::json{}));
+                track.height = readString(item.value("height", nlohmann::json{}));
+                track.frameRate = readString(item.value("frameRate", nlohmann::json{}));
+                track.bandwidth = readString(item.value("bandwidth", nlohmann::json{}));
+                track.selected = readString(item.value("selected", nlohmann::json("false"))) == "true";
+                if (!track.id.empty()) task->mediaTracks.push_back(std::move(track));
+            }
+        }
+        task->awaitingMediaTrackSelection = task->mediaState == "awaiting-selection";
+        if (task->awaitingMediaTrackSelection) task->opts.pauseMediaAfterProbe = true;
     } else {
         task->mediaProtocol.clear();
         task->mediaState.clear();
@@ -1760,6 +1870,8 @@ void Aria2Engine::applyTellStatus(const std::shared_ptr<Task>& task,
         task->mediaDurationMs = 0;
         task->mediaCompletedDurationMs = 0;
         task->mediaDownloadedBytes = 0;
+        task->awaitingMediaTrackSelection = false;
+        task->mediaTracks.clear();
     }
     // 磁力/BT 任务拿到元数据后，files[0].path 才是真实下载路径（更新占位）。
     if (st.contains("files") && st["files"].is_array() &&
@@ -1926,7 +2038,10 @@ void Aria2Engine::refreshHealth(std::function<void(const HealthInfo&)> onDone) {
                 const nlohmann::json v = rpcCall(port, secret, "aria2.getVersion",
                                                  nlohmann::json::array());
                 info.rpcReachable = true;
-                if (v.is_object()) info.version = v.value("version", "");
+                if (v.is_object()) {
+                    info.version = v.value("version", "");
+                    info.supportsMediaTrackSelection = hasMediaTrackSelectionSupport(v);
+                }
                 const nlohmann::json gs = rpcCall(port, secret, "aria2.getGlobalStat",
                                                   nlohmann::json::array());
                 if (gs.is_object()) {
@@ -2036,6 +2151,8 @@ std::vector<TaskView> Aria2Engine::snapshot() const {
         tv.mediaDurationMs = task.mediaDurationMs;
         tv.mediaCompletedDurationMs = task.mediaCompletedDurationMs;
         tv.mediaDownloadedBytes = task.mediaDownloadedBytes;
+        tv.awaitingMediaTrackSelection = task.awaitingMediaTrackSelection;
+        tv.mediaTracks = task.mediaTracks;
         tv.awaitingTorrentFileSelection = task.awaitingTorrentFileSelection;
         tv.torrentFiles = task.torrentFiles;
         // 在任务数据仍存活时预编码 destPath 到 UTF-8 串，后续读（如任务信息弹窗、终端输出）

@@ -256,17 +256,32 @@ export void drawToolbarIconButton(eui::Ui& ui, const std::string& id, float x, f
 // 展开的 popup，样式取自当前主题 tokens。分页大小（向上）与排序（向下）共用。
 export enum class PickerField { Text, Icon, Plain };
 
+// ---- 选择器弹层度量（设计逻辑像素）----
+// 弹层从字段下方（opensUp 时上方）展开，高度只由项数决定。调用方把选择器放进
+// 带 clip 的容器（scrollView / 卡片）时，要用 pickerOpensUp 先判断方向：否则
+// 向下展开的弹层会被裁剪边界切掉最后一项。
+export constexpr float kPickerItemHeight = 22.0f;
+export constexpr float kPickerPopupPad = 3.0f;
+export constexpr float kPickerPopupGap = 3.0f;
+export constexpr float pickerPopupHeight(int count) {
+    return kPickerItemHeight * static_cast<float>(count) + 2.0f * kPickerPopupPad;
+}
+// fieldBottomY：字段底边在容器坐标系里的 y；viewportHeight：可用高度。
+export bool pickerOpensUp(float fieldBottomY, int count, float viewportHeight) {
+    return fieldBottomY + kPickerPopupGap + pickerPopupHeight(count) > viewportHeight;
+}
+
 export void buildListPicker(eui::Ui& ui, const std::string& id, float width, float height,
                             const AppTheme& theme, bool& open, const char* const* labels,
                             int count, int selected, bool opensUp, PickerField field,
                             const std::function<void(int)>& onPick,
                             float popupWidth = 0.0f) {
-    const float itemHeight = 22.0f;
-    const float popupPad = 3.0f;
-    const float popupGap = 3.0f;
+    const float itemHeight = kPickerItemHeight;
+    const float popupPad = kPickerPopupPad;
+    const float popupGap = kPickerPopupGap;
     // 弹层宽度：默认与字段同宽；字段是纯图标（如排序）时可传入更宽的值容纳文字。
     const float popWidth = popupWidth > 0.0f ? popupWidth : width;
-    const float popupHeight = itemHeight * count + popupPad * 2.0f;
+    const float popupHeight = pickerPopupHeight(count);
     const auto& tokens = theme.components;
     const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
 

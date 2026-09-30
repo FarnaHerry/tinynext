@@ -26,6 +26,8 @@ void drawTaskInfoDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& 
                         const TaskInfoSnapshot& task);
 void drawTorrentSelectionDialog(eui::Ui& ui, const eui::Screen& screen,
                                 const AppTheme& theme);
+void drawMediaTrackSelectionDialog(eui::Ui& ui, const eui::Screen& screen,
+                                   const AppTheme& theme);
 
 // ===================== 下载页 =================
 // 布局：筛选与下载操作悬浮在页面背景上，下方是任务列表和分页控件。
@@ -252,6 +254,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                               g_addTorrentPath.clear();
                               g_addMirror = false;
                               g_addPauseMetadata = false;
+                              g_addPauseMediaAfterProbe = false;
                               g_addMediaModeIndex = 0;
                               g_addMediaFormatIndex = 0;
                               g_addMediaModeOpen = false;
@@ -417,9 +420,12 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     // ---- 添加下载弹窗（模态）：链接 + 每任务高级选项 ----
     if (g_addOpen) {
         const float dlgW = 320.0f;
-        const float dlgH = g_addTab == AddTab::Direct ? 350.0f : 220.0f;
+        const float availableDialogHeight = std::max(156.0f, screen.height - 24.0f);
+        const float dlgH = g_addTab == AddTab::Direct
+                               ? std::min(390.0f, availableDialogHeight)
+                               : std::min(220.0f, availableDialogHeight);
         const float dlgX = (screen.width - dlgW) * 0.5f;
-        const float dlgY = (screen.height - dlgH) * 0.5f;
+        const float dlgY = std::max(12.0f, (screen.height - dlgH) * 0.5f);
         const float labelX = 16.0f;
         const float labelW = 56.0f;
         const float inputX = 74.0f;
@@ -433,10 +439,19 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         const float dirY = 190.0f;     // 直链：下载目录
         const float mediaY = 224.0f;   // 直链：HLS/DASH 类型与输出容器
         const float mirrorY = 258.0f;   // 直链：镜像多源 / 磁力文件选择
+        const float mediaTrackY = 292.0f;
         const float btnY = dlgH - 40.0f;
         const float torY = 66.0f;      // 种子 tab：种子文件行
         const float torDirY = 102.0f;  // 种子 tab：下载目录行
         const float torHintY = 138.0f; // 种子 tab：提示文字
+        const float directFieldsViewportH = std::max(40.0f, dlgH - 40.0f - 8.0f - urlY);
+        const float directFieldsContentH = mediaTrackY - urlY + 28.0f;
+        // 媒体类型（4 项）/ 输出容器（2 项）两个选择器同排，都在字段区画布里。
+        // 弹层向下展开所需高度超出 viewport 时就统一向上展开——scrollView 会 clip
+        // 子元素，向下展开会把弹层最后一项和底边裁掉。
+        const float mediaPickerFieldBottom = mediaY + 1.0f + 26.0f - urlY;
+        const bool mediaPickersOpenUp =
+            pickerOpensUp(mediaPickerFieldBottom, 4, directFieldsViewportH);
 
         // 遮罩（scrim α50%），点击空白处关闭。zIndex 高于翻页，
         // 保证整个窗口都被盖住。
@@ -533,10 +548,21 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .build();
 
                 if (g_addTab == AddTab::Direct) {
+                    components::scrollView(ui, "add.direct.fields")
+                        .position(0.0f, urlY)
+                        .size(dlgW, directFieldsViewportH)
+                        .scrollbarWidth(kScrollbarWidth)
+                        .scrollbarGap(kScrollbarGap)
+                        .theme(theme.components)
+                        .content([&](eui::Ui& fields, float width, float) {
+                            fields.stack("add.direct.fields.canvas")
+                                .size(width, directFieldsContentH)
+                                .content([&] {
+                                    const auto bodyY = [urlY](float y) { return y - urlY; };
                     // URL 多行（磁力 magnet: 也在这里填；直链默认不设 out 让 aria2
                     // 从 Content-Disposition 解析真实文件名）。
-                    components::input(ui, "add.url")
-                        .position(labelX, urlY)
+                    components::input(fields, "add.url")
+                        .position(labelX, bodyY(urlY))
                         .size(dlgW - 32.0f, urlH)
                         .multiline(true)  // 多行：长链接完整可见，滚轮可滚动
                         .placeholder(tr("dl.url_placeholder"))
@@ -549,54 +575,81 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
 
                     // ---- 镜像多源：勾选时 URL 框多行 → 首行为主 URL，其余为镜像源
                     //      （aria2 多源并发下载同一文件，源挂自动切换；实验性）----
-                    components::text(ui, "add.mirror.label")
-                        .position(labelX, mirrorY)
+                    components::text(fields, "add.mirror.label")
+                        .position(labelX, bodyY(mirrorY))
                         .size(88.0f, 28.0f)
                         .text(tr("dl.merge_mirror"))
                         .fontSize(12.0f)
                         .lineHeight(28.0f)
                         .color(theme.metaText)
                         .build();
-                    buildToggleSwitch(ui, "add.mirror.toggle", 108.0f, mirrorY + 4.0f,
+                    buildToggleSwitch(fields, "add.mirror.toggle", 108.0f, bodyY(mirrorY + 4.0f),
                                       36.0f, 20.0f, g_addMirror, theme,
                                       [](bool v) { g_addMirror = v; });
-                    components::text(ui, "add.btselect.label")
-                        .position(160.0f, mirrorY)
+                    components::text(fields, "add.btselect.label")
+                        .position(160.0f, bodyY(mirrorY))
                         .size(102.0f, 28.0f)
                         .text(tr("dl.media_pause_metadata"))
                         .fontSize(11.0f)
                         .lineHeight(28.0f)
                         .color(theme.metaText)
                         .build();
-                    buildToggleSwitch(ui, "add.btselect.toggle", 268.0f, mirrorY + 4.0f,
+                    buildToggleSwitch(fields, "add.btselect.toggle", 268.0f, bodyY(mirrorY + 4.0f),
                                       36.0f, 20.0f, g_addPauseMetadata, theme,
                                       [](bool v) { g_addPauseMetadata = v; });
 
+                    components::text(fields, "add.media.track.label")
+                        .position(labelX, bodyY(mediaTrackY))
+                        .size(142.0f, 28.0f)
+                        .text(tr("dl.media_track_select"))
+                        .fontSize(12.0f)
+                        .lineHeight(28.0f)
+                        .color(theme.metaText)
+                        .build();
+                    const bool mediaTracksSupported =
+                        g_tasks.health().supportsMediaTrackSelection && g_addMediaModeIndex != 1;
+                    if (mediaTracksSupported) {
+                        buildToggleSwitch(fields, "add.media.track.toggle", 268.0f,
+                                          bodyY(mediaTrackY + 4.0f), 36.0f, 20.0f,
+                                          g_addPauseMediaAfterProbe, theme,
+                                          [](bool value) { g_addPauseMediaAfterProbe = value; });
+                    } else {
+                        components::text(fields, "add.media.track.unsupported")
+                            .position(158.0f, bodyY(mediaTrackY))
+                            .size(146.0f, 28.0f)
+                            .text(tr("common.unsupported"))
+                            .fontSize(11.0f)
+                            .lineHeight(28.0f)
+                            .color(theme.metaText)
+                            .horizontalAlign(core::HorizontalAlign::Right)
+                            .build();
+                    }
+
                     // ---- 分片数（0=配置默认；仅 aria2 生效）----
-                    components::text(ui, "add.conn.label")
-                        .position(labelX, splitY)
+                    components::text(fields, "add.conn.label")
+                        .position(labelX, bodyY(splitY))
                         .size(labelW, 28.0f)
                         .text(tr("dl.splits"))
                         .fontSize(12.0f)
                         .lineHeight(28.0f)
                         .color(theme.metaText)
                         .build();
-                    buildNumberStepper(ui, "add.conn", inputX, splitY - 2.0f,
+                    buildNumberStepper(fields, "add.conn", inputX, bodyY(splitY - 2.0f),
                                        84.0f, 28.0f, theme, g_addConnectionsText,
                                        [](const std::string& v) { g_addConnectionsText = v; },
                                        0, 64, 1);  // 0=用配置默认
 
                     // ---- 重命名（可选，留空=URL 文件名）----
-                    components::text(ui, "add.rename.label")
-                        .position(labelX, renameY)
+                    components::text(fields, "add.rename.label")
+                        .position(labelX, bodyY(renameY))
                         .size(labelW, 28.0f)
                         .text(tr("dl.rename"))
                         .fontSize(12.0f)
                         .lineHeight(28.0f)
                         .color(theme.metaText)
                         .build();
-                    components::input(ui, "add.rename")
-                        .position(inputX, renameY - 2.0f)
+                    components::input(fields, "add.rename")
+                        .position(inputX, bodyY(renameY - 2.0f))
                         .size(dlgW - inputX - 16.0f, 28.0f)
                         .placeholder(tr("dl.optional"))
                         .value(g_addRenameText)
@@ -607,16 +660,16 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .build();
 
                     // ---- 下载目录（留空=全局）----
-                    components::text(ui, "add.dir.label")
-                        .position(labelX, dirY)
+                    components::text(fields, "add.dir.label")
+                        .position(labelX, bodyY(dirY))
                         .size(labelW, 28.0f)
                         .text(tr("dl.directory"))
                         .fontSize(12.0f)
                         .lineHeight(28.0f)
                         .color(theme.metaText)
                         .build();
-                    components::input(ui, "add.dir")
-                        .position(inputX, dirY - 2.0f)
+                    components::input(fields, "add.dir")
+                        .position(inputX, bodyY(dirY - 2.0f))
                         .size(dlgW - inputX - 16.0f - 60.0f - 8.0f, 28.0f)
                         .placeholder(tr("dl.dir_hint"))
                         .value(g_addDirText)
@@ -625,10 +678,10 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .onChange([](const std::string& value) { g_addDirText = value; })
                         .onEnter([] { if (addDownload()) g_addOpen = false; })
                         .build();
-                    components::button(ui, "add.dir.browse")
+                    components::button(fields, "add.dir.browse")
                         .position(inputX + (dlgW - inputX - 16.0f - 60.0f - 8.0f) +
                                       8.0f,
-                                  dirY - 2.0f)
+                                  bodyY(dirY - 2.0f))
                         .size(60.0f, kButtonHeight)
                         .text(tr("dl.browse"))
                         .fontSize(kButtonFontSize)
@@ -646,40 +699,53 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     const char* mediaModes[] = {tr("dl.media_auto"), tr("dl.media_file"),
                                                 tr("dl.media_hls"), tr("dl.media_dash")};
                     const char* mediaFormats[] = {"MP4", "MKV"};
-                    components::text(ui, "add.media.mode.label")
-                        .position(labelX, mediaY)
+                    components::text(fields, "add.media.mode.label")
+                        .position(labelX, bodyY(mediaY))
                         .size(labelW, 28.0f)
                         .text(tr("dl.media_mode"))
                         .fontSize(12.0f)
                         .lineHeight(28.0f)
                         .color(theme.metaText)
                         .build();
-                    ui.stack("add.media.mode.wrap")
-                        .position(inputX, mediaY + 1.0f)
+                    fields.stack("add.media.mode.wrap")
+                        .position(inputX, bodyY(mediaY + 1.0f))
                         .size(112.0f, 26.0f)
                         .content([&] {
-                            buildListPicker(ui, "add.media.mode", 112.0f, 26.0f, theme,
+                            // id 用 .picker 子前缀：buildListPicker 内部已经占用了
+                            // 根 id 的 .label/.field/.chevron，直接叫 add.media.mode
+                            // 会和同排说明文字 add.media.mode.label 撞名。
+                            buildListPicker(fields, "add.media.mode.picker", 112.0f, 26.0f, theme,
                                             g_addMediaModeOpen, mediaModes, 4,
-                                            g_addMediaModeIndex, false, PickerField::Text,
-                                            [](int i) { g_addMediaModeIndex = i; }, 112.0f);
+                                            g_addMediaModeIndex, mediaPickersOpenUp,
+                                            PickerField::Text,
+                                            [](int i) {
+                                                g_addMediaModeIndex = i;
+                                                if (i == 1) g_addPauseMediaAfterProbe = false;
+                                            }, 112.0f);
                         })
                         .build();
-                    components::text(ui, "add.media.format.label")
-                        .position(196.0f, mediaY)
+                    components::text(fields, "add.media.format.label")
+                        .position(196.0f, bodyY(mediaY))
                         .size(42.0f, 28.0f)
                         .text(tr("dl.media_format"))
                         .fontSize(11.0f)
                         .lineHeight(28.0f)
                         .color(theme.metaText)
                         .build();
-                    ui.stack("add.media.format.wrap")
-                        .position(238.0f, mediaY + 1.0f)
+                    fields.stack("add.media.format.wrap")
+                        .position(238.0f, bodyY(mediaY + 1.0f))
                         .size(66.0f, 26.0f)
                         .content([&] {
-                            buildListPicker(ui, "add.media.format", 66.0f, 26.0f, theme,
+                            buildListPicker(fields, "add.media.format.picker", 66.0f, 26.0f,
+                                            theme,
                                             g_addMediaFormatOpen, mediaFormats, 2,
-                                            g_addMediaFormatIndex, false, PickerField::Text,
+                                            g_addMediaFormatIndex, mediaPickersOpenUp,
+                                            PickerField::Text,
                                             [](int i) { g_addMediaFormatIndex = i; }, 66.0f);
+                        })
+                        .build();
+                                })
+                                .build();
                         })
                         .build();
                 } else {
@@ -915,6 +981,9 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     }
     if (g_pendingTorrentSelection.has_value()) {
         drawTorrentSelectionDialog(ui, screen, theme);
+    }
+    if (g_pendingMediaTrackSelection.has_value()) {
+        drawMediaTrackSelectionDialog(ui, screen, theme);
     }
 }
 
@@ -1214,7 +1283,10 @@ void drawTorrentSelectionDialog(eui::Ui& ui, const eui::Screen& screen,
                 .content([&](eui::Ui& sv, float w, float) {
                     for (std::size_t i = 0; i < selection.files.size(); ++i) {
                         const auto& file = selection.files[i];
-                        const std::string rowId = "btselect.row." + std::to_string(i);
+                        // aria2 file index is the stable identity; vector position can change
+                        // if the file list is rebuilt or reordered between composes.
+                        const int fileIndex = file.index;
+                        const std::string rowId = "btselect.row." + std::to_string(fileIndex);
                         sv.stack(rowId)
                             .width(w)
                             .height(28.0f)
@@ -1225,10 +1297,15 @@ void drawTorrentSelectionDialog(eui::Ui& ui, const eui::Screen& screen,
                                             stateLayer(theme.onSurface, 0.06f),
                                             stateLayer(theme.onSurface, 0.10f))
                                     .radius(kChipRadius)
-                                    .onClick([i] {
-                                        if (!g_pendingTorrentSelection ||
-                                            i >= g_pendingTorrentSelection->files.size()) return;
-                                        auto& item = g_pendingTorrentSelection->files[i];
+                                    .onClick([fileIndex] {
+                                        if (!g_pendingTorrentSelection) return;
+                                        auto& files = g_pendingTorrentSelection->files;
+                                        const auto found = std::ranges::find_if(
+                                            files, [fileIndex](const dl::TorrentFileView& item) {
+                                                return item.index == fileIndex;
+                                            });
+                                        if (found == files.end()) return;
+                                        auto& item = *found;
                                         item.selected = !item.selected;
                                     })
                                     .build();
@@ -1328,6 +1405,245 @@ void drawTorrentSelectionDialog(eui::Ui& ui, const eui::Screen& screen,
         .build();
 }
 
+// 媒体清单解析后选择 HLS/DASH 视频、音频和字幕轨道，再恢复下载。
+void drawMediaTrackSelectionDialog(eui::Ui& ui, const eui::Screen& screen,
+                                   const AppTheme& theme) {
+    if (!g_pendingMediaTrackSelection) return;
+    const auto& selection = *g_pendingMediaTrackSelection;
+    const float dlgW = 520.0f;
+    const float dlgH = 440.0f;
+    const float dlgX = (screen.width - dlgW) * 0.5f;
+    const float dlgY = (screen.height - dlgH) * 0.5f;
+    const float pad = 16.0f;
+    const float btnY = dlgH - 40.0f;
+
+    ui.rect("mediatrack.backdrop")
+        .position(0, 0)
+        .size(screen.width, screen.height)
+        .zIndex(310)
+        .color(theme.scrim)
+        .onClick([] { g_pendingMediaTrackSelection.reset(); })
+        .build();
+
+    ui.stack("mediatrack.dialog")
+        .position(dlgX, dlgY)
+        .size(dlgW, dlgH)
+        .zIndex(311)
+        .content([&] {
+            ui.rect("mediatrack.dialog.bg")
+                .size(dlgW, dlgH)
+                .color(theme.surfaceContainerLow)
+                .radius(kDialogRadius)
+                .border(kHairline, theme.outline)
+                .shadow(16.0f, 4.0f,
+                        theme.dark ? core::Color{0.0f, 0.0f, 0.0f, 0.40f}
+                                   : core::Color{0.0f, 0.0f, 0.0f, 0.12f})
+                .onClick([] {})
+                .build();
+
+            components::text(ui, "mediatrack.title")
+                .position(pad, 12.0f)
+                .size(dlgW - 2.0f * pad, 22.0f)
+                .text(tr("dl.media_track_title"))
+                .fontSize(16.0f)
+                .lineHeight(22.0f)
+                .color(theme.titleText)
+                .build();
+            components::text(ui, "mediatrack.name")
+                .position(pad, 38.0f)
+                .size(dlgW - 2.0f * pad, 18.0f)
+                .text(ellipsizeText(selection.name, dlgW - 2.0f * pad, 11.0f))
+                .fontSize(11.0f)
+                .lineHeight(18.0f)
+                .color(theme.metaText)
+                .build();
+            components::text(ui, "mediatrack.hint")
+                .position(pad, 58.0f)
+                .size(dlgW - 2.0f * pad, 20.0f)
+                .text(tr("dl.media_track_hint"))
+                .fontSize(10.0f)
+                .lineHeight(20.0f)
+                .color(theme.metaText)
+                .build();
+
+            const auto knownType = [](std::string_view type) {
+                return type == "video" || type == "audio" || type == "subtitle";
+            };
+            const bool hasSelectableTrack = g_tasks.health().supportsMediaTrackSelection &&
+                std::ranges::any_of(selection.tracks,
+                    [&](const dl::MediaTrackView& track) {
+                        return knownType(track.type) && !track.id.empty();
+                    });
+            if (!hasSelectableTrack) {
+                components::text(ui, "mediatrack.unsupported")
+                    .position(pad, 150.0f)
+                    .size(dlgW - 2.0f * pad, 32.0f)
+                    .text(tr("common.unsupported"))
+                    .fontSize(13.0f)
+                    .lineHeight(32.0f)
+                    .color(theme.metaText)
+                    .horizontalAlign(core::HorizontalAlign::Center)
+                    .build();
+            } else {
+                components::scrollView(ui, "mediatrack.list")
+                    .position(pad, 84.0f)
+                    .size(dlgW - 2.0f * pad, 300.0f)
+                    .gap(3.0f)
+                    .scrollbarWidth(kScrollbarWidth)
+                    .scrollbarGap(kScrollbarGap)
+                    .theme(theme.components)
+                    .content([&](eui::Ui& sv, float width, float) {
+                        const auto choiceFor = [&](int group) -> const std::string& {
+                            if (group == 0) return selection.video;
+                            if (group == 1) return selection.audio;
+                            return selection.subtitles;
+                        };
+                        const auto setChoice = [](int group, const std::string& option) {
+                            if (!g_pendingMediaTrackSelection) return;
+                            if (group == 0) g_pendingMediaTrackSelection->video = option;
+                            else if (group == 1) g_pendingMediaTrackSelection->audio = option;
+                            else g_pendingMediaTrackSelection->subtitles = option;
+                        };
+                        const std::string groupNames[] = {
+                            tr("dl.media_track_video"), tr("dl.media_track_audio"),
+                            tr("dl.media_track_subtitles")};
+                        const std::string groupTypes[] = {"video", "audio", "subtitle"};
+
+                        const auto drawChoice = [&](int group, const std::string& rowId,
+                                                    const std::string& option,
+                                                    const std::string& label, bool selected) {
+                            sv.stack(rowId)
+                                .width(width)
+                                .height(30.0f)
+                                .content([&] {
+                                    sv.rect(rowId + ".hit")
+                                        .size(width, 30.0f)
+                                        .states(theme.cardBg,
+                                                stateLayer(theme.onSurface, 0.06f),
+                                                stateLayer(theme.onSurface, 0.10f))
+                                        .radius(kChipRadius)
+                                        .onClick([group, option, setChoice] {
+                                            setChoice(group, option);
+                                            core::platform::requestUiUpdate();
+                                        })
+                                        .build();
+                                    sv.rect(rowId + ".radio")
+                                        .position(7.0f, 7.0f)
+                                        .size(16.0f, 16.0f)
+                                        .color(theme.surfaceContainer)
+                                        .radius(8.0f)
+                                        .border(kHairline, selected ? theme.primary : theme.outline)
+                                        .build();
+                                    if (selected) {
+                                        sv.rect(rowId + ".dot")
+                                            .position(11.0f, 11.0f)
+                                            .size(8.0f, 8.0f)
+                                            .color(theme.primary)
+                                            .radius(4.0f)
+                                            .build();
+                                    }
+                                    components::text(sv, rowId + ".label")
+                                        .position(31.0f, 0.0f)
+                                        .size(width - 42.0f, 30.0f)
+                                        .text(ellipsizeText(label, width - 42.0f, 11.0f))
+                                        .fontSize(11.0f)
+                                        .lineHeight(30.0f)
+                                        .color(theme.nameText)
+                                        .build();
+                                })
+                                .build();
+                        };
+
+                        for (int group = 0; group < 3; ++group) {
+                            const std::string headId = "mediatrack.group." + std::to_string(group);
+                            sv.stack(headId)
+                                .width(width)
+                                .height(22.0f)
+                                .content([&] {
+                                    components::text(sv, headId + ".title")
+                                        .position(3.0f, 0.0f)
+                                        .size(width - 6.0f, 22.0f)
+                                        .text(groupNames[group])
+                                        .fontSize(11.0f)
+                                        .lineHeight(22.0f)
+                                        .color(theme.titleText)
+                                        .build();
+                                })
+                                .build();
+                            const std::string& choice = choiceFor(group);
+                            drawChoice(group, headId + ".auto", "best",
+                                       tr("dl.media_track_auto"), choice == "best");
+                            drawChoice(group, headId + ".none", "none",
+                                       tr("dl.media_track_none"), choice == "none");
+
+                            std::unordered_set<std::string> seenTrackIds;
+                            for (const auto& track : selection.tracks) {
+                                if (track.type != groupTypes[group] || track.id.empty() ||
+                                    !seenTrackIds.insert(track.id).second) continue;
+                                std::string label;
+                                const auto addPart = [&](const std::string& part) {
+                                    if (part.empty()) return;
+                                    if (!label.empty()) label += "  ·  ";
+                                    label += part;
+                                };
+                                if (!track.width.empty() || !track.height.empty()) {
+                                    addPart(track.width + " × " + track.height);
+                                }
+                                addPart(track.codec);
+                                if (!track.frameRate.empty() && track.frameRate != "0") {
+                                    addPart(track.frameRate + " fps");
+                                }
+                                if (!track.bandwidth.empty()) addPart(track.bandwidth + " bps");
+                                addPart(track.language);
+                                if (label.empty()) label = track.id;
+                                const std::string option = track.id;
+                                const std::string rowId = headId + ".track." +
+                                                          stableIdKey(track.id);
+                                const bool selected = choice == option ||
+                                    (choice == "best" && track.selected);
+                                drawChoice(group, rowId, option, label, selected);
+                            }
+                        }
+                    })
+                    .build();
+            }
+
+            drawTextButton(ui, "mediatrack.cancel",
+                           dlgW - pad - 76.0f - 8.0f - 76.0f, btnY, 76.0f,
+                           kButtonHeight, tr("dl.cancel"), theme,
+                           [] { g_pendingMediaTrackSelection.reset(); });
+            components::button(ui, "mediatrack.submit")
+                .position(dlgW - pad - 76.0f, btnY)
+                .size(76.0f, kButtonHeight)
+                .text(tr("dl.submit"))
+                .fontSize(kButtonFontSize)
+                .theme(theme.components, true)
+                .radius(kButtonRadius)
+                .textColor(onPrimaryColor(theme))
+                .shadow(0.0f, 0.0f, 0.0f, core::Color{0.0f, 0.0f, 0.0f, 0.0f})
+                .disabled(!hasSelectableTrack)
+                .onClick([] {
+                    if (!g_pendingMediaTrackSelection) return;
+                    const auto selection = *g_pendingMediaTrackSelection;
+                    g_pendingMediaTrackSelection.reset();
+                    g_tasks.selectMediaTracks(selection.taskId, selection.video,
+                                              selection.audio, selection.subtitles,
+                        [](bool ok, std::string error) {
+                            if (ok) {
+                                postStatus(tr("dl.media_track_selected"));
+                            } else {
+                                postStatus(error.empty()
+                                    ? tr("common.unsupported")
+                                    : trf("dl.media_track_failed", error));
+                            }
+                            core::platform::requestUiUpdate();
+                        });
+                })
+                .build();
+        })
+        .build();
+}
+
 // 镜像源管理弹窗：查看实时源列表（aria2 uris 去重）+ 移除坏源 + 添加新源。
 // 仅活动任务可增删（aria2.changeUri 对 active/waiting/paused 有效）。
 void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
@@ -1403,9 +1719,11 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                 .scrollbarGap(kScrollbarGap)
                 .theme(theme.components)
                 .content([&](eui::Ui& sv, float w, float) {
-                    const auto drawSource = [&](int idx, const std::string& uri,
+                    const auto drawSource = [&](const std::string& uri,
                                                 const std::string& status) {
-                        const std::string rowId = "mirror.row." + std::to_string(idx);
+                        // 行 id 用 URI 的稳定编码：镜像源移除后数组下标会整体前移，
+                        // 用下标当 key 会让 hover/过渡状态串到别的源上。
+                        const std::string rowId = "mirror.row." + stableIdKey(uri);
                         sv.stack(rowId)
                             .width(w)
                             .height(26.0f)
@@ -1465,9 +1783,8 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                             .color(theme.metaText)
                             .build();
                     } else {
-                        int i = 0;
                         for (const auto& m : task->mirrors) {
-                            drawSource(i++, m.uri, m.status);
+                            drawSource(m.uri, m.status);
                         }
                     }
                 })

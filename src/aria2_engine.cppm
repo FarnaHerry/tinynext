@@ -51,6 +51,9 @@ public:
                       std::function<void(bool)> onDone) override;
     void selectTorrentFiles(std::uint64_t id, const std::vector<int>& indexes,
                             std::function<void(bool, std::string)> onDone) override;
+    void selectMediaTracks(std::uint64_t id, const std::string& video,
+                           const std::string& audio, const std::string& subtitles,
+                           std::function<void(bool, std::string)> onDone) override;
     void finishMedia(std::uint64_t id,
                      std::function<void(bool, std::string)> onDone) override;
     std::vector<TaskView> snapshot() const override;

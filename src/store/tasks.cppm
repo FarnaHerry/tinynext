@@ -132,6 +132,11 @@ public:
                             std::function<void(bool, std::string)> onDone) {
         engine_->selectTorrentFiles(id, indexes, std::move(onDone));
     }
+    void selectMediaTracks(std::uint64_t id, const std::string& video,
+                           const std::string& audio, const std::string& subtitles,
+                           std::function<void(bool, std::string)> onDone) {
+        engine_->selectMediaTracks(id, video, audio, subtitles, std::move(onDone));
+    }
     void finishMedia(std::uint64_t id,
                      std::function<void(bool, std::string)> onDone) {
         engine_->finishMedia(id, std::move(onDone));

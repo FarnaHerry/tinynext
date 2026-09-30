@@ -46,6 +46,7 @@ export std::string g_addDirText;
 export std::string g_addTorrentPath;
 export bool g_addMirror = false;
 export bool g_addPauseMetadata = false;
+export bool g_addPauseMediaAfterProbe = false;
 export int g_addMediaModeIndex = 0;
 export int g_addMediaFormatIndex = 0;
 export bool g_addMediaModeOpen = false;
@@ -82,6 +83,13 @@ export bool addDownload() {
     constexpr const char* kMediaFormats[] = {"mp4", "mkv"};
     opts.mediaMode = kMediaModes[std::clamp(g_addMediaModeIndex, 0, 3)];
     opts.mediaFormat = kMediaFormats[std::clamp(g_addMediaFormatIndex, 0, 1)];
+    if (g_addPauseMediaAfterProbe) {
+        if (!g_tasks.health().supportsMediaTrackSelection || opts.mediaMode == "file") {
+            showStatus(tr("common.unsupported"));
+            return false;
+        }
+        opts.pauseMediaAfterProbe = true;
+    }
     std::string url = g_urlText;
     if (g_addMirror) {
         // 镜像多源：URL 框多行 → 首行为主 URL，其余为同一任务的镜像源（aria2 从
@@ -158,6 +166,24 @@ export void requestTorrentSelection(const dl::TaskView& task) {
     g_pendingTorrentSelection = TorrentSelectionSnapshot{
         task.id, task.displayName.empty() ? task.url : task.displayName,
         task.torrentFiles};
+}
+
+export struct MediaTrackSelectionSnapshot {
+    std::uint64_t taskId = 0;
+    std::string name;
+    std::vector<dl::MediaTrackView> tracks;
+    std::string video = "best";
+    std::string audio = "best";
+    std::string subtitles = "none";
+};
+
+export std::optional<MediaTrackSelectionSnapshot> g_pendingMediaTrackSelection;
+
+export void requestMediaTrackSelection(const dl::TaskView& task) {
+    if (!task.awaitingMediaTrackSelection) return;
+    g_pendingMediaTrackSelection = MediaTrackSelectionSnapshot{
+        task.id, task.displayName.empty() ? task.url : task.displayName,
+        task.mediaTracks};
 }
 
 export void requestInfo(const dl::TaskView& task) {

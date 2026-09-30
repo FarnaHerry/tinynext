@@ -66,11 +66,23 @@ std::string mediaTime(std::int64_t milliseconds) {
     if (hours > 0) return std::format("{:02}:{:02}:{:02}", hours, minutes, seconds);
     return std::format("{:02}:{:02}", minutes, seconds);
 }
+
+bool hasSelectableMediaTracks(const dl::TaskView& task) {
+    return std::ranges::any_of(task.mediaTracks, [](const dl::MediaTrackView& track) {
+        return !track.id.empty() &&
+               (track.type == "video" || track.type == "audio" ||
+                track.type == "subtitle" || track.type == "subtitles");
+    });
+}
 }
 
 // 卡片信息行：百分比 · 速度 · 已下载/总大小；非下载中则显示状态/错误。
 export std::string cardInfoText(const dl::TaskView& task) {
     if (task.awaitingTorrentFileSelection) return tr("card.bt.awaiting_files");
+    if (task.awaitingMediaTrackSelection) {
+        return g_tasks.health().supportsMediaTrackSelection && hasSelectableMediaTracks(task)
+            ? tr("card.media.awaiting_selection") : tr("common.unsupported");
+    }
     switch (task.state) {
         case dl::State::Queued: return tr("card.state.wait_queue");
         case dl::State::Paused: return tr("card.state.paused");
@@ -238,7 +250,12 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
             // 各状态展示的操作：复制/删除始终有；下载中=暂停+取消，
             // 已暂停=继续+取消，已完成=打开+打开所在文件夹。
             const bool showPause = task.state == dl::State::Downloading;
-            const bool showResume = task.state == dl::State::Paused;
+            const bool mediaTrackSelectionSupported = !task.awaitingMediaTrackSelection ||
+                g_tasks.health().supportsMediaTrackSelection;
+            const bool showResume = task.state == dl::State::Paused &&
+                !task.awaitingTorrentFileSelection &&
+                (!task.awaitingMediaTrackSelection || !mediaTrackSelectionSupported ||
+                 !hasSelectableMediaTracks(task));
             // X（取消）：进行中（排队/下载/暂停）显示，用来取消任务。
             const bool showCancel = task.state == dl::State::Queued ||
                                     task.state == dl::State::Downloading ||
@@ -260,6 +277,8 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
             // 添加镜像。
             const bool showMirror = task.mirrorCount > 0 || !task.mirrors.empty();
             const bool showSelectFiles = task.awaitingTorrentFileSelection;
+            const bool showSelectMediaTracks = task.awaitingMediaTrackSelection &&
+                mediaTrackSelectionSupported && hasSelectableMediaTracks(task);
             const bool showFinishMedia = task.isMedia && task.mediaLive &&
                 (task.mediaState == "recording" || task.mediaState == "paused") &&
                 (task.state == dl::State::Downloading || task.state == dl::State::Paused);
@@ -270,6 +289,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                                     (showCancel ? 1 : 0) + (showRetry ? 1 : 0) +
                                     (showPause || showResume ? 1 : 0) +
                                     (showMirror ? 1 : 0) + (showSelectFiles ? 1 : 0) +
+                                    (showSelectMediaTracks ? 1 : 0) +
                                     (showFinishMedia ? 1 : 0);
             const float iconsW = actionCount * kCardIconW +
                                  (actionCount > 0 ? (actionCount - 1) * kCardIconGap : 0.0f);
@@ -347,6 +367,10 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
             if (showSelectFiles) {
                 place("selectfiles", 0xF03A, false,  // fa-list-ul
                       [task] { requestTorrentSelection(task); });
+            }
+            if (showSelectMediaTracks) {
+                place("selectmediatracks", 0xF008, false,  // fa-film
+                      [task] { requestMediaTrackSelection(task); });
             }
             if (showFinishMedia) {
                 place("finishmedia", 0xF04D, false,  // fa-stop

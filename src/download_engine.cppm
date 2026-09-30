@@ -32,6 +32,19 @@ export struct TorrentFileView {
     bool selected = false;
 };
 
+// One selectable native HLS/DASH representation exposed through tellStatus.
+export struct MediaTrackView {
+    std::string id;       // opaque aria2-next track ID
+    std::string type;     // video / audio / subtitle
+    std::string codec;
+    std::string language;
+    std::string width;
+    std::string height;
+    std::string frameRate;
+    std::string bandwidth;
+    bool selected = false;
+};
+
 // 引擎健康信息（监控页展示）。纯读缓存：由 refreshHealth() 在后台线程刷新，
 // health() 只读缓存、绝不发 RPC（UI 线程每帧可调用）。
 export struct HealthInfo {
@@ -40,6 +53,7 @@ export struct HealthInfo {
     bool daemonSpawned = false;  // daemon 已拉起过（进程可能已退出，看 daemonAlive）
     bool daemonAlive = false;    // 守护进程已拉起且进程未退出
     bool rpcReachable = false;   // 最近一次 getVersion 成功
+    bool supportsMediaTrackSelection = false; // getVersion.mediaFeatures includes stable-track-ids
     bool wsConnected = false;    // WebSocket 事件推送连接
     std::string version;         // aria2 版本串（getVersion.version）
     std::string error;           // 最近检测/启动失败原因（空 = 无）
@@ -76,6 +90,8 @@ export struct TaskView {
     std::int64_t mediaDurationMs = 0;
     std::int64_t mediaCompletedDurationMs = 0;
     std::int64_t mediaDownloadedBytes = 0;
+    bool awaitingMediaTrackSelection = false;
+    std::vector<MediaTrackView> mediaTracks;
     bool awaitingTorrentFileSelection = false;
     std::vector<TorrentFileView> torrentFiles;
 };
@@ -90,6 +106,7 @@ export struct StartOptions {
     std::filesystem::path torrentPath;    // 本地 .torrent 文件；空 = 普通 URL 下载
     std::vector<std::string> mirrors;     // 镜像源（同一任务多源）；空 = 单 URL
     bool pauseMetadata = false;            // magnet 元数据就绪后暂停，等待选择种子文件
+    bool pauseMediaAfterProbe = false;       // 媒体清单解析后暂停，等待选择轨道
     std::string mediaMode = "auto";        // aria2-next: auto/file/hls/dash
     std::string mediaFormat = "mp4";       // media remux output: mp4/mkv
     // 限速不在这里：每任务单独限速已移除（无意义），统一走配置的 maxDownloadLimit。
@@ -187,6 +204,15 @@ public:
                              std::function<void(bool, std::string)> onDone) {
         (void)id;
         if (onDone) onDone(false, "Media recording not supported");
+    }
+
+    // Apply one video/audio/subtitle choice and continue a media task paused
+    // after probing its HLS/DASH manifest.
+    virtual void selectMediaTracks(std::uint64_t id, const std::string& video,
+                                   const std::string& audio, const std::string& subtitles,
+                                   std::function<void(bool, std::string)> onDone) {
+        (void)id; (void)video; (void)audio; (void)subtitles;
+        if (onDone) onDone(false, {}); // empty error maps to the shared unsupported message
     }
 
     // True while any task is queued or running.
