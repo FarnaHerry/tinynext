@@ -113,9 +113,9 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
     `std::system("explorer …")`**——explorer 会让调用方同步等窗口关闭，卡 UI 线程。
 14. **下拉点击外部收起**：`buildListPicker` 展开时铺一层全屏透明拦截层（吞掉点击），
     点击弹层外即收起。弹层宽度可用 `popupWidth` 参数（图标字段的弹层要加宽容纳文字）。
-15. **提交**：feature 分支本地 commit，release build 全绿后由助手直接
-    merge 到 main 并 push（含发布 `v*` tag）。「用户自行 push」的旧惯例已于
-    2026-09 作废。
+15. **提交与发布**：改动在 feature 分支提交；验证通过后由助手直接 merge 到 `main`
+    并 push 代码。**不要因普通代码改动自动递增版本号、创建或推送 `v*` tag、发布
+    GitHub Release**；只有用户明确提出发布新版本时，才更新版本号、创建 tag 并发布。
 16. **原生资源一律用 RAII 管理**（全项目强制）：获取资源后立刻交给 move-only
     所有者，不要把裸句柄留到函数末尾再手工清理，也不要给多个 `return` 分支
     分别配平。通用包装在 `src/native_resource.hpp`，按资源使用正确的释放 API：
