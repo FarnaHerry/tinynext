@@ -1,5 +1,7 @@
 # TinyNext 下载器
 
+[English](README.en.md)
+
 一个用 C++23 编写的**跨平台** GUI 下载器：**EUI-NEO** 前端 + **aria2-next**
 外部进程引擎（分片多连接、断点续传、磁力/BT），支持 Windows / Linux / macOS，
 全部通过 mcpp 包管理。
