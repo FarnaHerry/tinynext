@@ -31,6 +31,10 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
   链接、`magnet:` 磁力、`.torrent`
   本地路径；白名单统一在 `isDownloadableSource`（`src/utils.cppm`，`tinynext.utils`）。
   非下载参数忽略。
+- **命令行解析只有一份**：`utils::commandLineArgs()`（`src/utils.cppm`，CLI 与
+  `--headless` 共用）。Linux 下经 `ld.so` 直接启动（`run.sh`）时程序路径不在
+  argv[0]，解析要先剥加载器选项再跳过程序路径——别在别处再写一份只看 argv[0] 的版本
+  （那会让 `agent` / `status` / `--headless` 这类按首参数分派的入口全部失效）。
 - `agent` / `--agent` / `help` 参数会打印 CLI 使用教学并退出（不进 GUI）——AI
   不知道用法时先跑 `tinynext agent`。
 - 详细：`docs/cli.md`。
@@ -42,7 +46,7 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
 | `tinynext.download_engine` | `src/download_engine.cppm` | 引擎接口 `dl::DownloadEngine` |
 | `tinynext.aria2_engine` | `src/aria2_engine.cppm/.cpp` | aria2-next 引擎（JSON-RPC + 本地 socket） |
 | `tinynext.config` | `src/config.cppm` | 配置 / 主题 / 下载目录 |
-| `tinynext.utils` | `src/utils.cppm` | 纯 string/number 帮助函数（无 UI 依赖） |
+| `tinynext.utils` | `src/utils.cppm` | 纯 string/number 帮助函数 + `commandLineArgs()`（无 UI 依赖） |
 | `tinynext.store.tasks` | `src/store/tasks.cppm` | 领域 store：`TaskStore` + `g_tasks`（引擎 + 任务命令 + startFromUrl） |
 | `tinynext.store.ui` | `src/store/ui.cppm` | 视图 store：状态消息 / 页面 / 筛选·排序·分页 |
 | `tinynext.store.dialogs` | `src/store/dialogs.cppm` | 视图 store：弹窗状态机 + addDownload/requestDelete |
@@ -107,15 +111,18 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
     `kButtonRadius`=6（pill 已退役）。**等宽字体点缀**：`kMonoFont`
     （JetBrains Mono，assets/ 内置，OFL）用于数字/速度/页码/版本号等纯拉丁片段，
     CJK 靠 eui 字体栈回退（`fontFamily` 带 `.` 按项目资产路径加载）。
-12. **eui 元素 id 全局唯一且稳定**：Runtime 按解析后的 id 索引元素，同一已组合树里重名会互相覆盖，影响绘制、命中和缓存；Stack 不会自动给子元素加命名空间。新增控件先检查同 frame 已有 id 和 builder 内部生成的后缀（如 `buildListPicker(id)` 会创建 `id.label`），子节点统一用根 id 的子前缀。动态列表项用稳定业务 key（任务 id、aria2 文件 index、媒体 track id），不要用可能随排序/过滤变化的数组位置或随机值；回调也按同一 key 找当前数据项。测量型组件的 `content` 回调必须用参数提供的 `eui::Ui&` 构造子项；`scrollView` 会用临时 `Ui` 测量再对真实树 compose，捕获外层 `ui` 会把控件重复塞入真实树。
+12. **eui 元素 id 全局唯一且稳定**：Runtime 按解析后的 id 索引元素，同一已组合树里重名会互相覆盖，影响绘制、命中和缓存；Stack 不会自动给子元素加命名空间。新增控件先检查同 frame 已有 id 和 builder 内部生成的后缀（如 `buildListPicker(id)` 会创建 `id.label`），子节点统一用根 id 的子前缀。动态列表项用稳定业务 key（任务 id、aria2 文件 index、媒体 track id），不要用可能随排序/过滤变化的数组位置或随机值；回调也按同一 key 找当前数据项。测量型组件的 `content` 回调必须用参数提供的 `eui::Ui&` 构造子项；`scrollView` 会用临时 `Ui` 测量再对真实树 compose，捕获外层 `ui` 会把控件重复塞入真实树。**`scrollView` 还会给容器加 `.clip()`，而 eui 的命中测试会与元素的 clip 矩形求交**——所以「全屏拦截层 / 溢出容器的弹层」这类需要越界的子元素不能塞进 `scrollView`（会被连同点击一起裁掉，见第 14 条）；只有内容真的可能超出视口时才用 `scrollView`，固定高度弹窗用普通 `ui.stack` 绝对定位。
 13. **非阻塞打开**：`openFile` / `openContainingFolder` / `openUrl` 在 Windows 走
     `ShellExecuteW`（`platform.cppm::shellExecFn()`），立即返回；**不要用
     `std::system("explorer …")`**——explorer 会让调用方同步等窗口关闭，卡 UI 线程。
 14. **下拉点击外部收起**：`buildListPicker` 展开时铺一层全屏透明拦截层（吞掉点击），
     点击弹层外即收起。弹层宽度可用 `popupWidth` 参数（图标字段的弹层要加宽容纳文字）。
-    弹层放不进容器时会被 `scrollView` 的 clip 边界切掉最后一项：放进带裁剪的容器
+    弹层放不进容器时会被 `scrollView` 的 clip 边界切掉最后一项（连拦截层的命中一起
+    被裁，点击外部失效）：放进带裁剪的容器
     前先用 `pickerOpensUp(字段底边, 项数, viewport 高)`（`tinynext.ui.widgets`）算
     方向，弹层高度用 `pickerPopupHeight(count)`，不要各处硬编码 22/3/3。
+    更稳的做法是**别把选择器放进 `scrollView`**：添加下载弹窗的字段区就改成固定高度
+    `ui.stack`（窗口最小尺寸保证放得下），拦截层和弹层都不再被裁。
 15. **提交与发布**：改动在 feature 分支提交；验证通过后由助手直接 merge 到 `main`
     并 push 代码。**不要因普通代码改动自动递增版本号、创建或推送 `v*` tag、发布
     GitHub Release**；只有用户明确提出发布新版本时，才更新版本号、创建 tag 并发布。

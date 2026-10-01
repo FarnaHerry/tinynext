@@ -44,9 +44,6 @@ module;
 #include <unistd.h>      // close
 #include "native_resource.hpp"
 #include <cerrno>        // errno / EINTR（accept 失败重试；macOS 不显式引入会报错）
-#ifdef __APPLE__
-#include <crt_externs.h> // _NSGetArgc/_NSGetArgv
-#endif
 #endif
 
 // eui 的 UI 唤醒：后台线程收到转发 URL 时调用，让主循环跑一帧（跨线程安全，
@@ -434,53 +431,8 @@ void cliListenerLoop() {
 
 } // namespace
 
-// All command-line arguments (excluding the exe path), in order. Parsed once
-// and cached; safe to call from a static initializer.
-export std::vector<std::string> commandLineArgs() {
-    static const std::vector<std::string> cached = [] {
-        std::vector<std::string> args;
-#ifdef _WIN32
-        using CmdToArgvFn = LPWSTR*(WINAPI*)(LPCWSTR, int*);
-        static const tinynext::native::UniqueModule shell32(LoadLibraryW(L"shell32.dll"));
-        static const CmdToArgvFn cmdToArgv = [&]() -> CmdToArgvFn {
-            if (!shell32) return nullptr;
-            return reinterpret_cast<CmdToArgvFn>(
-                reinterpret_cast<void*>(GetProcAddress(shell32.get(), "CommandLineToArgvW")));
-        }();
-        if (cmdToArgv) {
-            int argc = 0;
-            LPWSTR* wargv = cmdToArgv(GetCommandLineW(), &argc);
-            if (wargv) {
-                tinynext::native::UniqueLocalAlloc argsOwner(
-                    static_cast<HLOCAL>(wargv));
-                for (int i = 1; i < argc; ++i) {
-                    const std::wstring w(wargv[i]);
-                    args.push_back(std::string(w.begin(), w.end()));
-                }
-            }
-        }
-#elif defined(__APPLE__)
-        const int argc = *_NSGetArgc();
-        char** argv = *_NSGetArgv();
-        for (int i = 1; i < argc; ++i) args.push_back(argv[i]);
-#else
-        // Linux: /proc/self/cmdline (NUL-separated); argv[0] is the exe path.
-        std::ifstream in("/proc/self/cmdline", std::ios::binary);
-        std::string s((std::istreambuf_iterator<char>(in)),
-                      std::istreambuf_iterator<char>());
-        std::size_t start = 0;
-        while (start < s.size()) {
-            const std::size_t end = s.find('\0', start);
-            const std::string tok = s.substr(start, end - start);
-            if (start > 0) args.push_back(tok);  // skip argv[0]
-            if (end == std::string::npos) break;
-            start = end + 1;
-        }
-#endif
-        return args;
-    }();
-    return cached;
-}
+// 命令行参数解析在 tinynext.utils::commandLineArgs（headless 与 CLI 共用同一份）：
+// Linux 下经动态加载器启动时（run.sh）程序路径不在 argv[0]，见该函数注释。
 
 // Command-line arguments that look like download sources (http(s)/sftp/ED2K
 // URLs, magnet:, or a local .torrent path), in order. Parsed once and cached.
@@ -578,9 +530,12 @@ ADD DOWNLOADS (the GUI auto-starts when it is not running)
 
 QUERY STATE (read-only; needs a running TinyNext — they never open a window)
   tinynext status [--json]               App version/pid, engine health, task counts, speed.
+                                         Counts include tasks paused for a GUI choice
+                                         (torrent files / media tracks), see below.
   tinynext list [--json] [--state active|done|failed|all]
                                          One line per task: id, state, progress, speed,
-                                         size, name. Default filter: all.
+                                         size, name. Default filter: all. Tasks waiting for
+                                         a GUI choice are marked "# awaiting selection".
   tinynext watch [--json] [--until-idle] [--interval <sec>]
                                          Print status every <sec> (default 2) until Ctrl-C.
                                          --until-idle: machine mode (one compact JSON per
@@ -588,7 +543,9 @@ QUERY STATE (read-only; needs a running TinyNext — they never open a window)
 
 OPERATE THE RUNNING APP (task ids come from `tinynext list`)
   tinynext pause <id...> | pause all     Pause active task(s) (they keep the partial file).
-  tinynext resume <id...> | resume all   Resume paused task(s).
+  tinynext resume <id...> | resume all   Resume paused task(s). Refused (exit 2) when the
+                                         task waits for a torrent-file / media-track
+                                         choice — pick it in the GUI first.
   tinynext cancel <id...>                Stop a task; record + partial file stay, retryable.
   tinynext retry <id...>                 Retry failed/cancelled tasks using aria2-next's
                                          persistent state and original task GID.

@@ -420,10 +420,12 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     // ---- 添加下载弹窗（模态）：链接 + 每任务高级选项 ----
     if (g_addOpen) {
         const float dlgW = 320.0f;
-        const float availableDialogHeight = std::max(156.0f, screen.height - 24.0f);
-        const float dlgH = g_addTab == AddTab::Direct
-                               ? std::min(390.0f, availableDialogHeight)
-                               : std::min(220.0f, availableDialogHeight);
+        // 直链 tab 最下面的字段是 mediaTrackY(292) + 28 = 320，再留 40 给底部按钮行 →
+        // 400 够用，且窗口最小高度是 500 逻辑像素（app.cpp::minWindowSize），永远放得下。
+        // 因此字段区**不用滚动容器**：components::scrollView 会给根 stack 挂 .clip()，
+        // 而 buildListPicker 的「点弹层外收起」是全屏拦截 rect、弹层也在字段区内，
+        // 被 clip 之后点标题 / 页签 / 按钮区都收不起弹层（AGENTS.md 约定 14）。
+        const float dlgH = g_addTab == AddTab::Direct ? 400.0f : 220.0f;
         const float dlgX = (screen.width - dlgW) * 0.5f;
         const float dlgY = std::max(12.0f, (screen.height - dlgH) * 0.5f);
         const float labelX = 16.0f;
@@ -444,11 +446,12 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         const float torY = 66.0f;      // 种子 tab：种子文件行
         const float torDirY = 102.0f;  // 种子 tab：下载目录行
         const float torHintY = 138.0f; // 种子 tab：提示文字
-        const float directFieldsViewportH = std::max(40.0f, dlgH - 40.0f - 8.0f - urlY);
+        // 字段区 = urlY 到按钮行 btnY 之间（坐标都相对字段区顶边 urlY）。
+        const float directFieldsViewportH = btnY - urlY;
         const float directFieldsContentH = mediaTrackY - urlY + 28.0f;
-        // 媒体类型（4 项）/ 输出容器（2 项）两个选择器同排，都在字段区画布里。
-        // 弹层向下展开所需高度超出 viewport 时就统一向上展开——scrollView 会 clip
-        // 子元素，向下展开会把弹层最后一项和底边裁掉。
+        // 媒体类型（4 项）/ 输出容器（2 项）两个选择器同排，都在字段区内。
+        // 弹层向下展开所需高度（字段底边 → 弹层底边）超过「字段底边 → 按钮行」这段
+        // 空间时就向上展开，避免压住底部按钮行或溢出弹窗。
         const float mediaPickerFieldBottom = mediaY + 1.0f + 26.0f - urlY;
         const bool mediaPickersOpenUp =
             pickerOpensUp(mediaPickerFieldBottom, 4, directFieldsViewportH);
@@ -548,15 +551,15 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .build();
 
                 if (g_addTab == AddTab::Direct) {
-                    components::scrollView(ui, "add.direct.fields")
+                    // 字段区容器：普通 stack（不是 scrollView——见上面 dlgH 的说明，
+                    // clip 会把选择器的收起拦截层和弹层一起裁掉，且这里根本不需要滚动）。
+                    ui.stack("add.direct.fields")
                         .position(0.0f, urlY)
                         .size(dlgW, directFieldsViewportH)
-                        .scrollbarWidth(kScrollbarWidth)
-                        .scrollbarGap(kScrollbarGap)
-                        .theme(theme.components)
-                        .content([&](eui::Ui& fields, float width, float) {
-                            fields.stack("add.direct.fields.canvas")
-                                .size(width, directFieldsContentH)
+                        .content([&] {
+                            eui::Ui& fields = ui;  // 字段区内建控件沿用 fields 命名
+                            ui.stack("add.direct.fields.canvas")
+                                .size(dlgW, directFieldsContentH)
                                 .content([&] {
                                     const auto bodyY = [urlY](float y) { return y - urlY; };
                     // URL 多行（磁力 magnet: 也在这里填；直链默认不设 out 让 aria2
@@ -1466,13 +1469,12 @@ void drawMediaTrackSelectionDialog(eui::Ui& ui, const eui::Screen& screen,
                 .color(theme.metaText)
                 .build();
 
-            const auto knownType = [](std::string_view type) {
-                return type == "video" || type == "audio" || type == "subtitle";
-            };
+            // 类型白名单 / 分组归一位 dl::normalizeMediaTrackType（"subtitles" 也归到
+            // 字幕组，否则 HLS 清单里的字幕轨道在这个弹窗里会直接消失）。
             const bool hasSelectableTrack = g_tasks.health().supportsMediaTrackSelection &&
                 std::ranges::any_of(selection.tracks,
-                    [&](const dl::MediaTrackView& track) {
-                        return knownType(track.type) && !track.id.empty();
+                    [](const dl::MediaTrackView& track) {
+                        return dl::isSelectableMediaTrackType(track.type) && !track.id.empty();
                     });
             if (!hasSelectableTrack) {
                 components::text(ui, "mediatrack.unsupported")
@@ -1578,7 +1580,8 @@ void drawMediaTrackSelectionDialog(eui::Ui& ui, const eui::Screen& screen,
 
                             std::unordered_set<std::string> seenTrackIds;
                             for (const auto& track : selection.tracks) {
-                                if (track.type != groupTypes[group] || track.id.empty() ||
+                                if (dl::normalizeMediaTrackType(track.type) != groupTypes[group] ||
+                                    track.id.empty() ||
                                     !seenTrackIds.insert(track.id).second) continue;
                                 std::string label;
                                 const auto addPart = [&](const std::string& part) {

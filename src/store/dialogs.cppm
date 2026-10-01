@@ -187,23 +187,6 @@ export void requestMediaTrackSelection(const dl::TaskView& task) {
 }
 
 export void requestInfo(const dl::TaskView& task) {
-    // 排障：硬编码路径 + std::endl 强制刷新，避免文件 I/O 缓冲丢失。
-    // TODO(remove): 崩溃定位解决后删掉。
-    auto dlog = [](const std::string& s) {
-        std::ofstream f("C:\\Users\\farna\\crashdumps\\dlog.txt", std::ios::app);
-        if (f) f << s << std::endl;
-    };
-    dlog("R_BEGIN state=" + std::to_string((int)task.state));
-
-    dlog("R_name size=" + std::to_string(task.displayName.size()));
-    dlog("R_url size=" + std::to_string(task.url.size()));
-    dlog("R_error size=" + std::to_string(task.error.size()));
-    dlog("R_bytes total=" + std::to_string(task.totalBytes));
-    dlog("R_destEmpty=" + std::to_string(task.destPath.empty() ? 1 : 0));
-    if (!task.destPath.empty()) {
-        dlog("R_destSize=" + std::to_string(task.destPath.native().size()));
-    }
-
     TaskInfoSnapshot snap;
     snap.name = task.displayName.empty() ? std::string() : task.displayName;
     snap.url = task.url;

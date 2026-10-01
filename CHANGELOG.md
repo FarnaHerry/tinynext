@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### UI
+- 修复添加下载弹窗里选择器（媒体 / 输出容器 / 排序）展开后**点击弹层外收不起来**：
+  字段区原先是 `scrollView`，它给容器加的裁剪会同时裁掉展开时的全屏点击拦截层，
+  而 eui 的命中测试与元素裁剪矩形求交。字段区改为固定高度 `ui.stack`
+  （窗口最小尺寸保证放得下，本来也不会滚动）——拦截层与弹层都不再被裁。
+- 添加下载弹窗里的 `.dismiss` 拦截层修复后，弹层向上/向下展开的判定改用
+  `btnY - urlY` 作为可视高度基准。
+
+### CLI
+- Linux 经动态加载器直接启动时（`run.sh`：`ld.so --library-path … /path/tinynext
+  <args>`）命令行解析错位：argv[0] 是 ld.so，程序路径是中间一个普通参数，
+  只看首参数的入口（`agent` / `status` / `list` / `--headless` / `--mirror`）
+  全部失效。命令行解析统一到 `utils::commandLineArgs()`，并在 Linux 下剥掉加载器
+  选项后跳过程序路径。
+- `status` / `list` 现在会把「等待用户选择」的任务单独报出来（`tasks.awaitingSelection`
+  / `# awaiting selection: #N (torrent files|media tracks)` / `waiting : …`），
+  `resume <id>` 对这类任务明确报错（先在 GUI 里选种子文件 / 媒体轨道），
+  不再假报成功。
+
+### Engine
+- 修复 `resume` / `resumeAll` 在任务还没有 GID（引擎刚接收、尚未分配）时把任务
+  标成「下载中」的乐观状态。
+
 ## 0.7.11（2026-10-01）
 
 ### UI

@@ -35,7 +35,7 @@ export struct TorrentFileView {
 // One selectable native HLS/DASH representation exposed through tellStatus.
 export struct MediaTrackView {
     std::string id;       // opaque aria2-next track ID
-    std::string type;     // video / audio / subtitle
+    std::string type;     // video / audio / subtitle (见 normalizeMediaTrackType)
     std::string codec;
     std::string language;
     std::string width;
@@ -44,6 +44,21 @@ export struct MediaTrackView {
     std::string bandwidth;
     bool selected = false;
 };
+
+// 轨道类型归一化：aria2-next / HLS 清单里字幕可能写 "subtitle" 或 "subtitles"，
+// 归一化后统一为 video / audio / subtitle，其余类型返回空串。
+// 「这个轨道能不能让用户选」只在 isSelectableMediaTrackType 一处判断，
+// UI（卡片入口 / 选择弹窗分组）与 CLI（awaiting selection 上报）共用，不要各处
+// 再写一遍类型列表——漏掉 "subtitles" 会让字幕轨道在弹窗里直接消失。
+export inline std::string_view normalizeMediaTrackType(std::string_view type) {
+    if (type == "video") return "video";
+    if (type == "audio") return "audio";
+    if (type == "subtitle" || type == "subtitles") return "subtitle";
+    return {};
+}
+export inline bool isSelectableMediaTrackType(std::string_view type) {
+    return !normalizeMediaTrackType(type).empty();
+}
 
 // 引擎健康信息（监控页展示）。纯读缓存：由 refreshHealth() 在后台线程刷新，
 // health() 只读缓存、绝不发 RPC（UI 线程每帧可调用）。
