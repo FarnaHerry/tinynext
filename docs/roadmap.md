@@ -224,6 +224,24 @@ Motrix 经典版 `aria2` npm 包「WS 打开走 WS、否则 HTTP」。故混合 
 - 失败任务保留在会话文件（下次 GUI 启动续传）。daemon 输出重定向到
   `configDir/tinynext-aria2.log`（终端保持干净）。
 
+## CI 打包：Windows runner 固定 windows-2022（2026-10-01）
+
+**问题**：发 v0.7.12 时 `build-win64` 卡在 «Install NSIS» 一步——curl 从
+SourceForge 下 `nsis-3.10.zip` 拿到 **HTTP 522**（整站故障，本地/各镜像端点同样
+522），而 `curl --retry` 默认**不重试 522**，一次失败就 throw，Release 直接不发。
+`windows-latest` 现在是 `windows-2025-vs2026`，该镜像**不再预装 NSIS**
+（2022 镜像预装 3.10），所以只能现下。
+
+**决定**：矩阵里 Windows 固定 **`windows-2022`**（不再用 `windows-latest`）：
+NSIS 直接用镜像自带的 3.10（`C:\Program Files (x86)\NSIS\makensis.exe`，与本地
+验证版本一致），CI 日志确认下载步骤被跳过；下载路径保留为兜底，并加上
+`--retry-all-errors`（这次要的就是它）+ 三个 SourceForge 端点轮询 + 体积校验。
+
+**代价 / 后续**：windows-2022 是 VS2022 镜像（比 `windows-latest` 的 VS2026 旧，
+对 mcpp 自带工具链无影响，实测三平台打包全绿）。等 GitHub 宣布 2022 退役、
+或 2025 镜像重新预装 NSIS 时，改回 `windows-latest` 即可，兜底下载路径已经能扛住
+SourceForge 的间歇故障。
+
 ## 待办（未完成，下次处理）
 
 2026-10-01 复查 v0.7.11「稳定元素 id + 媒体轨道选择」那次提交后清理出的小尾巴，
