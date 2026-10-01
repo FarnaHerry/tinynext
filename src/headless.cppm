@@ -18,10 +18,8 @@ module;
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <windows.h>  // GetCommandLineW / LocalFree
+#include <windows.h>  // 进程/句柄 API（daemon 输出重定向等）
 #include "native_resource.hpp"
-#elif defined(__APPLE__)
-#include <crt_externs.h>  // _NSGetArgc/_NSGetArgv
 #endif
 
 export module tinynext.headless;
@@ -37,53 +35,9 @@ namespace headless {
 
 namespace {
 
-// 全部命令行参数（不含 exe 路径）。headless 独立于 cli.cppm 解析，避免依赖 UI
-// 状态模块。静态缓存一次。
-std::vector<std::string> commandLineArgs() {
-    static const std::vector<std::string> cached = [] {
-        std::vector<std::string> args;
-#ifdef _WIN32
-        using CmdToArgvFn = LPWSTR*(WINAPI*)(LPCWSTR, int*);
-        static const tinynext::native::UniqueModule shell32(LoadLibraryW(L"shell32.dll"));
-        static const CmdToArgvFn cmdToArgv = [&]() -> CmdToArgvFn {
-            if (!shell32) return nullptr;
-            return reinterpret_cast<CmdToArgvFn>(
-                reinterpret_cast<void*>(GetProcAddress(shell32.get(), "CommandLineToArgvW")));
-        }();
-        if (cmdToArgv) {
-            int argc = 0;
-            LPWSTR* wargv = cmdToArgv(GetCommandLineW(), &argc);
-            if (wargv) {
-                tinynext::native::UniqueLocalAlloc argsOwner(
-                    static_cast<HLOCAL>(wargv));
-                for (int i = 1; i < argc; ++i) {
-                    const std::wstring w(wargv[i]);
-                    args.push_back(std::string(w.begin(), w.end()));
-                }
-            }
-        }
-#elif defined(__APPLE__)
-        const int argc = *_NSGetArgc();
-        char** argv = *_NSGetArgv();
-        for (int i = 1; i < argc; ++i) args.push_back(argv[i]);
-#else
-        // Linux: /proc/self/cmdline (NUL-separated); argv[0] is the exe path.
-        std::ifstream in("/proc/self/cmdline", std::ios::binary);
-        std::string s((std::istreambuf_iterator<char>(in)),
-                      std::istreambuf_iterator<char>());
-        std::size_t start = 0;
-        while (start < s.size()) {
-            const std::size_t end = s.find('\0', start);
-            const std::string tok = s.substr(start, end - start);
-            if (start > 0) args.push_back(tok);  // skip argv[0]
-            if (end == std::string::npos) break;
-            start = end + 1;
-        }
-#endif
-        return args;
-    }();
-    return cached;
-}
+// 命令行参数用 tinynext.utils::commandLineArgs（不依赖 cli.cppm / UI 状态模块）：
+// Linux 下经动态加载器启动时程序路径不在 argv[0]，只看 argv[0] 会把 --library-path
+// 当首个参数——见该函数注释。
 
 // 任务最终态：Done = 成功；Failed/Cancelled = 失败。映射到 exit code。
 int exitCodeFor(dl::State s) {

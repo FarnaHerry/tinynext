@@ -1277,6 +1277,8 @@ void Aria2Engine::resume(std::uint64_t id) {
         if (task->awaitingTorrentFileSelection ||
             (task->awaitingMediaTrackSelection && mediaTrackSelectionSupported &&
              hasMediaChoices)) return;
+        // 没有 GID 就没法 unpause：不要乐观置成 Downloading 后直接 return。
+        if (task->gid.empty()) return;
         gid = task->gid;
         task->state = State::Downloading;  // 乐观更新
     }
@@ -1316,6 +1318,9 @@ void Aria2Engine::resumeAll() {
         if (!daemonSpawned_) return;
         for (const auto& task : tasks_) {
             if (task->state == State::Paused) {
+                // 没有 GID 的任务（还没成功提交给 daemon）无从 unpause：不能乐观置成
+                // Downloading 然后什么都不发（见函数末尾 gids.empty() 的早退）。
+                if (task->gid.empty()) continue;
                 const bool hasMediaChoices = std::ranges::any_of(
                     task->mediaTracks, [](const MediaTrackView& track) {
                         return track.type == "video" || track.type == "audio" ||
@@ -1325,7 +1330,7 @@ void Aria2Engine::resumeAll() {
                     (task->awaitingMediaTrackSelection && mediaTrackSelectionSupported &&
                      hasMediaChoices)) continue;
                 task->state = State::Downloading;  // 乐观更新
-                if (!task->gid.empty()) gids.push_back(task->gid);
+                gids.push_back(task->gid);
             }
         }
     }

@@ -69,9 +69,8 @@ std::string mediaTime(std::int64_t milliseconds) {
 
 bool hasSelectableMediaTracks(const dl::TaskView& task) {
     return std::ranges::any_of(task.mediaTracks, [](const dl::MediaTrackView& track) {
-        return !track.id.empty() &&
-               (track.type == "video" || track.type == "audio" ||
-                track.type == "subtitle" || track.type == "subtitles");
+        // 类型白名单统一在 dl::isSelectableMediaTrackType（与选择弹窗、CLI 一致）。
+        return !track.id.empty() && dl::isSelectableMediaTrackType(track.type);
     });
 }
 }

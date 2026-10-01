@@ -54,11 +54,38 @@ tinynext agent
 - URL 前缀白名单统一在 `isDownloadableSource`（`src/utils.cppm`，`tinynext.utils`）
   一处维护。
 
+## 控制面（status / list / pause / …）
+
+只读命令（`status` / `list` / `watch`）由 CLI 进程直问主实例的 IPC 线程；
+写命令（`pause` / `resume` / `cancel` / `retry` / `remove` / `clear` / `quit`）
+会 marshal 回主实例的 UI 线程执行。全部支持 `--json`（写命令返回
+`{"ok":…,"results":[{"action","ok","message"}…]}`）；文本输出用 `error: ` 开头
+标识失败。退出码：0 成功 / 1 应用未运行·不可达·版本过旧 / 2 命令错误（id 不对、
+状态不对等）。给 AI 的完整清单可以跑 `tinynext agent`。
+
+**等待用户选择的任务 `resume` 会被拒绝**（exit 2）：磁力/种子任务读到元数据后停在
+「等待选择种子文件」、HLS/DASH 任务清单解析后停在「等待选择媒体轨道」时，继续下载
+需要先在 GUI 里选（种子文件入口 / 卡片上的「选择媒体轨道」图标）。CLI 会明确告诉
+你原因，而不是假报 `ok: resumed`：
+
+```bash
+tinynext list                       # 标记 「awaiting selection: #2 (torrent files)」
+tinynext status                     # 「waiting : 1 paused task(s) …」
+tinynext status --json              # tasks.awaitingSelection
+tinynext resume 2                   # error: #2 is waiting for torrent file selection (…)
+```
+
 ## 实现位置
 
 - `src/cli.cppm`（模块 `tinynext.cli`）：
-  - `commandLineUrls()` — 解析命令行里的 URL 参数（Windows `CommandLineToArgvW`，
-    macOS `_NSGetArgc/Argv`，Linux `/proc/self/cmdline`）；
+  - `commandLineUrls()` — 解析命令行里的 URL 参数；命令行本身由
+    `tinynext.utils::commandLineArgs()`（`src/utils.cppm`）统一读取（Windows
+    `CommandLineToArgvW`，macOS `_NSGetArgc/Argv`，Linux `/proc/self/cmdline`）。
+    Linux 下若进程是**经动态加载器直接启动**的（`ld.so --library-path … /path/tinynext
+    agent`，见根目录 `run.sh`——工具链 glibc 与系统 glibc 不兼容时只能这么跑），
+    cmdline 的 argv[0] 是 ld.so、程序路径是中间一个普通参数，所以解析会先剥掉加载器
+    自己的选项再跳过程序路径（否则 `agent` / `status` / `--headless` 这类按首参数
+    分派的入口全部失效）；
   - `acquireSingleInstance()` — Windows 命名互斥体 / POSIX `flock`；
   - `forwardToRunningInstance()` — TCP socket 直连（回退写 inbox）+ 聚焦窗口；
   - `drainInbox()` — 读并清空 inbox（socket 未就绪时的兜底）；

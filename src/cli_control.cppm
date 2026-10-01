@@ -140,6 +140,20 @@ bool isActive(const dl::TaskView& t) {
            t.state == dl::State::Paused;
 }
 
+// 等待用户选择的暂停任务：种子文件选择始终拦，媒体轨道选择在引擎支持
+// stable-track-ids 且有可选轨道时才拦（与 Aria2Engine::resume / resumeAll 的守卫
+// 逐字对应）。这类任务 `resume` 会被引擎静默忽略，必须在 GUI 里先选，
+// 所以 status/list/resume 都要把它们显式报出来。health() 只读缓存，不发 RPC。
+bool awaitingSelection(const dl::TaskView& t) {
+    if (t.awaitingTorrentFileSelection) return true;
+    if (!t.awaitingMediaTrackSelection) return false;
+    if (!g_tasks.health().supportsMediaTrackSelection) return false;
+    return std::ranges::any_of(t.mediaTracks, [](const dl::MediaTrackView& track) {
+        // 类型白名单与卡片入口 / 选择弹窗共用 dl::isSelectableMediaTrackType。
+        return dl::isSelectableMediaTrackType(track.type);
+    });
+}
+
 // ---- 健康信息：优先拿一次新鲜值（refreshHealth 走引擎后台命令线程，与 UI 无关），
 // 5s 超时回退缓存（housekeep / 监控页刷新的 health()）。监听线程直接调。
 // promise 用 shared_ptr：超时先返回时，后台回调仍可能稍后才触发，回调持强引用
@@ -163,6 +177,7 @@ dl::HealthInfo liveHealth() {
 struct TaskCounts {
     int total = 0, queued = 0, downloading = 0, paused = 0, done = 0, failed = 0,
         cancelled = 0;
+    int awaitingSelection = 0;      // paused 且在等用户选种子文件 / 媒体轨道
     double speedBps = 0.0;          // 下载中任务的速度合计
     std::int64_t downloadedBytes = 0;
 };
@@ -178,6 +193,7 @@ TaskCounts countTasks(const std::vector<dl::TaskView>& tasks) {
             case dl::State::Failed: ++c.failed; break;
             case dl::State::Cancelled: ++c.cancelled; break;
         }
+        if (awaitingSelection(t)) ++c.awaitingSelection;
         if (t.state == dl::State::Downloading) c.speedBps += t.speedBps;
         if (t.downloadedBytes > 0) c.downloadedBytes += t.downloadedBytes;
     }
@@ -202,6 +218,7 @@ nlohmann::json statusJson(const dl::HealthInfo& h, const TaskCounts& c) {
                    {"queued", c.queued},
                    {"downloading", c.downloading},
                    {"paused", c.paused},
+                   {"awaitingSelection", c.awaitingSelection},
                    {"done", c.done},
                    {"failed", c.failed},
                    {"cancelled", c.cancelled}}},
@@ -246,6 +263,10 @@ std::string handleStatus(const std::vector<std::string>& tokens) {
     add(counts.failed, "failed");
     add(counts.cancelled, "cancelled");
     o << "\n";
+    if (counts.awaitingSelection > 0) {
+        o << "waiting  : " << counts.awaitingSelection
+          << " paused task(s) need torrent-file / media-track selection in the GUI\n";
+    }
     o << "speed    : " << (counts.speedBps > 0 ? formatSpeed(counts.speedBps) : "idle")
       << " down · " << (h.uploadSpeedBps > 0 ? formatSpeed(static_cast<double>(h.uploadSpeedBps)) : "0 B/s")
       << " up · downloaded " << fmtSize(counts.downloadedBytes) << "\n";
@@ -339,6 +360,15 @@ std::string handleList(const std::vector<std::string>& tokens) {
     o << "# " << tasks.size() << " task(s)";
     if (filter != "all") o << " (state=" << filter << ")";
     o << "\n";
+    // 等选择的任务：resume 会被引擎忽略，agent 必须先去 GUI 里选。
+    std::string waiting;
+    for (const auto& t : tasks) {
+        if (!awaitingSelection(t)) continue;
+        if (!waiting.empty()) waiting += ", ";
+        waiting += "#" + std::to_string(t.id) +
+                   (t.awaitingTorrentFileSelection ? " (torrent files)" : " (media tracks)");
+    }
+    if (!waiting.empty()) o << "# awaiting selection: " << waiting << "\n";
     return o.str();
 }
 
@@ -439,6 +469,13 @@ std::string handleResume(const std::vector<std::string>& tokens,
         } else if (t->state != dl::State::Paused) {
             results.push_back({false, "#" + std::to_string(id) + " is " + stateName(t->state) +
                                           " (resume needs a paused task)"});
+        } else if (awaitingSelection(*t)) {
+            results.push_back(
+                {false, "#" + std::to_string(id) +
+                            (t->awaitingTorrentFileSelection
+                                 ? " is waiting for torrent file selection"
+                                 : " is waiting for media track selection") +
+                            " (pick files/tracks in the GUI, then resume)"});
         } else {
             g_tasks.resume(id);
             results.push_back({true, "resumed #" + std::to_string(id) + " " + taskDisplayName(*t)});

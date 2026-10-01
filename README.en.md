@@ -48,9 +48,13 @@ progress, and version numbers.
   output, choose a destination, or select a local torrent file. Multiple
   compatible URLs can be combined as mirror sources for one task. Choose
   automatic media detection or force HLS/DASH, select MP4/MKV output, and
-  optionally pause magnet links after metadata so you can select torrent files.
+  optionally pause magnet links after metadata so you can select torrent files,
+  or pause HLS/DASH media after its manifest is parsed so you can choose video,
+  audio, and subtitle tracks.
 - **Media tasks:** Show presentation-time progress for HLS/DASH downloads. Live
-  recordings can be finalized from the task card.
+  recordings can be finalized from the task card. A task waiting for track
+  selection shows a picker entry on its card; torrent tasks waiting for file
+  selection use their torrent-file entry.
 - **Settings:** Configure the theme, download directory, connection behavior,
   network options, BitTorrent options, file handling, and integrity checks.
   The Engine tab shows aria2-next health and statistics and provides controls
@@ -71,7 +75,8 @@ responsive layout remains usable.
    For torrent and magnet tasks, the content name comes from the torrent
    metadata.
 3. Use the task card buttons to pause, resume, cancel, retry, open the
-   downloaded file, or open its containing folder.
+   downloaded file, or open its containing folder. Tasks paused for a torrent
+   file / media track choice are resumed from their card after you pick them.
 
 The toolbar can pause or resume all tasks. File name collisions follow the
 configured engine policy.

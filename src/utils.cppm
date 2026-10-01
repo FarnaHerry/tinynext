@@ -6,7 +6,8 @@
 // 现在只保留布局常量，并 export import 本模块转发（既有 UI 代码不用改）。
 module;
 
-// pathFromUtf8/utf8FromPath 在 Windows 需要 MultiByteToWideChar/WideCharToMultiByte。
+// pathFromUtf8/utf8FromPath 在 Windows 需要 MultiByteToWideChar/WideCharToMultiByte；
+// commandLineArgs 在 Windows 需要 GetCommandLineW/CommandLineToArgvW。
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -17,6 +18,9 @@ module;
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include "native_resource.hpp"  // UniqueModule / UniqueLocalAlloc
+#elif defined(__APPLE__)
+#include <crt_externs.h>  // _NSGetArgc/_NSGetArgv
 #endif
 
 export module tinynext.utils;
@@ -234,4 +238,96 @@ export std::string convertSizeUnit(const std::string& value, const std::string& 
     if (bytes <= 0) return "1";
     const long long v = static_cast<long long>((bytes + mult / 2) / mult);
     return std::to_string(std::max(1LL, v));
+}
+
+// ---- 命令行参数 ----
+// Linux 专用的小工具：识别「通过动态加载器直接启动」的 cmdline。
+#if !defined(_WIN32) && !defined(__APPLE__)
+namespace {
+// argv[0] 是不是动态加载器本尊（`/lib64/ld-linux-x86-64.so.2`、`ld.so`、musl 的
+// `ld-musl-*`）——此时真实程序路径不在 argv[0]，程序是加载器自己 mmap 起来的。
+bool looksLikeDynamicLoader(const std::string& token) {
+    const std::size_t slash = token.rfind('/');
+    const std::string base = token.substr(slash == std::string::npos ? 0 : slash + 1);
+    return base.starts_with("ld-linux") || base.starts_with("ld-musl") ||
+           base == "ld.so" || base.starts_with("ld.so.");
+}
+
+// ld.so 里需要跟一个值的选项（其余都是开关）；`--opt=value` 形式算单个 token。
+bool loaderOptionTakesValue(const std::string& opt) {
+    return opt == "--library-path" || opt == "--preload" || opt == "--audit" ||
+           opt == "--inhibit-rpath" || opt == "--argv0" ||
+           opt == "--glibc-hwcaps-mask" || opt == "--glibc-hwcaps-prepend";
+}
+}  // namespace
+#endif
+
+// 全部命令行参数（不含程序自身路径，按原顺序）。静态缓存一次，可从静态初始化调用。
+//
+// Linux 的坑（/proc/self/cmdline）：**通过动态加载器直接启动**时
+// （`ld.so [加载器选项] /path/tinynext <args>`，本仓库的 run.sh 就是这么干的——
+// 系统 glibc/Mesa 与 mcpp 工具链 glibc 不兼容，必须走 ld.so 的 --library-path），
+// argv[0] 是 ld.so、程序路径变成中间的一个普通参数：
+//   [ld.so, --inhibit-rpath, "", --library-path, /usr/lib64:…, /path/tinynext, agent]
+// 而 /proc/self/exe 这时候也指向 ld.so（没有真正的 execve），定位不了程序路径。
+// 只跳过第 0 个 token 会把 --inhibit-rpath 当首参数，让 agent / status / list /
+// --headless / --restart 这些按 args.front() 分派的入口全部失效（下载 URL 不受
+// 影响，因为它们扫全量参数）。所以先剥掉加载器自己的选项，再跳过程序路径。
+//
+// Windows / macOS 走系统 argv，不受影响。
+export std::vector<std::string> commandLineArgs() {
+    static const std::vector<std::string> cached = [] {
+        std::vector<std::string> args;
+#ifdef _WIN32
+        using CmdToArgvFn = LPWSTR*(WINAPI*)(LPCWSTR, int*);
+        static const tinynext::native::UniqueModule shell32(LoadLibraryW(L"shell32.dll"));
+        static const CmdToArgvFn cmdToArgv = [&]() -> CmdToArgvFn {
+            if (!shell32) return nullptr;
+            return reinterpret_cast<CmdToArgvFn>(
+                reinterpret_cast<void*>(GetProcAddress(shell32.get(), "CommandLineToArgvW")));
+        }();
+        if (cmdToArgv) {
+            int argc = 0;
+            LPWSTR* wargv = cmdToArgv(GetCommandLineW(), &argc);
+            if (wargv) {
+                tinynext::native::UniqueLocalAlloc argsOwner(static_cast<HLOCAL>(wargv));
+                for (int i = 1; i < argc; ++i) {
+                    const std::wstring w(wargv[i]);
+                    args.push_back(std::string(w.begin(), w.end()));
+                }
+            }
+        }
+#elif defined(__APPLE__)
+        const int argc = *_NSGetArgc();
+        char** argv = *_NSGetArgv();
+        for (int i = 1; i < argc; ++i) args.push_back(argv[i]);
+#else
+        std::vector<std::string> tokens;
+        {
+            std::ifstream in("/proc/self/cmdline", std::ios::binary);
+            std::string s((std::istreambuf_iterator<char>(in)),
+                          std::istreambuf_iterator<char>());
+            std::size_t start = 0;
+            while (start < s.size()) {
+                const std::size_t end = s.find('\0', start);
+                tokens.push_back(s.substr(start, end - start));
+                if (end == std::string::npos) break;
+                start = end + 1;
+            }
+        }
+        std::size_t first = 1;  // 默认只跳过 argv[0]
+        if (!tokens.empty() && looksLikeDynamicLoader(tokens[0])) {
+            std::size_t i = 1;
+            while (i < tokens.size() && tokens[i].starts_with("--") &&
+                   tokens[i] != "--") {
+                i += loaderOptionTakesValue(tokens[i]) ? 2 : 1;
+            }
+            if (i < tokens.size() && tokens[i] == "--") ++i;
+            if (i < tokens.size()) first = i + 1;  // 再跳过程序路径
+        }
+        for (std::size_t i = first; i < tokens.size(); ++i) args.push_back(tokens[i]);
+#endif
+        return args;
+    }();
+    return cached;
 }
