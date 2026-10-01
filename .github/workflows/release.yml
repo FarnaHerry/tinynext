@@ -38,8 +38,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # windows-2022 而不是 windows-latest（= windows-2025-vs2026）：2025 镜像
+          # 不再预装 NSIS（2022 预装 3.10），只能从 SourceForge 现下——2026-10-01
+          # 整站 522 直接把打包卡死过。固定在 2022 上，NSIS 用镜像自带的 3.10
+          # （与本地验证的版本一致），下载只作为兜底保留。
           - name: win64
-            os: windows-latest
+            os: windows-2022
           - name: linux-x64
             os: ubuntu-latest
           - name: macos-arm64
@@ -113,10 +117,15 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # 完整版 NSIS（含 Modern UI 2 / 语言文件）。官方源在 SourceForge：整站
-          # 偶发 522 / 超时（2026-10-01 遇到过一次全站 5xx），所以用
-          # --retry-all-errors（普通 --retry 不会重试 522）+ 多个官方镜像端点
-          # 依次尝试，全部失败才报错。
+          # windows-2022 镜像预装 NSIS 3.10（2025 镜像不预装）；命中就直接用，
+          # 下面才是兜底：SourceForge 整站偶发 522 / 超时（2026-10-01 撞过一次），
+          # 所以用 --retry-all-errors（普通 --retry 不会重试 522）+ 多个官方镜像
+          # 端点依次尝试，全部失败才报错。
+          $pre = Get-Command makensis.exe -ErrorAction SilentlyContinue
+          if ($pre) {
+            Write-Host "NSIS preinstalled: $($pre.Source)"
+            exit 0
+          }
           $urls = @(
             "https://sourceforge.net/projects/nsis/files/NSIS%203/3.10/nsis-3.10.zip/download",
             "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.10/nsis-3.10.zip",
@@ -185,7 +194,7 @@ jobs:
       matrix:
         include:
           - name: win64
-            os: windows-latest
+            os: windows-2022   # 与 build job 一致（NSIS 3.10 镜像自带）
             os_id: win
             arch: win64
             engine_asset: aria2-next-2.8.3-windows-x86_64.exe
@@ -231,7 +240,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # 与 build job 的同名步骤一致：SourceForge 偶发 5xx，重试 + 多镜像端点。
+          # 同 build job：镜像预装（windows-2022 → NSIS 3.10）优先，否则重试下载。
+          $pre = Get-Command makensis.exe -ErrorAction SilentlyContinue
+          if ($pre) {
+            Write-Host "NSIS preinstalled: $($pre.Source)"
+            exit 0
+          }
           $urls = @(
             "https://sourceforge.net/projects/nsis/files/NSIS%203/3.10/nsis-3.10.zip/download",
             "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.10/nsis-3.10.zip",
