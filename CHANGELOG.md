@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.12（2026-10-01）
 
 ### UI
 - 修复添加下载弹窗里选择器（媒体 / 输出容器 / 排序）展开后**点击弹层外收不起来**：
@@ -24,6 +24,14 @@
 ### Engine
 - 修复 `resume` / `resumeAll` 在任务还没有 GID（引擎刚接收、尚未分配）时把任务
   标成「下载中」的乐观状态。
+
+### 其他
+- 清理媒体轨道类型白名单的重复实现（`dl::normalizeMediaTrackType` /
+  `isSelectableMediaTrackType`）：卡片入口、选择弹窗与 CLI 共用一份类型表，
+  HLS 清单里的 `subtitles` 不再因类型不匹配而在弹窗里消失。
+- 删除 `store/dialogs` `requestInfo` 里硬编码 Windows 路径的临时 dlog 调试代码。
+- 文档：`docs/roadmap.md` 新增「待办（未完成，下次处理）」记录 `.agents/` 技能入库、
+  媒体轨道快照失效、`close_to_tray` 下 `quit` 语义三个待拍板项。
 
 ## 0.7.11（2026-10-01）
 

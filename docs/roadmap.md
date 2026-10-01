@@ -223,3 +223,44 @@ Motrix 经典版 `aria2` npm 包「WS 打开走 WS、否则 HTTP」。故混合 
 - 支持多 URL 逐个任务；接受 http(s)/sftp/ED2K file / magnet: / 本地 .torrent。
 - 失败任务保留在会话文件（下次 GUI 启动续传）。daemon 输出重定向到
   `configDir/tinynext-aria2.log`（终端保持干净）。
+
+## 待办（未完成，下次处理）
+
+2026-10-01 复查 v0.7.11「稳定元素 id + 媒体轨道选择」那次提交后清理出的小尾巴，
+代码修复已随 **0.7.12** 发布，下面三条是当时有意留下的 / 需要拍板的：
+
+### 1. `.agents/skills/tinynext-eui-ui/SKILL.md` 还不受版本控制
+
+仓库里 `AGENTS.md` / `CLAUDE.md` 都是跟踪的，但给 AI 用的 UI 技能目录
+`.agents/` 仍是 `git status` 里的唯一 `??`。内容是项目自己的 EUI 纪律
+（元素 id 唯一性 / 稳定 key / 测量回调用传入的 `Ui&` 等），不提交等于只在本机生效。
+
+**要拍板**：入库（推荐，和 AGENTS.md 一起走 code review）还是保持本地私有
+（那就在 `.gitignore` 里显式忽略，免得每次 `git status` 都挂着）。
+
+### 2. 媒体轨道选择弹窗的快照不会随任务状态失效
+
+`g_pendingMediaTrackSelection`（`src/store/dialogs.cppm`）只在「取消 / 提交 / 点遮罩」
+时清空。若弹窗开着时任务自己离开「等待选择」状态（例如引擎重连后重新探测、
+或用户在 CLI 把任务移除了），快照仍是旧的：提交时引擎会拒绝并回显错误，
+不会写坏状态，但提示不够准确。
+
+**要拍板**：接受现状（当前判断：可接受，弹窗本就是短交互），还是在状态刷新时
+顺手失效（比如 `requestMediaTrackSelection` 之外，给 refresh 回调加一句
+「任务已不在等待选择 → reset」）。
+
+### 3. `close_to_tray = true` 时 `quit` 的行为语义
+
+`tinynext quit` 走的是「关窗」这条路径，配置里开着 `close_to_tray` 时它只是把窗口
+缩进托盘：进程继续存活，而此后 marshal 到 UI 线程的任务操作
+（`pause` / `resume` / `cancel` / `retry` / `remove` / `clear` / `quit`）会 10s 超时，
+只读的 `status` / `list` / `watch` 仍能在 IPC 线程作答。`tinynext agent` 帮助里已经
+写明「任务操作只在 UI 循环活着时执行」，所以不是 bug，但对脚本来说很容易踩。
+
+**要拍板**：`quit` 是否应该强制退出（绕过托盘）？备选：① 保持现状，只在文档里
+强调；② `quit` 加 `--force`（或 `quit --force`）走真正的退出路径；③ `quit` 直接
+强制退出，想缩托盘的用户点窗口的 X —— ③ 改动最小但要改 agent 帮助文案。
+
+另外顺带记录：排查过程中发现「用 `pkill -x tinynext` 杀不掉 `run.sh` 启动的进程」
+——进程名是 `ld-linux-x86-64.so.2`（加载器），要按 PID 或
+`pkill -f 'ld-linux.*tinynext'` 杀。
