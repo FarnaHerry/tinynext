@@ -30,7 +30,7 @@ void drawMediaTrackSelectionDialog(eui::Ui& ui, const eui::Screen& screen,
                                    const AppTheme& theme);
 
 // ===================== 下载页 =================
-// 布局：左侧分类与速率、右侧操作工具栏 / 任务网格、底部分页。
+// 布局：左侧分类 / 速率 / 分页与配置，右侧操作工具栏和任务网格。
 export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
     // ---- 数据：筛选 + 排序 + 分页切片（每帧重跑，跟随下载线程实时刷新）----
     const auto tasks = g_tasks.snapshot();
@@ -122,14 +122,13 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const float pauseAllX = listX;
     const float startAllX = pauseAllX + toolW + toolGap;
     const float listTop = toolY + toolW + kPageSectionGap;
-    const float pagerY = screen.height - kPageTop - kPagerHeight;
-    const float footerTop = screen.height - kPageTop - kPageFooterHeight;
-    const float listHeight = std::max(0.0f, footerTop - kPageSectionGap - listTop);
-    const float railHeight = std::max(0.0f, footerTop - kPageSectionGap - toolY);
+    const float listHeight = std::max(0.0f, screen.height - kPageTop - listTop);
+    const float railHeight = std::max(0.0f, screen.height - kPageTop - toolY);
 
     ui.stack("downloads.rail")
         .position(contentX, toolY)
         .size(railW, railHeight)
+        .zIndex(g_pageSizeOpen ? 40 : 10)
         .content([&] {
             drawPanel(ui, "downloads.rail.bg", 0, 0, railW, railHeight, theme);
             components::text(ui, "downloads.rail.caption")
@@ -194,9 +193,96 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .build();
                 })
                 .build();
-            drawToolbarIconButton(ui, "downloads.directory", (railW - toolW) * 0.5f,
-                                  railHeight - 40.0f, toolW, toolW, 0xF07C, false, theme,
-                                  [] { openFile(cfg::downloadDir()); });
+            // 分页和配置融入侧栏底部，普通 Stack / Row 不裁剪向上展开的选择器。
+            const float innerW = railW - 24.0f;
+            const float controlsY = railHeight - 12.0f - kPagerHeight;
+            const float paginationY = controlsY - 8.0f - kPagerHeight;
+            const float countY = paginationY - 8.0f - 14.0f;
+            ui.rect("downloads.rail.controls.divider")
+                .position(12.0f, countY - 12.0f)
+                .size(innerW, kHairline)
+                .color(theme.outline)
+                .build();
+            components::text(ui, "downloads.rail.count")
+                .position(12.0f, countY)
+                .size(innerW, 14.0f)
+                .text(trf("dl.task_count", totalCount))
+                .fontSize(10.0f)
+                .lineHeight(14.0f)
+                .horizontalAlign(core::HorizontalAlign::Center)
+                .color(theme.metaText)
+                .build();
+            constexpr float gap = 4.0f;
+            const float labelW = innerW - 2.0f * kPagerHeight - 2.0f * gap;
+            ui.row("pager.group")
+                .position(12.0f, paginationY)
+                .size(innerW, kPagerHeight)
+                .gap(gap)
+                .alignItems(core::Align::CENTER)
+                .content([&] {
+                    ui.stack("pager.prev")
+                        .size(kPagerHeight, kPagerHeight)
+                        .content([&] {
+                            drawToolbarIconButton(ui, "pager.prev.icon", 0, 0,
+                                kPagerHeight, kPagerHeight, 0xF053, false, theme,
+                                [] { if (g_page > 1) --g_page; }, false, g_page > 1);
+                        })
+                        .build();
+                    components::text(ui, "pager.label")
+                        .size(labelW, kPagerHeight)
+                        .text(ellipsizeText(std::format("{} / {}", g_page, totalPages), labelW,
+                                            kCompactButtonFontSize, kMonoFont))
+                        .fontSize(kCompactButtonFontSize)
+                        .fontFamily(kMonoFont)
+                        .lineHeight(kPagerHeight)
+                        .horizontalAlign(core::HorizontalAlign::Center)
+                        .verticalAlign(core::VerticalAlign::Center)
+                        .color(theme.metaText)
+                        .build();
+                    ui.stack("pager.next")
+                        .size(kPagerHeight, kPagerHeight)
+                        .content([&] {
+                            drawToolbarIconButton(ui, "pager.next.icon", 0, 0,
+                                kPagerHeight, kPagerHeight, 0xF054, false, theme,
+                                [totalPages] { if (g_page < totalPages) ++g_page; },
+                                false, g_page < totalPages);
+                        })
+                        .build();
+                })
+                .build();
+            const float pageSizeW = innerW - 2.0f * kPagerHeight - 2.0f * gap;
+            ui.row("downloads.rail.actions")
+                .position(12.0f, controlsY)
+                .size(innerW, kPagerHeight)
+                .gap(gap)
+                .alignItems(core::Align::CENTER)
+                .content([&] {
+                    ui.stack("downloads.directory.wrap")
+                        .size(kPagerHeight, kPagerHeight)
+                        .content([&] {
+                            drawToolbarIconButton(ui, "downloads.directory", 0, 0,
+                                kPagerHeight, kPagerHeight, 0xF07C, false, theme,
+                                [] { openFile(cfg::downloadDir()); });
+                        })
+                        .build();
+                    const char* pageLabels[] = {tr("dl.page.5"), tr("dl.page.10"),
+                                               tr("dl.page.20"), tr("dl.page.50"), tr("dl.page.100")};
+                    buildListPicker(ui, "pager.pageSize", pageSizeW, kPagerHeight, theme,
+                                    g_pageSizeOpen, pageLabels, 5, pageSizeIndex(),
+                                    pickerOpensUp(controlsY + kPagerHeight, 5, railHeight),
+                                    PickerField::Plain,
+                                    [](int i) { g_pageSize = kPageSizes[i]; g_page = 1; },
+                                    std::max(96.0f, pageSizeW));
+                    ui.stack("pager.settings")
+                        .size(kPagerHeight, kPagerHeight)
+                        .content([&] {
+                            drawToolbarIconButton(ui, "pager.settings.icon", 0, 0,
+                                kPagerHeight, kPagerHeight, 0xF013, false, theme,
+                                [] { g_page_view = Page::Settings; });
+                        })
+                        .build();
+                })
+                .build();
         })
         .build();
 
@@ -325,123 +411,14 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             .build();
     }
 
-    // ---- 翻页控件组：◀ 页码 ▶ [数字/页] [设置] ----
-    // 当前页 / 总页数、每页数量和设置组成右侧操作组，左侧显示当前分类数量。
-    constexpr float kChevWidth = kStepperButtonSize;
-    const float kPageLabelWidth = std::max(52.0f,
-        core::TextPrimitive::measureTextWidth(std::format("{} / {}", g_page, totalPages), kMonoFont, 11.0f) + 12.0f);
-    constexpr float kPageSizeWidth = 52.0f;    // "数字/页" 纯文本
-    constexpr float kPagerGap = 4.0f;
-    constexpr float kPagerPadH = 10.0f;
-    constexpr float kPagerPadV = 3.0f;
-    const float groupWidth = kChevWidth + kPagerGap + kPageLabelWidth +
-                             kPagerGap + kChevWidth + kPagerGap +
-                             kPageSizeWidth + kPagerGap + kChevWidth;
-    const float pagerCardW = groupWidth + 2.0f * kPagerPadH;
-    const float pagerCardH = kPagerHeight + 2.0f * kPagerPadV;
-    const float pagerCardX = contentX + contentW - pagerCardW;
-    const float pagerCardY = pagerY - kPagerPadV;
-
-    ui.rect("downloads.footer.divider")
-        .position(contentX, footerTop)
-        .size(contentW, kHairline)
-        .color(theme.outline)
-        .build();
-    const float countW = std::max(0.0f, pagerCardX - contentX - 12.0f);
-    components::text(ui, "downloads.footer.count")
-        .position(contentX, pagerY)
-        .size(countW, kPagerHeight)
-        .text(ellipsizeText(trf("dl.task_count", totalCount), countW, 11.0f))
-        .fontSize(11.0f)
-        .lineHeight(kPagerHeight)
-        .verticalAlign(core::VerticalAlign::Center)
-        .color(theme.metaText)
-        .build();
-
-    ui.stack("pager.card")
-        .position(pagerCardX, pagerCardY)
-        .size(pagerCardW, pagerCardH)
-        .zIndex(10)
-        .content([&] {
-            // 轻量浮动的分页控件底。
-            ui.rect("pager.card.bg")
-                .position(0, 0)
-                .size(pagerCardW, pagerCardH)
-                .color(theme.cardBg)
-                .radius(kCardRadius)
-                .border(kHairline, theme.outline)
-                .build();
-
-            ui.row("pager.group")
-                .position(kPagerPadH, kPagerPadV)
-                .size(groupWidth, kPagerHeight)
-                .gap(kPagerGap)
-                .alignItems(core::Align::CENTER)
-                .content([&] {
-                    ui.stack("pager.prev")
-                        .size(kChevWidth, kChevWidth)
-                        .content([&] {
-                            drawToolbarIconButton(ui, "pager.prev.icon", 0, 0,
-                                kChevWidth, kChevWidth, 0xF053, false, theme,
-                                [] { if (g_page > 1) --g_page; }, false, g_page > 1);
-                        })
-                        .build();
-
-                    components::text(ui, "pager.label")
-                        .size(kPageLabelWidth, kPagerHeight)
-                        .text(std::format("{} / {}", g_page, totalPages))
-                        .fontSize(kCompactButtonFontSize)
-                        .fontFamily(kMonoFont)  // 页码等宽
-                        .lineHeight(kPagerHeight)
-                        .horizontalAlign(core::HorizontalAlign::Center)
-                        .verticalAlign(core::VerticalAlign::Center)
-                        .color(theme.metaText)
-                        .build();
-
-                    ui.stack("pager.next")
-                        .size(kChevWidth, kChevWidth)
-                        .content([&] {
-                            drawToolbarIconButton(ui, "pager.next.icon", 0, 0,
-                                kChevWidth, kChevWidth, 0xF054, false, theme,
-                                [totalPages] { if (g_page < totalPages) ++g_page; },
-                                false, g_page < totalPages);
-                        })
-                        .build();
-
-                    // 分页大小（5/10/20/50/100，纯文本"数字/页"无边框），跟在下一页后面。
-                    const char* kPageLabels[] = {tr("dl.page.5"), tr("dl.page.10"),
-                                                 tr("dl.page.20"), tr("dl.page.50"),
-                                                 tr("dl.page.100")};
-                    buildListPicker(ui, "pager.pageSize", kPageSizeWidth,
-                                    kPagerHeight, theme, g_pageSizeOpen,
-                                    kPageLabels, 5, pageSizeIndex(), true,
-                                    PickerField::Plain,
-                                    [](int i) {
-                                        g_pageSize = kPageSizes[i];
-                                        g_page = 1;
-                                    });
-
-                    ui.stack("pager.settings")
-                        .size(kChevWidth, kChevWidth)
-                        .content([&] {
-                            drawToolbarIconButton(ui, "pager.settings.icon", 0, 0,
-                                kChevWidth, kChevWidth, 0xF013, false, theme,
-                                [] { g_page_view = Page::Settings; });
-                        })
-                        .build();
-                })
-                .build();
-        })
-        .build();
-
-    // ---- 状态消息（Snackbar）：反色面小条 + hairline，翻页行上方居中，4s 过期 ----
+    // ---- 状态消息（Snackbar）：任务区底部居中，4s 过期 ----
     if (!g_statusMessage.empty()) {
         const bool shown = g_statusTimer > 0.0f;
         const float snH = 32.0f;
         const float snW = std::min(listW,
             core::TextPrimitive::measureTextWidth(g_statusMessage, "", 12.0f) + 32.0f);
-        const float snX = contentX + (contentW - snW) * 0.5f;
-        const float snY = pagerY - 8.0f - snH;
+        const float snX = listX + (listW - snW) * 0.5f;
+        const float snY = screen.height - kPageTop - snH;
         const auto transition = core::Transition::make(0.18f, core::Ease::OutCubic);
         ui.stack("status.snack")
             .position(snX, snY)
