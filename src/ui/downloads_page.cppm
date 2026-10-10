@@ -92,9 +92,12 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const int end = std::min(totalCount, start + g_pageSize);
 
     // 传输仪表布局：左侧分类与总速度，右侧操作工具栏和竖向进度任务卡。
-    const float contentX = pageContentX(screen.width);
-    const float contentW = pageContentWidth(screen.width);
-    const float railW = screen.width < 1000.0f ? 144.0f : 176.0f;
+    // 下载网格使用整个窗口宽度；表单页仍使用共用的限宽布局。
+    const float contentX = pageContentInset(screen.width);
+    const float contentW = std::max(0.0f, screen.width - 2.0f * contentX);
+    // 渐进扩展侧栏，避免到 1000px 时突然增加 32px、挤压任务区宽度。
+    const float railW = std::clamp(144.0f + (screen.width - kMinPageWidth) * (32.0f / 300.0f),
+                                  144.0f, 176.0f);
     const float listX = contentX + railW + 16.0f;
     const float listW = contentW - railW - 16.0f;
     const float toolW = 32.0f;
@@ -391,8 +394,8 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             .theme(theme.components)
             .content([&](eui::Ui& sv, float width, float) {
                 // 同一个 Flow 负责整页网格；由滚动区实测宽度决定列数，任务 id 不随列数变化。
-                const int columns = std::clamp(static_cast<int>((width + kCardGap) /
-                    (kTaskCardMinWidth + kCardGap)), 1, kTaskGridMaxColumns);
+                const int columns = std::max(1, static_cast<int>((width + kCardGap) /
+                    (kTaskCardMinWidth + kCardGap)));
                 // Flow 按严格 > 判断换行；取整留出余量，避免浮点累计把最后一张挤到下一行。
                 const float cardWidth = std::floor((width - (columns - 1) * kCardGap) / columns);
                 const int rows = (end - start + columns - 1) / columns;

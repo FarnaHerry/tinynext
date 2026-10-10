@@ -23,9 +23,12 @@ export constexpr float kUI = 1.4f;
 export constexpr float kCompactBreakpoint = 820.0f;
 export constexpr float kMaxPageContentWidth = 1440.0f;
 export bool isCompactLayout(float width) { return width < kCompactBreakpoint; }
+export float pageContentInset(float viewportWidth) {
+    return isCompactLayout(viewportWidth) ? 12.0f : 24.0f;
+}
 export float pageContentWidth(float viewportWidth) {
-    const float inset = isCompactLayout(viewportWidth) ? 12.0f : 24.0f;
-    return std::min(kMaxPageContentWidth, std::max(0.0f, viewportWidth - 2.0f * inset));
+    return std::min(kMaxPageContentWidth,
+                    std::max(0.0f, viewportWidth - 2.0f * pageContentInset(viewportWidth)));
 }
 export float pageContentX(float viewportWidth) {
     return (viewportWidth - pageContentWidth(viewportWidth)) * 0.5f;
@@ -43,7 +46,6 @@ export constexpr float kMinPageHeight = 500.0f;
 export constexpr float kPagerHeight = 24.0f;        // 翻页行高
 export constexpr float kCardHeight = 268.0f;        // 网格竖向进度任务卡
 export constexpr float kTaskCardMinWidth = 236.0f;
-export constexpr int kTaskGridMaxColumns = 4;
 export constexpr float kCardPad = 16.0f;
 export constexpr float kCardGap = 10.0f;
 export constexpr float kCardIconW = 22.0f;          // 卡片操作图标按钮边长
