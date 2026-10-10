@@ -100,9 +100,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const float toolW = 32.0f;
     const float toolGap = 4.0f;
     const float toolRight = contentX + contentW;
-    const float addW = core::TextPrimitive::measureTextWidth(tr("dl.add_download"), "", 12.0f) + 48.0f;
-    const float addX = toolRight - addW;
-
+    const float addX = toolRight - toolW;
 
     int activeCount = 0, doneCount = 0;
     double totalSpeed = 0.0;
@@ -118,13 +116,11 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const int filterCounts[] = {static_cast<int>(tasks.size()), activeCount, doneCount};
     const Filter filters[] = {Filter::All, Filter::Active, Filter::Done};
     const char* filterKeys[] = {"all", "active", "history"};
-    const float pauseW = core::TextPrimitive::measureTextWidth(tr("dl.pause_all"), "", 12.0f) + 20.0f;
-    const float resumeW = core::TextPrimitive::measureTextWidth(tr("dl.resume_all"), "", 12.0f) + 20.0f;
     const float toolY = kPageTop;
     const float actionsY = toolY;
     const float sortX = addX - 8.0f - toolW;
     const float pauseAllX = listX;
-    const float startAllX = pauseAllX + pauseW + toolGap;
+    const float startAllX = pauseAllX + toolW + toolGap;
     const float listTop = toolY + toolW + kPageSectionGap;
     const float pagerY = screen.height - kPageTop - kPagerHeight;
     const float footerTop = screen.height - kPageTop - kPageFooterHeight;
@@ -198,13 +194,13 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .build();
                 })
                 .build();
-            drawTextButton(ui, "downloads.directory", 12.0f, railHeight - 40.0f,
-                           railW - 24.0f, 28.0f, tr("dl.open_directory"), theme,
-                           [] { openFile(cfg::downloadDir()); });
+            drawToolbarIconButton(ui, "downloads.directory", (railW - toolW) * 0.5f,
+                                  railHeight - 40.0f, toolW, toolW, 0xF07C, false, theme,
+                                  [] { openFile(cfg::downloadDir()); });
         })
         .build();
 
-    // ---- 批量操作与排序（右对齐）----
+    // ---- 下载页操作统一纯图标：左侧暂停 / 启动，右侧排序 / 添加 ----
     // 排序选择器：图标按钮 + 向下弹出列表（buildListPicker 不设位置，
     // 由外层 stack 绝对定位）。
     const char* kSortLabels[] = {tr("dl.sort_newest"), tr("dl.sort_status_first"),
@@ -226,41 +222,23 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         })
         .build();
 
-    const auto bulkButton = [&](const std::string& id, float x, float width,
-                                const char* label, bool enabled, std::function<void()> action) {
-        components::button(ui, id)
-            .position(x, actionsY)
-            .size(width, toolW)
-            .text(label)
-            .fontSize(12.0f)
-            .theme(theme.components, false)
-            .textColor(enabled ? theme.onSurface : theme.hintText)
-            .colors({0, 0, 0, 0}, stateLayer(theme.onSurface, 0.08f),
-                    stateLayer(theme.onSurface, 0.12f))
-            .border(0, {0, 0, 0, 0})
-            .shadow(0, 0, 0, {0, 0, 0, 0})
-            .radius(kButtonRadius)
-            .disabled(!enabled)
-            .transition(0.14f, core::Ease::OutCubic)
-            .onClick(std::move(action))
-            .build();
-    };
-    bulkButton("tool.startAll", startAllX, resumeW, tr("dl.resume_all"), canResume, [] {
-        g_tasks.resumeAll();
-        showStatus(tr("dl.resumed_all"));
-    });
-    bulkButton("tool.pauseAll", pauseAllX, pauseW, tr("dl.pause_all"), canPause, [] {
-        g_tasks.pauseAll();
-        showStatus(tr("dl.paused_all"));
-    });
+    drawToolbarIconButton(ui, "tool.startAll", startAllX, actionsY, toolW, toolW,
+                          0xF04B, false, theme, [] {
+                              g_tasks.resumeAll();
+                              showStatus(tr("dl.resumed_all"));
+                          }, false, canResume);
+    drawToolbarIconButton(ui, "tool.pauseAll", pauseAllX, actionsY, toolW, toolW,
+                          0xF04C, false, theme, [] {
+                              g_tasks.pauseAll();
+                              showStatus(tr("dl.paused_all"));
+                          }, false, canPause);
 
     components::button(ui, "add.btn")
         .position(addX, toolY)
-        .size(addW, toolW)
-        .text(tr("dl.add_download"))
+        .size(toolW, toolW)
+        .text("")
         .icon(0xF067)
-        .iconSize(11.0f)
-        .fontSize(12.0f)
+        .iconSize(kToolbarIconSize)
         .theme(theme.components, true)
         .textColor(theme.onPrimary)
         .iconColor(theme.onPrimary)
