@@ -186,22 +186,20 @@ void applyThemeChoice(int i) {
 } // namespace
 
 // ===================== 设置页 =====================
-// 布局与下载页共用页头节奏：分组标签、表单面板、固定底部操作区。
+// 分组标签直接置顶，与关闭按钮同排；下方是表单面板和固定底部操作区。
 export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
     const float contentX = pageContentX(screen.width);
     const float contentW = pageContentWidth(screen.width);
     constexpr float panelPad = 16.0f;
     const float infoX = contentX + panelPad;
     const float innerW = contentW - 2.0f * panelPad;
-    drawPageHeading(ui, "settings.heading", contentX, kPageTop,
-                    contentW - kToolbarButtonSize - 16.0f,
-                    tr("app.tab.settings"), tr("settings.description"), theme);
     drawToolbarIconButton(ui, "settings.close", contentX + contentW - kToolbarButtonSize,
-                          kPageTop + 6.0f, kToolbarButtonSize, kToolbarButtonSize,
+                          kPageTop + 1.0f, kToolbarButtonSize, kToolbarButtonSize,
                           0xF00D, false, theme, [] { g_page_view = Page::Downloads; });
 
     // 分组用一个 Flow 按文字自然换行，中文与英文都保留完整标签。
-    const float headerY = kPageTop + kPageHeaderHeight + kPageSectionGap;
+    const float headerY = kPageTop;
+    const float tabsWidth = contentW - kToolbarButtonSize - 8.0f;
     constexpr float kTabH = 28.0f;
     struct TabItem { const char* label; const char* id; SettingsTab tab; };
     // 对齐 MotrixNext 的设置分组（ed2k 由 aria2-next 原生支持）。
@@ -223,7 +221,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     int tabRows = 1;
     for (int i = 0; i < kTabCount; ++i) {
         tabW[i] = core::TextPrimitive::measureTextWidth(kTabs[i].label, "", 12.0f) + 24.0f;
-        if (rowWidth > 0.0f && rowWidth + kTabGap + tabW[i] > contentW) {
+        if (rowWidth > 0.0f && rowWidth + kTabGap + tabW[i] > tabsWidth) {
             ++tabRows;
             rowWidth = 0.0f;
         }
@@ -232,8 +230,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     const float tabsHeight = tabRows * kTabH + (tabRows - 1) * kTabGap;
     ui.flow("settings.tabs")
         .position(contentX, headerY)
-        .size(contentW, tabsHeight)
+        .size(tabsWidth, tabsHeight)
         .gap(kTabGap)
+        .lineGap(kTabGap)
         .content([&] {
             for (int i = 0; i < kTabCount; ++i) {
                 const bool active = g_settingsTab == kTabs[i].tab;

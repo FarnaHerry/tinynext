@@ -177,29 +177,37 @@ export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
         .build();
 }
 
-// 页面标题和说明统一用 Column 排布，右侧预留给页面级操作。
-export void drawPageHeading(eui::Ui& ui, const std::string& id, float x, float y,
-                            float width, const std::string& title,
-                            const std::string& description, const AppTheme& theme) {
-    ui.column(id)
+// EUI 0.6.0 的 progress 只支持横向填充。竖向仪表直接由轨道、填充与刻度组成，
+// 填充从底部向上增长；所有图元 id 稳定，0% 时也保留填充节点。
+export void drawVerticalProgress(eui::Ui& ui, const std::string& id, float x, float y,
+                                 float height, float value, const AppTheme& theme,
+                                 core::Color fill) {
+    const float progress = std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0.0f;
+    constexpr float width = 6.0f;
+    ui.stack(id)
         .position(x, y)
-        .size(width, kPageHeaderHeight)
-        .gap(4.0f)
+        .size(12.0f, height)
         .content([&] {
-            components::text(ui, id + ".title")
-                .size(width, 26.0f)
-                .text(ellipsizeText(title, width, 20.0f))
-                .fontSize(20.0f)
-                .lineHeight(26.0f)
-                .color(theme.titleText)
+            ui.rect(id + ".track")
+                .size(width, height)
+                .color(theme.surfaceContainerHighest)
+                .radius(2.0f)
                 .build();
-            components::text(ui, id + ".description")
-                .size(width, 14.0f)
-                .text(ellipsizeText(description, width, 11.0f))
-                .fontSize(11.0f)
-                .lineHeight(14.0f)
-                .color(theme.metaText)
+            ui.rect(id + ".fill")
+                .position(0.0f, height * (1.0f - progress))
+                .size(width, height * progress)
+                .color(fill)
+                .radius(2.0f)
+                .transition(core::Transition::make(0.18f, core::Ease::OutCubic))
+                .animate(core::AnimProperty::Frame | core::AnimProperty::Color)
                 .build();
+            for (int tick = 0; tick < 5; ++tick) {
+                ui.rect(id + ".tick." + std::to_string(tick))
+                    .position(9.0f, (height - kHairline) * tick / 4.0f)
+                    .size(3.0f, kHairline)
+                    .color(theme.outline)
+                    .build();
+            }
         })
         .build();
 }

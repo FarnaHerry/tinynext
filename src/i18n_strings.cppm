@@ -122,7 +122,11 @@ export constexpr Entry kEntries[] = {
 
     // ---- downloads page：列表表头 / 筛选 / 排序 / 分页 ----
     Entry{"dl.tasks",             "任务列表", "任務列表", "Tasks"},
-    Entry{"dl.description",       "管理文件、种子与媒体下载", "管理檔案、種子與媒體下載", "Manage files, torrents and media"},
+    Entry{"dl.queue",             "下载队列", "下載佇列", "TRANSFER QUEUE"},
+    Entry{"dl.filter_active",     "进行中", "進行中", "In progress"},
+    Entry{"dl.filter_history",    "已结束", "已結束", "Finished"},
+    Entry{"dl.transfer_rate",     "总下载速度", "總下載速度", "DOWNLOAD RATE"},
+    Entry{"dl.open_directory",    "打开下载目录", "開啟下載資料夾", "Download folder"},
     Entry{"dl.empty",             "还没有下载任务", "還沒有下載任務", "No downloads yet"},
     Entry{"dl.empty_hint",        "点击右上角「添加下载」开始", "點選右上角「新增下載」開始", "Use Add download to get started"},
     Entry{"dl.filter_empty",      "当前分类没有任务", "目前分類沒有任務", "No tasks in this view"},
@@ -300,7 +304,6 @@ export constexpr Entry kEntries[] = {
 
     // ---- settings page：tab ----
     Entry{"settings.title",       "配置", "設定", "Settings"},
-    Entry{"settings.description", "调整外观、下载行为和引擎参数", "調整外觀、下載行為和引擎參數", "Appearance, download behavior and engine options"},
     Entry{"settings.tab.general", "通用", "一般", "General"},
     Entry{"settings.tab.download","下载", "下載", "Download"},
     Entry{"settings.tab.bittorrent", "BitTorrent", "BitTorrent", "BitTorrent"},

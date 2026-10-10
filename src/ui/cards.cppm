@@ -75,7 +75,7 @@ bool hasSelectableMediaTracks(const dl::TaskView& task) {
 }
 }
 
-// 卡片信息行：百分比 · 速度 · 已下载/总大小；非下载中则显示状态/错误。
+// 卡片传输信息：速度 · 已下载/总大小；百分比由左侧仪表独立展示。
 export std::string cardInfoText(const dl::TaskView& task) {
     if (task.awaitingTorrentFileSelection) return tr("card.bt.awaiting_files");
     if (task.awaitingMediaTrackSelection) {
@@ -91,11 +91,7 @@ export std::string cardInfoText(const dl::TaskView& task) {
                 ? std::string(tr("card.state.done")) + " · " + formatBytes(task.totalBytes)
                 : tr("card.state.done");
         case dl::State::Failed: {
-            std::string error = task.error;
-            if (error.size() > 36) {
-                error = truncateUtf8Bytes(error, 36) + "…";  // 不在多字节字符中间切
-            }
-            return error.empty() ? tr("card.state.failed") : error;
+            return task.error.empty() ? tr("card.state.failed") : task.error;
         }
         case dl::State::Downloading:
             break;
@@ -115,7 +111,6 @@ export std::string cardInfoText(const dl::TaskView& task) {
         } else if (task.mediaDurationMs > 0) {
             push(std::format("{} / {}", mediaTime(task.mediaCompletedDurationMs),
                              mediaTime(task.mediaDurationMs)));
-            push(std::format("{:.0f}%", task.mediaProgress * 100.0));
         }
         const std::string speed = formatSpeed(task.speedBps);
         if (!speed.empty()) push(speed);
@@ -129,13 +124,7 @@ export std::string cardInfoText(const dl::TaskView& task) {
         }
         parts += part;
     };
-    if (task.totalBytes > 0) {
-        const double pct = std::clamp(
-            100.0 * static_cast<double>(task.downloadedBytes) /
-                static_cast<double>(task.totalBytes),
-            0.0, 100.0);
-        push(std::format("{:.0f}%", pct));
-    } else if (task.downloadedBytes > 0) {
+    if (task.totalBytes <= 0 && task.downloadedBytes > 0) {
         push(formatBytes(task.downloadedBytes));
     }
     // 连接数 & 镜像恒常展示（即使没有进度/速度数据），避免信息行短暂空白。
@@ -184,15 +173,13 @@ export std::string cardInfoText(const dl::TaskView& task) {
     return parts.empty() ? tr("card.state.downloading") : parts;
 }
 
-// 卡片式下载项：名称、进度、各种信息在卡片内纵向排布。
-// 卡片作为 scrollview 纵向流的一个子项；卡片内部用绝对定位布局三行：
-//   第 1 行  文件名
-//   第 2 行  进度条（横贯卡片）
-//   第 3 行  信息文本（左）+ 操作按钮（右）
+// 网格任务卡：顶部名称与来源，中部竖向仪表 / 状态 / 传输信息，底部操作。
+// 列表仍按任务 id 保留身份；菜单与领域命令沿用原来的状态条件。
 export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth) {
     const AppTheme& theme = currentTheme();
     const std::string fid = "task." + std::to_string(task.id);
-    const float inner = cardWidth - kCardPad * 2.0f;  // 卡片内可用宽度
+    const float nameW = std::max(0.0f, cardWidth - 2.0f * kCardPad);
+    const float readoutW = std::max(0.0f, cardWidth - 40.0f - kCardPad);
 
     // 进度值：已完成视为 1，其余按已下载/总量计算。
     float progress = 0.0f;
@@ -206,6 +193,15 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                                static_cast<double>(task.totalBytes)),
             0.0f, 1.0f);
     }
+
+    progress = std::isfinite(progress) ? std::clamp(progress, 0.0f, 1.0f) : 0.0f;
+    const bool knownProgress = task.state == dl::State::Done ||
+        (task.isMedia ? !task.mediaLive && task.mediaDurationMs > 0 : task.totalBytes > 0);
+    const std::string progressText = task.isMedia && task.mediaLive && task.state != dl::State::Done
+        ? "LIVE" : knownProgress ? std::format("{:.0f}%", progress * 100.0f) : "--";
+    const auto progressColor = task.state == dl::State::Done ? theme.done :
+        task.state == dl::State::Failed ? theme.failed :
+        task.state == dl::State::Paused || task.state == dl::State::Cancelled ? theme.idle : theme.primary;
 
     ui.stack(fid)
         .width(cardWidth)
@@ -221,33 +217,87 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .border(kHairline, theme.outline)
                 .build();
 
-            // ---- 第 1 行：文件名 ----（文件名超长用省略号截断成单行）
-            const float nameW = inner;
             components::text(ui, fid + ".name")
-                .position(kCardPad, 9.0f)
-                .size(nameW, 15.0f)
-                .text(ellipsizeText(taskDisplayName(task), nameW, 13.0f))
+                .position(kCardPad, 14.0f)
+                .size(nameW, 36.0f)
+                .text(ellipsizeText(taskDisplayName(task), nameW * 2.0f, 13.0f))
                 .fontSize(13.0f)
-                .lineHeight(15.0f)
+                .lineHeight(18.0f)
                 .maxWidth(nameW)
+                .wrap(true)
+                .clip()
                 .color(theme.nameText)
                 .build();
-            // ---- 第 2 行：进度条（4px 高，active=反白主色）----
-            ui.stack(fid + ".progress.slot")
-                .position(kCardPad, 29.0f)
-                .size(inner, 4.0f)
+            std::string source = task.url;
+            if (const auto scheme = source.find("://"); scheme != std::string::npos) {
+                source = source.substr(scheme + 3);
+                if (const auto slash = source.find_first_of("/?#"); slash != std::string::npos) source.resize(slash);
+                if (const auto at = source.rfind('@'); at != std::string::npos) source = source.substr(at + 1);
+            } else if (source.starts_with("magnet:")) source = "MAGNET";
+            components::text(ui, fid + ".source")
+                .position(kCardPad, 56.0f)
+                .size(nameW, 14.0f)
+                .text(ellipsizeText(std::format("#{:04} / {}", task.id, source), nameW, 9.0f, kMonoFont))
+                .fontSize(9.0f)
+                .fontFamily(kMonoFont)
+                .lineHeight(14.0f)
+                .color(theme.hintText)
+                .build();
+            drawVerticalProgress(ui, fid + ".progress", kCardPad, 84.0f,
+                                 108.0f, progress, theme, progressColor);
+            ui.column(fid + ".meter.readout")
+                .position(40.0f, 82.0f)
+                .size(readoutW, 114.0f)
+                .gap(4.0f)
                 .content([&] {
-                    components::progress(ui, fid + ".progress")
-                        .size(inner, 4.0f)
-                        .value(progress)
-                        .theme(theme.components)
+                    components::text(ui, fid + ".meter.caption")
+                        .size(readoutW, 14.0f)
+                        .text(tr("dl.col_progress"))
+                        .fontSize(9.0f)
+                        .lineHeight(14.0f)
+                        .color(theme.metaText)
+                        .build();
+                    components::text(ui, fid + ".meter.value")
+                        .size(readoutW, 38.0f)
+                        .text(progressText)
+                        .fontFamily(kMonoFont)
+                        .fontSize(28.0f)
+                        .lineHeight(38.0f)
+                        .color(theme.onSurface)
+                        .build();
+                    components::text(ui, fid + ".state")
+                        .size(readoutW, 16.0f)
+                        .text(stateLabel(task.state))
+                        .fontSize(10.0f)
+                        .lineHeight(16.0f)
+                        .color(stateColor(task.state))
+                        .build();
+                    std::string info = cardInfoText(task);
+                    if (task.state == dl::State::Done && task.totalBytes > 0) info = formatBytes(task.totalBytes);
+                    if (task.state == dl::State::Paused || task.state == dl::State::Cancelled) {
+                        info = task.totalBytes > 0 ? std::format("{} / {}", formatBytes(task.downloadedBytes),
+                            formatBytes(task.totalBytes)) : formatBytes(task.downloadedBytes);
+                    }
+                    components::text(ui, fid + ".infotext")
+                        .size(readoutW, 32.0f)
+                        .text(ellipsizeText(info, readoutW * 2.0f, 10.0f, kMonoFont))
+                        .fontSize(10.0f)
+                        .fontFamily(kMonoFont)
+                        .lineHeight(16.0f)
+                        .maxWidth(readoutW)
+                        .wrap(true)
+                        .clip()
+                        .color(theme.metaText)
                         .build();
                 })
                 .build();
+            ui.rect(fid + ".actions.divider")
+                .position(kCardPad, 202.0f)
+                .size(nameW, kHairline)
+                .color(theme.outline)
+                .build();
 
-            // ---- 第 3 行：信息 + 图标操作按钮（全部用图标，无文字）----
-            // 各状态展示的操作：复制/删除始终有；下载中=暂停+取消，
-            // 已暂停=继续+取消，已完成=打开+打开所在文件夹。
+            // 操作条件保持按当前任务状态决定，信息不再与按钮争用同一行。
             const bool showPause = task.state == dl::State::Downloading;
             const bool mediaTrackSelectionSupported = !task.awaitingMediaTrackSelection ||
                 g_tasks.health().supportsMediaTrackSelection;
@@ -282,39 +332,22 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 (task.mediaState == "recording" || task.mediaState == "paused") &&
                 (task.state == dl::State::Downloading || task.state == dl::State::Paused);
 
-            const int actionCount = (showOpen ? 1 : 0) + (showOpenFolder ? 1 : 0) +
-                                    (showDelete ? 1 : 0) + 1 /* 复制链接恒显示 */ +
-                                    1 /* 信息恒显示 */ +
-                                    (showCancel ? 1 : 0) + (showRetry ? 1 : 0) +
-                                    (showPause || showResume ? 1 : 0) +
-                                    (showMirror ? 1 : 0) + (showSelectFiles ? 1 : 0) +
-                                    (showSelectMediaTracks ? 1 : 0) +
-                                    (showFinishMedia ? 1 : 0);
-            const float iconsW = actionCount * kCardIconW +
-                                 (actionCount > 0 ? (actionCount - 1) * kCardIconGap : 0.0f);
-
-            components::text(ui, fid + ".infotext")
-                .position(kCardPad, 42.0f)
-                .size(inner - iconsW, kCardIconW)
-                .text(cardInfoText(task))
-                .fontSize(10.0f)
-                .fontFamily(kMonoFont)  // 等宽点缀（数字/速度/大小）；CJK 走字体栈回退
-                .lineHeight(kCardIconW)
-                .maxWidth(inner - iconsW)
-                .color(theme.metaText)
-                .build();
-
             // 从右往左摆放（place 递减 bx，先调用的在最右）。左→右阅读顺序：
             // 进行中任务：开始/暂停在最左，接着所在文件夹/复制链接，最右是取消。
             // 已完成任务：打开文件/所在文件夹/复制链接成组，接着重新下载，最后删除。
             // 全部普通颜色（无主色），与同类按钮一致。
-            const float btnY = 42.0f;
+            float btnY = kCardHeight - kCardPad - kCardIconW;
             float bx = cardWidth - kCardPad;
             const auto place = [&](const std::string& aid, unsigned int icon,
                                    bool primary, std::function<void()> cb) {
+                if (bx - kCardIconW < kCardPad) {
+                    bx = cardWidth - kCardPad;
+                    btnY -= kCardIconW + kCardIconGap;
+                }
                 bx -= kCardIconW;
                 drawCardAction(ui, fid + "." + aid, bx, btnY, icon, primary, theme,
                                std::move(cb));
+                bx -= kCardIconGap;
             };
             if (showDelete) {
                 place("delete", 0xF1F8, false,  // fa-trash（仅任务结束后显示）

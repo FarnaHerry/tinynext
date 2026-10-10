@@ -31,9 +31,8 @@ export float pageContentX(float viewportWidth) {
     return (viewportWidth - pageContentWidth(viewportWidth)) * 0.5f;
 }
 
-// 两个页面共用页头、分区间距与底部操作区；所有值仍是设计逻辑像素。
+// 两个页面共用顶边距、分区间距与底部操作区；所有值仍是设计逻辑像素。
 export constexpr float kPageTop = 16.0f;
-export constexpr float kPageHeaderHeight = 44.0f;
 export constexpr float kPageSectionGap = 12.0f;
 export constexpr float kPageFooterHeight = 36.0f;
 export constexpr float kMinPageWidth = 700.0f;
@@ -42,9 +41,11 @@ export constexpr float kMinPageHeight = 500.0f;
 // 布局尺寸都按“设计逻辑像素”书写，并用 screen.width/height 推算；
 // 页面共用 pageContentWidth/pageContentX 做窄屏留白与宽屏限宽居中。
 export constexpr float kPagerHeight = 24.0f;        // 翻页行高
-export constexpr float kCardHeight = 68.0f;         // 卡片高
-export constexpr float kCardPad = 10.0f;
-export constexpr float kCardGap = 6.0f;
+export constexpr float kCardHeight = 268.0f;        // 网格竖向进度任务卡
+export constexpr float kTaskCardMinWidth = 236.0f;
+export constexpr int kTaskGridMaxColumns = 4;
+export constexpr float kCardPad = 16.0f;
+export constexpr float kCardGap = 10.0f;
 export constexpr float kCardIconW = 22.0f;          // 卡片操作图标按钮边长
 export constexpr float kCardIconGap = 4.0f;
 

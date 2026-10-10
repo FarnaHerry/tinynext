@@ -30,7 +30,7 @@ void drawMediaTrackSelectionDialog(eui::Ui& ui, const eui::Screen& screen,
                                    const AppTheme& theme);
 
 // ===================== 下载页 =================
-// 布局：页头、筛选和批量操作、任务面板、底部分页。
+// 布局：左侧分类与速率、右侧操作工具栏 / 任务网格、底部分页。
 export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
     // ---- 数据：筛选 + 排序 + 分页切片（每帧重跑，跟随下载线程实时刷新）----
     const auto tasks = g_tasks.snapshot();
@@ -91,122 +91,118 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const int start = (g_page - 1) * g_pageSize;
     const int end = std::min(totalCount, start + g_pageSize);
 
-    // 页头负责标题和添加，第二行放筛选与批量操作；窄窗口按实际文字宽度拆行。
+    // 传输仪表布局：左侧分类与总速度，右侧操作工具栏和竖向进度任务卡。
     const float contentX = pageContentX(screen.width);
     const float contentW = pageContentWidth(screen.width);
-    const float listX = contentX;
-    const float listW = contentW;
-    const float toolW = 28.0f;
+    const float railW = screen.width < 1000.0f ? 144.0f : 176.0f;
+    const float listX = contentX + railW + 16.0f;
+    const float listW = contentW - railW - 16.0f;
+    const float toolW = 32.0f;
     const float toolGap = 4.0f;
     const float toolRight = contentX + contentW;
-    const float addW = core::TextPrimitive::measureTextWidth(tr("dl.add_download"), "", 12.0f) + 32.0f;
+    const float addW = core::TextPrimitive::measureTextWidth(tr("dl.add_download"), "", 12.0f) + 48.0f;
     const float addX = toolRight - addW;
-    drawPageHeading(ui, "downloads.heading", contentX, kPageTop,
-                    contentW - addW - 16.0f, tr("app.tab.downloads"),
-                    tr("dl.description"), theme);
+
 
     int activeCount = 0, doneCount = 0;
+    double totalSpeed = 0.0;
     bool canPause = false, canResume = false;
     for (const auto& task : tasks) {
         if (stateMatches(Filter::Active, task.state)) ++activeCount;
         else if (stateMatches(Filter::Done, task.state)) ++doneCount;
+        if (task.state == dl::State::Downloading) totalSpeed += std::max(0.0, task.speedBps);
         canPause |= task.state == dl::State::Downloading || task.state == dl::State::Queued;
         canResume |= task.state == dl::State::Paused;
     }
-    const std::string tabLabels[] = {
-        std::format("{} {}", tr("dl.filter_all"), tasks.size()),
-        std::format("{} {}", tr("card.state.downloading"), activeCount),
-        std::format("{} {}", tr("card.state.done"), doneCount),
-    };
-    const Filter tabFilters[] = {Filter::All, Filter::Active, Filter::Done};
-    constexpr float kTabH = 28.0f;
-    constexpr float kTabGap = 4.0f;
-    float tabW[3];
-    float labelWSum = 0.0f;
-    for (int i = 0; i < 3; ++i) {
-        tabW[i] = core::TextPrimitive::measureTextWidth(tabLabels[i], "", 12.0f);
-        labelWSum += tabW[i];
-    }
+    const char* filterLabels[] = {tr("dl.filter_all"), tr("dl.filter_active"), tr("dl.filter_history")};
+    const int filterCounts[] = {static_cast<int>(tasks.size()), activeCount, doneCount};
+    const Filter filters[] = {Filter::All, Filter::Active, Filter::Done};
+    const char* filterKeys[] = {"all", "active", "history"};
     const float pauseW = core::TextPrimitive::measureTextWidth(tr("dl.pause_all"), "", 12.0f) + 20.0f;
     const float resumeW = core::TextPrimitive::measureTextWidth(tr("dl.resume_all"), "", 12.0f) + 20.0f;
-    const float actionsW = pauseW + resumeW + toolW + 2.0f * toolGap;
-    const float tabPadH = 10.0f;
-    const bool wrapToolbar = labelWSum + 6.0f * tabPadH + 2.0f * kTabGap +
-                             actionsW + 16.0f > contentW;
-    const float toolY = kPageTop + kPageHeaderHeight + kPageSectionGap;
-    const float actionsY = toolY + (wrapToolbar ? kTabH + 8.0f : 0.0f);
-    const float sortX = toolRight - toolW;
-    const float startAllX = sortX - toolGap - resumeW;
-    const float pauseAllX = startAllX - toolGap - pauseW;
-    const float tabsX = contentX;
-    const float toolbarBottom = actionsY + toolW;
-    const float panelTop = toolbarBottom + kPageSectionGap;
+    const float toolY = kPageTop;
+    const float actionsY = toolY;
+    const float sortX = addX - 8.0f - toolW;
+    const float pauseAllX = listX;
+    const float startAllX = pauseAllX + pauseW + toolGap;
+    const float listTop = toolY + toolW + kPageSectionGap;
     const float pagerY = screen.height - kPageTop - kPagerHeight;
     const float footerTop = screen.height - kPageTop - kPageFooterHeight;
-    const float panelHeight = std::max(0.0f, footerTop - kPageSectionGap - panelTop);
-    constexpr float listPad = 10.0f;
-    const float listTop = panelTop + listPad;
-    const float listHeight = std::max(0.0f, panelHeight - 2.0f * listPad);
-    drawPanel(ui, "downloads.panel", listX, panelTop, listW, panelHeight, theme);
+    const float listHeight = std::max(0.0f, footerTop - kPageSectionGap - listTop);
+    const float railHeight = std::max(0.0f, footerTop - kPageSectionGap - toolY);
 
-    // 筛选保留稳定分段 id，工具区不裁剪，排序弹层能覆盖正文。
-    {
-        float tabsTotalW = kTabGap * 2.0f;
-        for (float& width : tabW) {
-            width += 2.0f * tabPadH;
-            tabsTotalW += width;
-        }
-        ui.stack("tool.tabs")
-            .position(tabsX, toolY)
-            .size(tabsTotalW, kTabH)
-            .content([&] {
-                const auto segTransition =
-                    core::Transition::make(0.16f, core::Ease::OutCubic);
-                ui.rect("tool.tabs.bg")
-                    .size(tabsTotalW, kTabH)
-                    .color(theme.surfaceContainer)
-                    .radius(kButtonRadius)
-                    .border(kHairline, theme.outline)
-                    .build();
-                float segX = 0.0f;
-                int selected = 0;
-                for (int i = 0; i < 3; ++i) {
-                    if (g_filter == tabFilters[i]) { selected = i; break; }
-                }
-                for (int i = 0; i < selected; ++i) segX += tabW[i] + kTabGap;
-                ui.rect("tool.tabs.ind")
-                    .position(segX, 0.0f)
-                    .size(tabW[selected], kTabH)
-                    .color(theme.surfaceContainerHighest)
-                    .radius(kButtonRadius)
-                    .transition(segTransition)
-                    .build();
-                segX = 0.0f;
-                for (int i = 0; i < 3; ++i) {
-                    const bool active = i == selected;
-                    const std::string segId = "tool.tabs.seg." + std::to_string(i);
-                    ui.rect(segId + ".hit")
-                        .position(segX, 0.0f)
-                        .size(tabW[i], kTabH)
-                        .color({0.0f, 0.0f, 0.0f, 0.0f})
-                        .radius(kButtonRadius)
-                        .onClick([f = tabFilters[i]] { g_filter = f; g_page = 1; })
+    ui.stack("downloads.rail")
+        .position(contentX, toolY)
+        .size(railW, railHeight)
+        .content([&] {
+            drawPanel(ui, "downloads.rail.bg", 0, 0, railW, railHeight, theme);
+            components::text(ui, "downloads.rail.caption")
+                .position(12.0f, 14.0f)
+                .size(railW - 24.0f, 16.0f)
+                .text(tr("dl.queue"))
+                .fontSize(10.0f)
+                .lineHeight(16.0f)
+                .color(theme.metaText)
+                .build();
+            ui.column("downloads.filters")
+                .position(12.0f, 42.0f)
+                .size(railW - 24.0f, 124.0f)
+                .gap(8.0f)
+                .content([&] {
+                    for (int i = 0; i < 3; ++i) {
+                        const bool selected = g_filter == filters[i];
+                        components::button(ui, std::string("downloads.filter.") + filterKeys[i])
+                            .size(railW - 24.0f, 36.0f)
+                            .text(ellipsizeText(std::format("{}  {}", filterLabels[i], filterCounts[i]),
+                                               railW - 40.0f, 12.0f))
+                            .fontSize(12.0f)
+                            .theme(theme.components, false)
+                            .textColor(selected ? theme.onPrimary : theme.onSurfaceVariant)
+                            .colors(selected ? theme.primary : core::Color{0, 0, 0, 0},
+                                    selected ? theme.primary : stateLayer(theme.onSurface, 0.08f),
+                                    selected ? theme.primary : stateLayer(theme.onSurface, 0.12f))
+                            .radius(kButtonRadius)
+                            .border(0, {0, 0, 0, 0})
+                            .shadow(0, 0, 0, {0, 0, 0, 0})
+                            .transition(0.16f, core::Ease::OutCubic)
+                            .onClick([filter = filters[i]] { g_filter = filter; g_page = 1; })
+                            .build();
+                    }
+                })
+                .build();
+            ui.rect("downloads.rail.divider")
+                .position(12.0f, 186.0f)
+                .size(railW - 24.0f, kHairline)
+                .color(theme.outline)
+                .build();
+            ui.column("downloads.rate")
+                .position(12.0f, 202.0f)
+                .size(railW - 24.0f, 58.0f)
+                .gap(8.0f)
+                .content([&] {
+                    components::text(ui, "downloads.rate.caption")
+                        .size(railW - 24.0f, 16.0f)
+                        .text(tr("dl.transfer_rate"))
+                        .fontSize(9.0f)
+                        .lineHeight(16.0f)
+                        .color(theme.metaText)
                         .build();
-                    components::text(ui, segId + ".label")
-                        .position(segX, 0.0f)
-                        .size(tabW[i], kTabH)
-                        .text(tabLabels[i])
-                        .fontSize(12.0f)
-                        .lineHeight(kTabH)
-                        .color(active ? theme.onSurface : theme.onSurfaceVariant)
-                        .horizontalAlign(core::HorizontalAlign::Center)
-                        .verticalAlign(core::VerticalAlign::Center)
+                    const std::string rate = totalSpeed > 0.0 ? formatSpeed(totalSpeed) : "0 B/s";
+                    components::text(ui, "downloads.rate.value")
+                        .size(railW - 24.0f, 32.0f)
+                        .text(rate)
+                        .fontFamily(kMonoFont)
+                        .fontSize(core::TextPrimitive::measureTextWidth(rate, kMonoFont, 20.0f) > railW - 24.0f ? 16.0f : 20.0f)
+                        .lineHeight(32.0f)
+                        .color(theme.onSurface)
                         .build();
-                    segX += tabW[i] + kTabGap;
-                }
-            })
-            .build();
-    }
+                })
+                .build();
+            drawTextButton(ui, "downloads.directory", 12.0f, railHeight - 40.0f,
+                           railW - 24.0f, 28.0f, tr("dl.open_directory"), theme,
+                           [] { openFile(cfg::downloadDir()); });
+        })
+        .build();
 
     // ---- 批量操作与排序（右对齐）----
     // 排序选择器：图标按钮 + 向下弹出列表（buildListPicker 不设位置，
@@ -259,12 +255,15 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     });
 
     components::button(ui, "add.btn")
-        .position(addX, kPageTop + 6.0f)
-        .size(addW, 32.0f)
+        .position(addX, toolY)
+        .size(addW, toolW)
         .text(tr("dl.add_download"))
+        .icon(0xF067)
+        .iconSize(11.0f)
         .fontSize(12.0f)
         .theme(theme.components, true)
         .textColor(theme.onPrimary)
+        .iconColor(theme.onPrimary)
         .border(0, {0, 0, 0, 0})
         .shadow(0, 0, 0, {0, 0, 0, 0})
         .radius(kButtonRadius)
@@ -297,7 +296,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     if (filtered.empty()) {
         const float emptyW = std::max(0.0f, listW - 32.0f);
         ui.column("downloads.empty")
-            .position(listX + 16.0f, panelTop + std::max(12.0f, (panelHeight - 58.0f) * 0.5f))
+            .position(listX + 16.0f, listTop + std::max(12.0f, (listHeight - 58.0f) * 0.5f))
             .size(emptyW, 58.0f)
             .gap(8.0f)
             .content([&] {
@@ -321,16 +320,29 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             .build();
     } else {
         components::scrollView(ui, "task.list")
-            .position(listX + listPad, listTop)
-            .size(listW - 2.0f * listPad, listHeight)
-            .gap(kCardGap)
+            .position(listX, listTop)
+            .size(listW, listHeight)
             .scrollbarWidth(kScrollbarWidth)
             .scrollbarGap(kScrollbarGap)
             .theme(theme.components)
             .content([&](eui::Ui& sv, float width, float) {
-                for (int index = start; index < end; ++index) {
-                    drawTaskCard(sv, filtered[index], width);
-                }
+                // 同一个 Flow 负责整页网格；由滚动区实测宽度决定列数，任务 id 不随列数变化。
+                const int columns = std::clamp(static_cast<int>((width + kCardGap) /
+                    (kTaskCardMinWidth + kCardGap)), 1, kTaskGridMaxColumns);
+                // Flow 按严格 > 判断换行；取整留出余量，避免浮点累计把最后一张挤到下一行。
+                const float cardWidth = std::floor((width - (columns - 1) * kCardGap) / columns);
+                const int rows = (end - start + columns - 1) / columns;
+                const float gridHeight = rows * kCardHeight + std::max(0, rows - 1) * kCardGap;
+                sv.flow("task.grid")
+                    .size(width, gridHeight)
+                    .gap(kCardGap)
+                    .lineGap(kCardGap)
+                    .content([&] {
+                        for (int index = start; index < end; ++index) {
+                            drawTaskCard(sv, filtered[index], cardWidth);
+                        }
+                    })
+                    .build();
             })
             .build();
     }
