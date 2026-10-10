@@ -64,9 +64,9 @@ const DslAppConfig& dslAppConfig() {
         // 物理尺寸 = 设计尺寸 * kUI（eui 创建窗口时按物理像素，不会自动乘 uiScale）。
         .uiScale(kUI)
         .windowSize(static_cast<int>(1120.0f * kUI), static_cast<int>(720.0f * kUI))
-        // 窗口最小尺寸按设计逻辑像素定义，再乘 uiScale 转成 GLFW 窗口像素。
+        // 启动时先给出 1× DPI 的窗口限制；compose 按实际窗口比例补齐高 DPI 换算。
         // 700×500 的逻辑画布可容纳窄屏两行工具栏、滚动正文和底部操作区。
-        .minWindowSize(static_cast<int>(700.0f * kUI), static_cast<int>(500.0f * kUI))
+        .minWindowSize(static_cast<int>(kMinPageWidth * kUI), static_cast<int>(kMinPageHeight * kUI))
         // 最大帧率写 0 = 自动匹配显示器刷新率（eui 的 updateFrameInterval 在
         // limit<=0 时直接用 getWindowRefreshRate）。
         .fps(0.0)
@@ -90,6 +90,8 @@ const DslAppConfig& dslAppConfig() {
 }
 
 void compose(eui::Ui& ui, const eui::Screen& screen) {
+    // 初始化后的原生窗口比例才可靠；显示器 DPI 变化时也维持完整的逻辑画布。
+    ensureMinimumCanvas(screen.width, screen.height, kMinPageWidth, kMinPageHeight);
     // 启动一次后台线程（幂等）：CLI 转发监听（阻塞 accept，空闲挂起）+ 杂务
     // （状态消息过期 / 下载通知 / 活动任务进度刷新）。都只在「真有事」时
     // requestUiUpdate() 唤醒 UI 一帧，空闲时 UI 睡眠、零渲染。
@@ -178,10 +180,7 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
 
     const AppTheme& theme = currentTheme();
 
-    // 根用 stack：底层铺满窗口的主题背景（clearColor 在初始化时固化、无法运行时
-    // 修改，所以背景色由 compose 重绘，主题切换即时生效），其余控件用 .position()
-    // 绝对定位 —— eui 的 flex 引擎会压缩/居中固定尺寸子项，导致分页大小下拉与翻页
-    // 被裁切；绝对定位则完全可控、随窗口高度自适应。
+    // 根 Stack 管主题背景与全局弹层；页面分区定位，分区内用 Row / Column / Flow。
     //
     // 注意：这里不再挂 .onFrame。eui 会把挂 onFrame 的元素当成「每帧都在动」，
     // 无条件每帧 composeRequested/paintRequested/animating → 空闲也 90 FPS 全量
@@ -190,9 +189,6 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
     ui.stack("root")
         .size(screen.width, screen.height)
         .content([&] {
-            // 根背景：渐变 + 角落主色柔光斑。毛玻璃面板（drawPanel 的 backdrop blur）
-            // 背后需要有带边缘/颜色的细节才看得出磨砂感——纯色或平滑渐变被模糊后
-            // 看不出差别。官方 demo 的玻璃卡也是叠在彩色背景上（blur 18）。
             // 传统纯色背景（不花里胡哨）：深色纯黑 / 浅色米白，无渐变无主色柔光。
             ui.rect("theme.background")
                 .position(0, 0)

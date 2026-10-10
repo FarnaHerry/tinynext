@@ -34,10 +34,10 @@ std::atomic<bool> g_checking{false};  // 「立即检测」进行中
 } // namespace
 
 export void drawEnginePage(eui::Ui& ui, const AppTheme& theme, float infoX,
-                           float innerW, float scrollTop, float actionY) {
+                           float innerW, float scrollTop, float actionY, float viewportHeight) {
     constexpr float kLabelW = 96.0f;
     // ---- 滚动内容区（标题 + 状态 + 体检 + 统计 + 参数）----
-    const float scrollH = std::max(0.0f, actionY - scrollTop - 10.0f);
+    const float scrollH = std::max(0.0f, viewportHeight);
 
     components::scrollView(ui, "engine.scroll")
         .position(infoX, scrollTop)

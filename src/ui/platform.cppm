@@ -7,6 +7,10 @@ module;
 struct GLFWwindow;
 extern "C" GLFWwindow* glfwGetCurrentContext();
 extern "C" const char* glfwGetClipboardString(GLFWwindow* window);
+extern "C" void glfwGetWindowSize(GLFWwindow* window, int* width, int* height);
+extern "C" void glfwSetWindowSize(GLFWwindow* window, int width, int height);
+extern "C" void glfwSetWindowSizeLimits(GLFWwindow* window, int minWidth, int minHeight,
+                                       int maxWidth, int maxHeight);
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -37,6 +41,31 @@ extern "C" HWND glfwGetWin32Window(GLFWwindow* window);
 export module tinynext.ui.platform;
 
 import std;
+
+// EUI 的 Screen 已经除过 DPI 和 uiScale；GLFW 的窗口单位在不同平台上可能
+// 是物理像素，也可能是点。由两者的实际比例换算最小画布，避免高 DPI 时
+// minWindowSize(700*kUI, 500*kUI) 实际只给出 350×250 的逻辑空间。
+// 这里只配置原生窗口几何；绘制、输入和缩放仍由 EUI 负责。window 是借用资源。
+export void ensureMinimumCanvas(float canvasWidth, float canvasHeight,
+                                float minCanvasWidth, float minCanvasHeight) {
+    GLFWwindow* window = glfwGetCurrentContext();
+    if (!window || canvasWidth <= 0 || canvasHeight <= 0) return;
+    int width = 0, height = 0;
+    glfwGetWindowSize(window, &width, &height);
+    if (width <= 0 || height <= 0) return;
+    // 屏幕的 float 换算可能有微小误差，不让 1960.00001 向上取整造成反复调大。
+    const int minWidth = static_cast<int>(std::ceil(width * (static_cast<double>(minCanvasWidth) / canvasWidth) - 0.001));
+    const int minHeight = static_cast<int>(std::ceil(height * (static_cast<double>(minCanvasHeight) / canvasHeight) - 0.001));
+    static int appliedMinWidth = 0, appliedMinHeight = 0;
+    if (minWidth != appliedMinWidth || minHeight != appliedMinHeight) {
+        glfwSetWindowSizeLimits(window, minWidth, minHeight, -1, -1);
+        appliedMinWidth = minWidth;
+        appliedMinHeight = minHeight;
+    }
+    if (width < minWidth || height < minHeight) {
+        glfwSetWindowSize(window, std::max(width, minWidth), std::max(height, minHeight));
+    }
+}
 
 namespace {
 

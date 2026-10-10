@@ -165,8 +165,7 @@ void drawTipBubble(eui::Ui& ui, const std::string& id, float btnY, float btnH,
 }
 } // namespace
 // ----------------------------------------------------- 外层"岛"卡片背景 --
-// 岛卡 = panelBg 底 + 小圆角，无描边无投影 —— 层次纯靠灰阶差表达（黑白极客风），
-// 不用玻璃拟态/阴影。
+// 岛卡 = panelBg 底 + 小圆角 + hairline，无投影。
 export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
                       float w, float h, const AppTheme& theme) {
     ui.rect(id)
@@ -174,6 +173,34 @@ export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
         .size(w, h)
         .color(theme.panelBg)
         .radius(kIslandRadius)
+        .border(kHairline, theme.outline)
+        .build();
+}
+
+// 页面标题和说明统一用 Column 排布，右侧预留给页面级操作。
+export void drawPageHeading(eui::Ui& ui, const std::string& id, float x, float y,
+                            float width, const std::string& title,
+                            const std::string& description, const AppTheme& theme) {
+    ui.column(id)
+        .position(x, y)
+        .size(width, kPageHeaderHeight)
+        .gap(4.0f)
+        .content([&] {
+            components::text(ui, id + ".title")
+                .size(width, 26.0f)
+                .text(ellipsizeText(title, width, 20.0f))
+                .fontSize(20.0f)
+                .lineHeight(26.0f)
+                .color(theme.titleText)
+                .build();
+            components::text(ui, id + ".description")
+                .size(width, 14.0f)
+                .text(ellipsizeText(description, width, 11.0f))
+                .fontSize(11.0f)
+                .lineHeight(14.0f)
+                .color(theme.metaText)
+                .build();
+        })
         .build();
 }
 

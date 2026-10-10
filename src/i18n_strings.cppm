@@ -122,6 +122,14 @@ export constexpr Entry kEntries[] = {
 
     // ---- downloads page：列表表头 / 筛选 / 排序 / 分页 ----
     Entry{"dl.tasks",             "任务列表", "任務列表", "Tasks"},
+    Entry{"dl.description",       "管理文件、种子与媒体下载", "管理檔案、種子與媒體下載", "Manage files, torrents and media"},
+    Entry{"dl.empty",             "还没有下载任务", "還沒有下載任務", "No downloads yet"},
+    Entry{"dl.empty_hint",        "点击右上角「添加下载」开始", "點選右上角「新增下載」開始", "Use Add download to get started"},
+    Entry{"dl.filter_empty",      "当前分类没有任务", "目前分類沒有任務", "No tasks in this view"},
+    Entry{"dl.filter_empty_hint", "切换到「所有」查看其他任务", "切換到「全部」查看其他任務", "Choose All to see your other tasks"},
+    Entry{"dl.task_count",        "{} 个任务", "{} 個任務", "{} tasks"},
+    Entry{"dl.pause_all",         "全部暂停", "全部暫停", "Pause all"},
+    Entry{"dl.resume_all",        "全部继续", "全部繼續", "Resume all"},
     Entry{"dl.filter_all",        "所有", "全部", "All"},
     Entry{"dl.sort_newest",       "最新在前", "最新在前", "Newest first"},
     Entry{"dl.sort_status_first", "状态优先", "狀態優先", "Status first"},
@@ -292,6 +300,7 @@ export constexpr Entry kEntries[] = {
 
     // ---- settings page：tab ----
     Entry{"settings.title",       "配置", "設定", "Settings"},
+    Entry{"settings.description", "调整外观、下载行为和引擎参数", "調整外觀、下載行為和引擎參數", "Appearance, download behavior and engine options"},
     Entry{"settings.tab.general", "通用", "一般", "General"},
     Entry{"settings.tab.download","下载", "下載", "Download"},
     Entry{"settings.tab.bittorrent", "BitTorrent", "BitTorrent", "BitTorrent"},

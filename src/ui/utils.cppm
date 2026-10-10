@@ -24,12 +24,20 @@ export constexpr float kCompactBreakpoint = 820.0f;
 export constexpr float kMaxPageContentWidth = 1440.0f;
 export bool isCompactLayout(float width) { return width < kCompactBreakpoint; }
 export float pageContentWidth(float viewportWidth) {
-    const float inset = isCompactLayout(viewportWidth) ? 8.0f : 16.0f;
+    const float inset = isCompactLayout(viewportWidth) ? 12.0f : 24.0f;
     return std::min(kMaxPageContentWidth, std::max(0.0f, viewportWidth - 2.0f * inset));
 }
 export float pageContentX(float viewportWidth) {
     return (viewportWidth - pageContentWidth(viewportWidth)) * 0.5f;
 }
+
+// 两个页面共用页头、分区间距与底部操作区；所有值仍是设计逻辑像素。
+export constexpr float kPageTop = 16.0f;
+export constexpr float kPageHeaderHeight = 44.0f;
+export constexpr float kPageSectionGap = 12.0f;
+export constexpr float kPageFooterHeight = 36.0f;
+export constexpr float kMinPageWidth = 700.0f;
+export constexpr float kMinPageHeight = 500.0f;
 
 // 布局尺寸都按“设计逻辑像素”书写，并用 screen.width/height 推算；
 // 页面共用 pageContentWidth/pageContentX 做窄屏留白与宽屏限宽居中。

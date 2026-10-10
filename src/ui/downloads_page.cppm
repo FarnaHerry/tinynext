@@ -30,7 +30,7 @@ void drawMediaTrackSelectionDialog(eui::Ui& ui, const eui::Screen& screen,
                                    const AppTheme& theme);
 
 // ===================== 下载页 =================
-// 布局：筛选与下载操作悬浮在页面背景上，下方是任务列表和分页控件。
+// 布局：页头、筛选和批量操作、任务面板、底部分页。
 export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
     // ---- 数据：筛选 + 排序 + 分页切片（每帧重跑，跟随下载线程实时刷新）----
     const auto tasks = g_tasks.snapshot();
@@ -91,64 +91,66 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const int start = (g_page - 1) * g_pageSize;
     const int end = std::min(totalCount, start + g_pageSize);
 
-    // ---- 页面布局 ----
-    const bool compact = isCompactLayout(screen.width);
-    const float islandTop = kIslandVInset;
-    const float islandH = screen.height - 2.0f * kIslandVInset;
+    // 页头负责标题和添加，第二行放筛选与批量操作；窄窗口按实际文字宽度拆行。
     const float contentX = pageContentX(screen.width);
     const float contentW = pageContentWidth(screen.width);
-
-    // 工具栏 / 任务列表 / 状态消息 / 翻页直接放在背景上。
-    const float pad = compact ? 8.0f : kPanelPad;
-    const float toolY = islandTop + pad;
-    const float actionsY = toolY;
-    const float toolbarHeight = 28.0f;
-    const float pagerY = islandTop + islandH - pad - kPagerHeight;
-    const float listTop = toolY + toolbarHeight + 8.0f;
-    const float listHeight = std::max(0.0f, pagerY - listTop - 4.0f);
-    const float listX = contentX + pad;
-    const float listW = contentW - 2.0f * pad;
+    const float listX = contentX;
+    const float listW = contentW;
     const float toolW = 28.0f;
     const float toolGap = 4.0f;
-    const float toolRight = contentX + contentW - pad;
-    const float addX = toolRight - toolW;
-    const float sortX = addX - toolGap - toolW;
-    const float startAllX = sortX - toolGap - toolW;
-    const float pauseAllX = startAllX - toolGap - toolW;
-    const float tabsX = contentX + pad;
-    const float tabsAvailW = std::max(0.0f, pauseAllX - 8.0f - tabsX);
+    const float toolRight = contentX + contentW;
+    const float addW = core::TextPrimitive::measureTextWidth(tr("dl.add_download"), "", 12.0f) + 32.0f;
+    const float addX = toolRight - addW;
+    drawPageHeading(ui, "downloads.heading", contentX, kPageTop,
+                    contentW - addW - 16.0f, tr("app.tab.downloads"),
+                    tr("dl.description"), theme);
 
-    // ---- 筛选标签（工具栏左侧）：与右侧动作按钮组始终同一行左右对齐 ----
-    // 样式同添加弹窗的分段规范：容器 surfaceContainer + hairline，选中指示块
-    // surfaceContainerHighest（带过渡动画），选中文字 onSurface / 未选中
-    // onSurfaceVariant。段宽随文字自适应（measureTextWidth + 水平内边距）。
+    int activeCount = 0, doneCount = 0;
+    bool canPause = false, canResume = false;
+    for (const auto& task : tasks) {
+        if (stateMatches(Filter::Active, task.state)) ++activeCount;
+        else if (stateMatches(Filter::Done, task.state)) ++doneCount;
+        canPause |= task.state == dl::State::Downloading || task.state == dl::State::Queued;
+        canResume |= task.state == dl::State::Paused;
+    }
+    const std::string tabLabels[] = {
+        std::format("{} {}", tr("dl.filter_all"), tasks.size()),
+        std::format("{} {}", tr("card.state.downloading"), activeCount),
+        std::format("{} {}", tr("card.state.done"), doneCount),
+    };
+    const Filter tabFilters[] = {Filter::All, Filter::Active, Filter::Done};
+    constexpr float kTabH = 28.0f;
+    constexpr float kTabGap = 4.0f;
+    float tabW[3];
+    float labelWSum = 0.0f;
+    for (int i = 0; i < 3; ++i) {
+        tabW[i] = core::TextPrimitive::measureTextWidth(tabLabels[i], "", 12.0f);
+        labelWSum += tabW[i];
+    }
+    const float pauseW = core::TextPrimitive::measureTextWidth(tr("dl.pause_all"), "", 12.0f) + 20.0f;
+    const float resumeW = core::TextPrimitive::measureTextWidth(tr("dl.resume_all"), "", 12.0f) + 20.0f;
+    const float actionsW = pauseW + resumeW + toolW + 2.0f * toolGap;
+    const float tabPadH = 10.0f;
+    const bool wrapToolbar = labelWSum + 6.0f * tabPadH + 2.0f * kTabGap +
+                             actionsW + 16.0f > contentW;
+    const float toolY = kPageTop + kPageHeaderHeight + kPageSectionGap;
+    const float actionsY = toolY + (wrapToolbar ? kTabH + 8.0f : 0.0f);
+    const float sortX = toolRight - toolW;
+    const float startAllX = sortX - toolGap - resumeW;
+    const float pauseAllX = startAllX - toolGap - pauseW;
+    const float tabsX = contentX;
+    const float toolbarBottom = actionsY + toolW;
+    const float panelTop = toolbarBottom + kPageSectionGap;
+    const float pagerY = screen.height - kPageTop - kPagerHeight;
+    const float footerTop = screen.height - kPageTop - kPageFooterHeight;
+    const float panelHeight = std::max(0.0f, footerTop - kPageSectionGap - panelTop);
+    constexpr float listPad = 10.0f;
+    const float listTop = panelTop + listPad;
+    const float listHeight = std::max(0.0f, panelHeight - 2.0f * listPad);
+    drawPanel(ui, "downloads.panel", listX, panelTop, listW, panelHeight, theme);
+
+    // 筛选保留稳定分段 id，工具区不裁剪，排序弹层能覆盖正文。
     {
-        // 各筛选的任务数：所有 = 总数；下载中/已完成与列表筛选同一口径
-        // （stateMatches），基于本帧 snapshot 统计。
-        int activeCount = 0, doneCount = 0;
-        for (const auto& task : tasks) {
-            if (stateMatches(Filter::Active, task.state)) ++activeCount;
-            else if (stateMatches(Filter::Done, task.state)) ++doneCount;
-        }
-        const std::string tabLabels[] = {
-            std::format("{} {}", tr("dl.filter_all"), tasks.size()),
-            std::format("{} {}", tr("card.state.downloading"), activeCount),
-            std::format("{} {}", tr("card.state.done"), doneCount),
-        };
-        const Filter tabFilters[] = {Filter::All, Filter::Active, Filter::Done};
-        constexpr float kTabH = 28.0f;      // 与右侧工具栏按钮同高
-        constexpr float kTabGap = 4.0f;
-        float tabW[3];
-        float labelWSum = 0.0f;
-        for (int i = 0; i < 3; ++i) {
-            tabW[i] = core::TextPrimitive::measureTextWidth(tabLabels[i], "", 12.0f);
-            labelWSum += tabW[i];
-        }
-        float tabPadH = compact ? 8.0f : 12.0f;
-        if (labelWSum + 2.0f * tabPadH * 3.0f + kTabGap * 2.0f > tabsAvailW) {
-            tabPadH = std::max(2.0f,
-                (tabsAvailW - labelWSum - kTabGap * 2.0f) / 6.0f);
-        }
         float tabsTotalW = kTabGap * 2.0f;
         for (float& width : tabW) {
             width += 2.0f * tabPadH;
@@ -206,7 +208,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             .build();
     }
 
-    // ---- 顶部工具栏（右对齐，收在内容大卡内）：全部暂停 / 全部继续 / 排序 / 添加 ----
+    // ---- 批量操作与排序（右对齐）----
     // 排序选择器：图标按钮 + 向下弹出列表（buildListPicker 不设位置，
     // 由外层 stack 绝对定位）。
     const char* kSortLabels[] = {tr("dl.sort_newest"), tr("dl.sort_status_first"),
@@ -228,70 +230,116 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         })
         .build();
 
-    // 全部继续：恢复所有已暂停任务（正圆，默认无描边，hover 才浮现）。
-    drawToolbarIconButton(ui, "tool.startAll", startAllX, actionsY, toolW, toolW,
-                          0xF04B, false, theme,
-                          [] {
-                              g_tasks.resumeAll();
-                              showStatus(tr("dl.resumed_all"));
-                          });
+    const auto bulkButton = [&](const std::string& id, float x, float width,
+                                const char* label, bool enabled, std::function<void()> action) {
+        components::button(ui, id)
+            .position(x, actionsY)
+            .size(width, toolW)
+            .text(label)
+            .fontSize(12.0f)
+            .theme(theme.components, false)
+            .textColor(enabled ? theme.onSurface : theme.hintText)
+            .colors({0, 0, 0, 0}, stateLayer(theme.onSurface, 0.08f),
+                    stateLayer(theme.onSurface, 0.12f))
+            .border(0, {0, 0, 0, 0})
+            .shadow(0, 0, 0, {0, 0, 0, 0})
+            .radius(kButtonRadius)
+            .disabled(!enabled)
+            .transition(0.14f, core::Ease::OutCubic)
+            .onClick(std::move(action))
+            .build();
+    };
+    bulkButton("tool.startAll", startAllX, resumeW, tr("dl.resume_all"), canResume, [] {
+        g_tasks.resumeAll();
+        showStatus(tr("dl.resumed_all"));
+    });
+    bulkButton("tool.pauseAll", pauseAllX, pauseW, tr("dl.pause_all"), canPause, [] {
+        g_tasks.pauseAll();
+        showStatus(tr("dl.paused_all"));
+    });
 
-    // 全部暂停：暂停所有排队/进行中任务（正圆，默认无描边，hover 才浮现）。
-    drawToolbarIconButton(ui, "tool.pauseAll", pauseAllX, actionsY, toolW, toolW,
-                          0xF04C, false, theme,
-                          [] {
-                              g_tasks.pauseAll();
-                              showStatus(tr("dl.paused_all"));
-                          });
-
-    // 添加下载：反白主色方钮（主行动强调），点击弹出对话框。
-    drawToolbarIconButton(ui, "add.btn", addX, actionsY, toolW, toolW,
-                          0xF067, true, theme,
-                          [] {
-                              // 打开弹窗：恢复默认选项——连接数填配置的 split 值，下载目录填配置
-                              // 的默认下载目录；其余清空。若剪贴板是可下载源则预填 URL。
-                              g_urlText.clear();
-                              g_addTorrentPath.clear();
-                              g_addMirror = false;
-                              g_addPauseMetadata = false;
-                              g_addPauseMediaAfterProbe = false;
-                              g_addMediaModeIndex = 0;
-                              g_addMediaFormatIndex = 0;
-                              g_addMediaModeOpen = false;
-                              g_addMediaFormatOpen = false;
-                              g_addTab = AddTab::Direct;
-                              const std::string clip = trimText(getClipboardText());
-                              if (!clip.empty() && isDownloadableSource(clip)) {
-                                  g_urlText = clip;
-                              }
-                              g_addConnectionsText = std::to_string(cfg::aria2Config().split);
-                              g_addRenameText.clear();
-                              g_addDirText = cfg::downloadDir().string();
-                              g_addOpen = true;
-                          },
-                          /*fab=*/true);
-
-    // ---- 任务列表：卡片式布局（名称/进度/信息纵向排布）----
-    // 无任务时也画空 scrollView，不显示引导文案（界面更简洁，用户自会用）。
-    components::scrollView(ui, "task.list")
-        .position(listX, listTop)
-        .size(listW, listHeight)
-        .gap(kCardGap)
-        .scrollbarWidth(kScrollbarWidth)
-        .scrollbarGap(kScrollbarGap)
-        .theme(theme.components)
-        .content([&](eui::Ui& sv, float width, float viewportHeight) {
-            for (int index = start; index < end; ++index) {
-                drawTaskCard(sv, filtered[index], width);
+    components::button(ui, "add.btn")
+        .position(addX, kPageTop + 6.0f)
+        .size(addW, 32.0f)
+        .text(tr("dl.add_download"))
+        .fontSize(12.0f)
+        .theme(theme.components, true)
+        .textColor(theme.onPrimary)
+        .border(0, {0, 0, 0, 0})
+        .shadow(0, 0, 0, {0, 0, 0, 0})
+        .radius(kButtonRadius)
+        .transition(0.14f, core::Ease::OutCubic)
+        .onClick([] {
+            // 打开弹窗：恢复默认选项——连接数填配置的 split 值，下载目录填配置
+            // 的默认下载目录；其余清空。若剪贴板是可下载源则预填 URL。
+            g_urlText.clear();
+            g_addTorrentPath.clear();
+            g_addMirror = false;
+            g_addPauseMetadata = false;
+            g_addPauseMediaAfterProbe = false;
+            g_addMediaModeIndex = 0;
+            g_addMediaFormatIndex = 0;
+            g_addMediaModeOpen = false;
+            g_addMediaFormatOpen = false;
+            g_addTab = AddTab::Direct;
+            const std::string clip = trimText(getClipboardText());
+            if (!clip.empty() && isDownloadableSource(clip)) {
+                g_urlText = clip;
             }
+            g_addConnectionsText = std::to_string(cfg::aria2Config().split);
+            g_addRenameText.clear();
+            g_addDirText = cfg::downloadDir().string();
+            g_addOpen = true;
         })
         .build();
 
+    // 空状态和筛选无结果给出不同提示；真正有任务时才创建滚动容器。
+    if (filtered.empty()) {
+        const float emptyW = std::max(0.0f, listW - 32.0f);
+        ui.column("downloads.empty")
+            .position(listX + 16.0f, panelTop + std::max(12.0f, (panelHeight - 58.0f) * 0.5f))
+            .size(emptyW, 58.0f)
+            .gap(8.0f)
+            .content([&] {
+                components::text(ui, "downloads.empty.title")
+                    .size(emptyW, 24.0f)
+                    .text(tasks.empty() ? tr("dl.empty") : tr("dl.filter_empty"))
+                    .fontSize(16.0f)
+                    .lineHeight(24.0f)
+                    .horizontalAlign(core::HorizontalAlign::Center)
+                    .color(theme.onSurface)
+                    .build();
+                components::text(ui, "downloads.empty.hint")
+                    .size(emptyW, 18.0f)
+                    .text(tasks.empty() ? tr("dl.empty_hint") : tr("dl.filter_empty_hint"))
+                    .fontSize(11.0f)
+                    .lineHeight(18.0f)
+                    .horizontalAlign(core::HorizontalAlign::Center)
+                    .color(theme.metaText)
+                    .build();
+            })
+            .build();
+    } else {
+        components::scrollView(ui, "task.list")
+            .position(listX + listPad, listTop)
+            .size(listW - 2.0f * listPad, listHeight)
+            .gap(kCardGap)
+            .scrollbarWidth(kScrollbarWidth)
+            .scrollbarGap(kScrollbarGap)
+            .theme(theme.components)
+            .content([&](eui::Ui& sv, float width, float) {
+                for (int index = start; index < end; ++index) {
+                    drawTaskCard(sv, filtered[index], width);
+                }
+            })
+            .build();
+    }
+
     // ---- 翻页控件组：◀ 页码 ▶ [数字/页] [设置] ----
-    // 简洁版：中间只显示当前页码数字（不再显示"第 X / Y 页"），分页大小是
-    // 无边框的纯文本"数字/页"，末尾齿轮直接进入设置页。
+    // 当前页 / 总页数、每页数量和设置组成右侧操作组，左侧显示当前分类数量。
     constexpr float kChevWidth = kStepperButtonSize;
-    constexpr float kPageLabelWidth = 28.0f;   // 仅当前页码
+    const float kPageLabelWidth = std::max(52.0f,
+        core::TextPrimitive::measureTextWidth(std::format("{} / {}", g_page, totalPages), kMonoFont, 11.0f) + 12.0f);
     constexpr float kPageSizeWidth = 52.0f;    // "数字/页" 纯文本
     constexpr float kPagerGap = 4.0f;
     constexpr float kPagerPadH = 10.0f;
@@ -301,8 +349,24 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                              kPageSizeWidth + kPagerGap + kChevWidth;
     const float pagerCardW = groupWidth + 2.0f * kPagerPadH;
     const float pagerCardH = kPagerHeight + 2.0f * kPagerPadV;
-    const float pagerCardX = contentX + (contentW - pagerCardW) * 0.5f;
+    const float pagerCardX = contentX + contentW - pagerCardW;
     const float pagerCardY = pagerY - kPagerPadV;
+
+    ui.rect("downloads.footer.divider")
+        .position(contentX, footerTop)
+        .size(contentW, kHairline)
+        .color(theme.outline)
+        .build();
+    const float countW = std::max(0.0f, pagerCardX - contentX - 12.0f);
+    components::text(ui, "downloads.footer.count")
+        .position(contentX, pagerY)
+        .size(countW, kPagerHeight)
+        .text(ellipsizeText(trf("dl.task_count", totalCount), countW, 11.0f))
+        .fontSize(11.0f)
+        .lineHeight(kPagerHeight)
+        .verticalAlign(core::VerticalAlign::Center)
+        .color(theme.metaText)
+        .build();
 
     ui.stack("pager.card")
         .position(pagerCardX, pagerCardY)
@@ -335,7 +399,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
 
                     components::text(ui, "pager.label")
                         .size(kPageLabelWidth, kPagerHeight)
-                        .text(std::format("{}", g_page))
+                        .text(std::format("{} / {}", g_page, totalPages))
                         .fontSize(kCompactButtonFontSize)
                         .fontFamily(kMonoFont)  // 页码等宽
                         .lineHeight(kPagerHeight)

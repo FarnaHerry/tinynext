@@ -186,25 +186,23 @@ void applyThemeChoice(int i) {
 } // namespace
 
 // ===================== 设置页 =====================
-// 页面直接铺在背景上：顶部标签栏、滚动内容和固定操作区。
+// 布局与下载页共用页头节奏：分组标签、表单面板、固定底部操作区。
 export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
-    const bool compact = isCompactLayout(screen.width);
-    const float islandTop = kIslandVInset;
-    const float islandH = screen.height - 2.0f * kIslandVInset;
     const float contentX = pageContentX(screen.width);
     const float contentW = pageContentWidth(screen.width);
-    const float pad = compact ? 8.0f : kPanelPad;
-    const float infoX = contentX + pad;
-    const float innerW = contentW - 2.0f * pad;
+    constexpr float panelPad = 16.0f;
+    const float infoX = contentX + panelPad;
+    const float innerW = contentW - 2.0f * panelPad;
+    drawPageHeading(ui, "settings.heading", contentX, kPageTop,
+                    contentW - kToolbarButtonSize - 16.0f,
+                    tr("app.tab.settings"), tr("settings.description"), theme);
+    drawToolbarIconButton(ui, "settings.close", contentX + contentW - kToolbarButtonSize,
+                          kPageTop + 6.0f, kToolbarButtonSize, kToolbarButtonSize,
+                          0xF00D, false, theme, [] { g_page_view = Page::Downloads; });
 
-    // ---- 顶部行：配置分组标签栏（左）+ 关闭按钮（右）----
-    // 标签栏镜像下载页筛选标签的分段切换样式：容器 surfaceContainer + hairline，
-    // 选中指示块 surfaceContainerHighest（带过渡动画），选中文字 onSurface /
-    // 未选中 onSurfaceVariant。段宽随文字自适应（measureTextWidth + 水平内边距），
-    // 窄窗口时收窄标签内边距以维持单行布局。
-    const float headerY = islandTop + (compact ? 8.0f : 16.0f);
+    // 分组用一个 Flow 按文字自然换行，中文与英文都保留完整标签。
+    const float headerY = kPageTop + kPageHeaderHeight + kPageSectionGap;
     constexpr float kTabH = 28.0f;
-
     struct TabItem { const char* label; const char* id; SettingsTab tab; };
     // 对齐 MotrixNext 的设置分组（ed2k 由 aria2-next 原生支持）。
     // label 走 tr()，id 独立于语言，保证 eui 元素 id 稳定唯一。
@@ -221,63 +219,37 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     constexpr int kTabCount = static_cast<int>(std::size(kTabs));
     constexpr float kTabGap = 4.0f;
     float tabW[kTabCount];
-    float labelWSum = 0.0f;
+    float rowWidth = 0.0f;
+    int tabRows = 1;
     for (int i = 0; i < kTabCount; ++i) {
-        tabW[i] = core::TextPrimitive::measureTextWidth(kTabs[i].label, "", 12.0f);
-        labelWSum += tabW[i];
+        tabW[i] = core::TextPrimitive::measureTextWidth(kTabs[i].label, "", 12.0f) + 24.0f;
+        if (rowWidth > 0.0f && rowWidth + kTabGap + tabW[i] > contentW) {
+            ++tabRows;
+            rowWidth = 0.0f;
+        }
+        rowWidth += (rowWidth > 0.0f ? kTabGap : 0.0f) + tabW[i];
     }
-    const float gapsW = kTabGap * static_cast<float>(kTabCount - 1);
-    const float inlineTabsX = infoX;
-    const float inlineTabsAvail = std::max(0.0f,
-        contentX + contentW - pad - inlineTabsX - kToolbarButtonSize - 8.0f);
-    const float tabsX = inlineTabsX;
-    const float tabsAvail = inlineTabsAvail;
-    float tabPadH = 12.0f;
-    if (labelWSum + 2.0f * tabPadH * kTabCount + gapsW > tabsAvail) {
-        tabPadH = std::max(3.0f,
-            (tabsAvail - gapsW - labelWSum) / (2.0f * kTabCount));
-    }
-    float tabsTotalW = gapsW;
-    for (int i = 0; i < kTabCount; ++i) {
-        tabW[i] += 2.0f * tabPadH;
-        tabsTotalW += tabW[i];
-    }
-    int selected = 0;
-    for (int i = 0; i < kTabCount; ++i) {
-        if (g_settingsTab == kTabs[i].tab) { selected = i; break; }
-    }
-
-    ui.stack("settings.tabs")
-        .position(tabsX, headerY)
-        .size(tabsTotalW, kTabH)
+    const float tabsHeight = tabRows * kTabH + (tabRows - 1) * kTabGap;
+    ui.flow("settings.tabs")
+        .position(contentX, headerY)
+        .size(contentW, tabsHeight)
+        .gap(kTabGap)
         .content([&] {
-            const auto segTransition =
-                core::Transition::make(0.16f, core::Ease::OutCubic);
-            ui.rect("settings.tabs.bg")
-                .size(tabsTotalW, kTabH)
-                .color(theme.surfaceContainer)
-                .radius(kButtonRadius)
-                .border(kHairline, theme.outline)
-                .build();
-            float segX = 0.0f;
-            for (int i = 0; i < selected; ++i) segX += tabW[i] + kTabGap;
-            ui.rect("settings.tabs.ind")
-                .position(segX, 0.0f)
-                .size(tabW[selected], kTabH)
-                .color(theme.surfaceContainerHighest)
-                .radius(kButtonRadius)
-                .transition(segTransition)
-                .build();
-            segX = 0.0f;
             for (int i = 0; i < kTabCount; ++i) {
-                const bool active = i == selected;
-                const std::string segId =
-                    std::string("settings.tabs.seg.") + kTabs[i].id;
-                ui.rect(segId + ".hit")
-                    .position(segX, 0.0f)
+                const bool active = g_settingsTab == kTabs[i].tab;
+                const std::string segId = std::string("settings.tabs.seg.") + kTabs[i].id;
+                components::button(ui, segId)
                     .size(tabW[i], kTabH)
-                    .color({0.0f, 0.0f, 0.0f, 0.0f})
+                    .text(kTabs[i].label)
+                    .fontSize(12.0f)
+                    .theme(theme.components, false)
+                    .textColor(active ? theme.onSurface : theme.onSurfaceVariant)
+                    .colors(active ? theme.surfaceContainerHighest : core::Color{0, 0, 0, 0},
+                            stateLayer(theme.onSurface, 0.08f), stateLayer(theme.onSurface, 0.12f))
+                    .border(active ? kHairline : 0.0f, theme.outline)
+                    .shadow(0, 0, 0, {0, 0, 0, 0})
                     .radius(kButtonRadius)
+                    .transition(0.16f, core::Ease::OutCubic)
                     .onClick([tab = kTabs[i].tab] {
                         g_settingsTab = tab;
                         g_engineMonitorTabActive.store(tab == SettingsTab::Engine);
@@ -288,37 +260,29 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         }
                     })
                     .build();
-                components::text(ui, segId + ".label")
-                    .position(segX, 0.0f)
-                    .size(tabW[i], kTabH)
-                    .text(kTabs[i].label)
-                    .fontSize(12.0f)
-                    .lineHeight(kTabH)
-                    .color(active ? theme.onSurface : theme.onSurfaceVariant)
-                    .horizontalAlign(core::HorizontalAlign::Center)
-                    .verticalAlign(core::VerticalAlign::Center)
-                    .build();
-                segX += tabW[i] + kTabGap;
             }
         })
         .build();
 
-    drawToolbarIconButton(ui, "settings.close",
-                          contentX + contentW - pad - kToolbarButtonSize, headerY,
-                          kToolbarButtonSize, kToolbarButtonSize, 0xF00D, false,
-                          theme, [] { g_page_view = Page::Downloads; });
-
-    // ---- 布局常量 ----
     constexpr float kLabelW = 90.0f;
     constexpr float kFieldH = 26.0f;
-    const float actionY = islandTop + islandH - pad - kButtonHeight;
-    const float scrollTop = headerY + kTabH + 12.0f;
-    const float scrollHeight = std::max(0.0f, actionY - 10.0f - scrollTop);
+    const float footerTop = screen.height - kPageTop - kPageFooterHeight;
+    const float actionY = screen.height - kPageTop - kButtonHeight;
+    const float panelTop = headerY + tabsHeight + kPageSectionGap;
+    const float panelHeight = std::max(0.0f, footerTop - kPageSectionGap - panelTop);
+    const float scrollTop = panelTop + 12.0f;
+    const float scrollHeight = std::max(0.0f, panelHeight - 24.0f);
+    drawPanel(ui, "settings.panel", contentX, panelTop, contentW, panelHeight, theme);
+    ui.rect("settings.footer.divider")
+        .position(contentX, footerTop)
+        .size(contentW, kHairline)
+        .color(theme.outline)
+        .build();
 
     // 设置项较多，正文放进 scrollView（主题/路径/aria2 参数）；底部操作行
     // 固定在窗口底部，始终可见。
     if (g_settingsTab == SettingsTab::Engine) {
-        drawEnginePage(ui, theme, infoX, innerW, scrollTop, actionY);
+        drawEnginePage(ui, theme, infoX, innerW, scrollTop, actionY, scrollHeight);
     } else {
     components::scrollView(ui, "settings.scroll")
         .position(infoX, scrollTop)
@@ -453,6 +417,8 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .size(kLabelW, 40.0f)
                     .text(tr("settings.auto_retry_failed"))
                     .fontSize(11.0f)
+                    .maxWidth(kLabelW)
+                    .wrap(true)
                     .lineHeight(13.0f)
                     .color(theme.metaText)
                     .build();
@@ -955,8 +921,8 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     }
 
     if (g_settingsTab != SettingsTab::About && g_settingsTab != SettingsTab::Engine) {
-    // ---- 操作行（固定窗口底部）：恢复默认路径（text）/ 保存（filled）/ 放弃（text）----
-    drawTextButton(ui, "settings.path.reset", infoX + kLabelW, actionY,
+    // ---- 操作行：左侧恢复默认，右侧放弃 / 保存 ----
+    drawTextButton(ui, "settings.path.reset", contentX, actionY,
                    76.0f, kButtonHeight, tr("settings.reset"), theme,
                    [] {
             // 全部设置回默认：主题回「跟随系统」（并即时预览）、路径回系统下载目录、
@@ -1002,7 +968,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         });
 
     components::button(ui, "settings.save")
-        .position(infoX + kLabelW + kButtonGap + 76.0f, actionY)
+        .position(contentX + contentW - 76.0f, actionY)
         .size(76.0f, kButtonHeight)
         .text(tr("settings.save"))
         .fontSize(kButtonFontSize)
@@ -1185,7 +1151,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         .build();
 
     drawTextButton(ui, "settings.discard",
-                   infoX + kLabelW + kButtonGap + 76.0f + kButtonGap + 76.0f, actionY,
+                   contentX + contentW - 152.0f - kButtonGap, actionY,
                    76.0f, kButtonHeight, tr("settings.discard"), theme,
                    [] {
             // 回滚到已保存值。
