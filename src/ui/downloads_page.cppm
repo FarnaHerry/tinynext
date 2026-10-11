@@ -958,10 +958,33 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         drawMirrorDialog(ui, screen, theme);
     }
     if (g_pendingTorrentSelection.has_value()) {
-        drawTorrentSelectionDialog(ui, screen, theme);
+        // 快照失效检查：弹窗开着时任务可能已被移除或自己离开了「等待选择」状态
+        //（CLI/MCP remove、引擎重连后重新探测、下载报错等）。此时提交会被引擎
+        // 拒绝，弹窗应主动关掉并提示，而不是等用户点提交吃一嘴引擎报错。
+        const bool stillAwaiting =
+            std::ranges::any_of(tasks, [&](const dl::TaskView& t) {
+                return t.id == g_pendingTorrentSelection->taskId &&
+                       t.awaitingTorrentFileSelection;
+            });
+        if (!stillAwaiting) {
+            showStatus(tr("dl.torrent_selection_stale"));
+            g_pendingTorrentSelection.reset();
+        } else {
+            drawTorrentSelectionDialog(ui, screen, theme);
+        }
     }
     if (g_pendingMediaTrackSelection.has_value()) {
-        drawMediaTrackSelectionDialog(ui, screen, theme);
+        const bool stillAwaiting =
+            std::ranges::any_of(tasks, [&](const dl::TaskView& t) {
+                return t.id == g_pendingMediaTrackSelection->taskId &&
+                       t.awaitingMediaTrackSelection;
+            });
+        if (!stillAwaiting) {
+            showStatus(tr("dl.media_selection_stale"));
+            g_pendingMediaTrackSelection.reset();
+        } else {
+            drawMediaTrackSelectionDialog(ui, screen, theme);
+        }
     }
 }
 
