@@ -177,45 +177,19 @@ export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
         .build();
 }
 
-// EUI 0.6.0 的 progress 只支持横向填充。竖向仪表直接由轨道、填充与刻度组成，
-// 填充从底部向上增长；所有图元 id 稳定，0% 时也保留填充节点。
-export void drawVerticalProgress(eui::Ui& ui, const std::string& id, float x, float y,
-                                 float height, float value, const AppTheme& theme,
-                                 core::Color fill) {
-    const float progress = std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0.0f;
-    constexpr float width = 6.0f;
-    ui.stack(id)
-        .position(x, y)
-        .size(12.0f, height)
-        .content([&] {
-            ui.rect(id + ".track")
-                .size(width, height)
-                .color(theme.surfaceContainerHighest)
-                .radius(2.0f)
-                .build();
-            ui.rect(id + ".fill")
-                .position(0.0f, height * (1.0f - progress))
-                .size(width, height * progress)
-                .color(fill)
-                .radius(2.0f)
-                .transition(core::Transition::make(0.18f, core::Ease::OutCubic))
-                .animate(core::AnimProperty::Frame | core::AnimProperty::Color)
-                .build();
-            for (int tick = 0; tick < 5; ++tick) {
-                ui.rect(id + ".tick." + std::to_string(tick))
-                    .position(9.0f, (height - kHairline) * tick / 4.0f)
-                    .size(3.0f, kHairline)
-                    .color(theme.outline)
-                    .build();
-            }
-        })
-        .build();
-}
-
 // 按钮文字/图标色：primary 按钮文字 = onPrimary（反白主色的反色：暗主题黑字 /
 // 亮主题白字）；非 primary 走组件默认（text = onSurface）。
 export core::Color onPrimaryColor(const AppTheme& theme, bool primary = true) {
     return primary ? theme.onPrimary : theme.components.text;
+}
+
+// 输入框与按钮共用小圆角和 hairline；覆盖 EUI 默认的弹层投影。
+export components::InputStyle flatInputStyle(const AppTheme& theme) {
+    components::InputStyle style(theme.components);
+    style.radius = kButtonRadius;
+    style.border = theme.outline;
+    style.shadow = core::Shadow{};
+    return style;
 }
 
 // 单岛布局里的竖向分隔线：同一张岛卡内，把二级侧边栏与内容区区分开（整页一张岛、
@@ -289,6 +263,44 @@ export void drawToolbarIconButton(eui::Ui& ui, const std::string& id, float x, f
 // eui 的 components::dropdown 只会向下弹出，放在底部翻页行时弹层会超出窗口下缘。
 // 这里做一个通用选择器：字段（文字显示当前项，或纯图标 fa-sort）+ 向上/向下
 // 展开的 popup，样式取自当前主题 tokens。分页大小（向上）与排序（向下）共用。
+// 少量互斥选项直接展示，同一选择样式用于页面筛选和设置字段。
+// 没有溢出弹层，放在滚动表单内也不依赖裁剪边界或全屏拦截层。
+export void buildChoiceButtons(eui::Ui& ui, const std::string& id, float height,
+                               const AppTheme& theme, const char* const* labels,
+                               int count, int selected,
+                               const std::function<void(int)>& onPick,
+                               float fontSize = 11.0f) {
+    std::vector<float> widths;
+    float totalWidth = 0.0f;
+    for (int i = 0; i < count; ++i) {
+        widths.push_back(core::TextPrimitive::measureTextWidth(labels[i], "", fontSize) + 20.0f);
+        totalWidth += widths.back() + (i > 0 ? 4.0f : 0.0f);
+    }
+    ui.row(id)
+        .size(totalWidth, height)
+        .gap(4.0f)
+        .content([&] {
+            for (int i = 0; i < count; ++i) {
+                const bool active = i == selected;
+                components::button(ui, id + ".choice." + std::to_string(i))
+                    .size(widths[i], height)
+                    .text(labels[i])
+                    .fontSize(fontSize)
+                    .theme(theme.components, false)
+                    .textColor(active ? theme.onSurface : theme.onSurfaceVariant)
+                    .colors(active ? theme.surfaceContainerHighest : core::Color{0, 0, 0, 0},
+                            stateLayer(theme.onSurface, 0.08f), stateLayer(theme.onSurface, 0.12f))
+                    .border(active ? kHairline : 0.0f, theme.outline)
+                    .radius(kButtonRadius)
+                    .shadow(0, 0, 0, {0, 0, 0, 0})
+                    .transition(0.14f, core::Ease::OutCubic)
+                    .onClick([i, onPick] { onPick(i); })
+                    .build();
+            }
+        })
+        .build();
+}
+
 export enum class PickerField { Text, Icon, Plain };
 
 // ---- 选择器弹层度量（设计逻辑像素）----

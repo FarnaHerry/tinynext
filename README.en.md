@@ -42,8 +42,7 @@ progress, and version numbers.
 
 - **Downloads:** Filter tasks by all, active, or completed; sort by date, state,
   name, size, or progress; and navigate pages from the bottom toolbar.
-- **Task cards:** Show the file name, state, progress, size, speed, and task
-  actions.
+- **Task cards:** Compact grid cards show the file name, state, percentage, a horizontal progress bar, transfer details, and task actions.
 - **Add Download:** Enter one or more URLs, set a connection count, rename the
   output, choose a destination, or select a local torrent file. Multiple
   compatible URLs can be combined as mirror sources for one task. Choose
@@ -57,6 +56,7 @@ progress, and version numbers.
   selection use their torrent-file entry.
 - **Settings:** Configure the theme, download directory, connection behavior,
   network options, BitTorrent options, file handling, and integrity checks.
+  Settings and Downloads share page spacing and toolbar styles. Forms use one bounded column, and short option lists are shown as inline choices.
   The Engine tab shows aria2-next health and statistics and provides controls
   to check or restart the engine.
 

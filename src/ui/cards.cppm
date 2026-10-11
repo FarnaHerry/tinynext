@@ -75,7 +75,7 @@ bool hasSelectableMediaTracks(const dl::TaskView& task) {
 }
 }
 
-// 卡片传输信息：速度 · 已下载/总大小；百分比由左侧仪表独立展示。
+// 卡片传输信息：速度 · 已下载/总大小；百分比在状态行独立展示。
 export std::string cardInfoText(const dl::TaskView& task) {
     if (task.awaitingTorrentFileSelection) return tr("card.bt.awaiting_files");
     if (task.awaitingMediaTrackSelection) {
@@ -127,18 +127,8 @@ export std::string cardInfoText(const dl::TaskView& task) {
     if (task.totalBytes <= 0 && task.downloadedBytes > 0) {
         push(formatBytes(task.downloadedBytes));
     }
-    // 连接数 & 镜像恒常展示（即使没有进度/速度数据），避免信息行短暂空白。
-    // aria2 任务连接数 1-64 恒 > 0。只有非下载态在前面 switch 已提前返回。
     const std::string speed = formatSpeed(task.speedBps);
-    if (!speed.empty()) {
-        push(speed);
-    }
-    if (task.connections > 0) {
-        push(trf("card.connections", task.connections));
-    }
-    if (task.mirrorCount > 0) {
-        push(trf("card.mirror_count", task.mirrorCount));
-    }
+    if (!speed.empty()) push(speed);
     // 源状态告警：镜像任务的源全部失败（aria2 uris 全 error）时提示失效。
     if (!task.mirrors.empty()) {
         bool allFailed = true;
@@ -153,33 +143,15 @@ export std::string cardInfoText(const dl::TaskView& task) {
         push(std::format("{} / {}", formatBytes(task.downloadedBytes),
                          formatBytes(task.totalBytes)));
     }
-    // ETA：剩余字节 / 当前速度（需知道总量且有速度）。
-    if (task.totalBytes > 0 && task.speedBps > 0.0) {
-        const std::int64_t remaining = task.totalBytes - task.downloadedBytes;
-        if (remaining > 0) {
-            const std::int64_t seconds =
-                static_cast<std::int64_t>(remaining / task.speedBps);
-            if (seconds < 60) {
-                push(trf("card.eta_seconds", seconds));
-            } else if (seconds < 3600) {
-                push(trf("card.eta_ms",
-                         seconds / 60, seconds % 60));
-            } else {
-                push(trf("card.eta_hm", seconds / 3600,
-                         (seconds % 3600) / 60));
-            }
-        }
-    }
     return parts.empty() ? tr("card.state.downloading") : parts;
 }
 
-// 网格任务卡：顶部名称与来源，中部竖向仪表 / 状态 / 传输信息，底部操作。
+// 紧凑任务卡：名称、状态与百分比、横向进度、传输信息、底部操作。
 // 列表仍按任务 id 保留身份；菜单与领域命令沿用原来的状态条件。
 export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth) {
     const AppTheme& theme = currentTheme();
     const std::string fid = "task." + std::to_string(task.id);
     const float nameW = std::max(0.0f, cardWidth - 2.0f * kCardPad);
-    const float readoutW = std::max(0.0f, cardWidth - 40.0f - kCardPad);
 
     // 进度值：已完成视为 1，其余按已下载/总量计算。
     float progress = 0.0f;
@@ -217,84 +189,65 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .border(kHairline, theme.outline)
                 .build();
 
+            // 名称在单行内精确截断；完整名称、链接及错误通过信息入口查看。
             components::text(ui, fid + ".name")
                 .position(kCardPad, 14.0f)
-                .size(nameW, 36.0f)
-                .text(ellipsizeText(taskDisplayName(task), nameW * 2.0f, 13.0f))
+                .size(nameW, 20.0f)
+                .text(ellipsizeText(taskDisplayName(task), nameW, 13.0f))
                 .fontSize(13.0f)
-                .lineHeight(18.0f)
-                .maxWidth(nameW)
-                .wrap(true)
-                .clip()
+                .lineHeight(20.0f)
                 .color(theme.nameText)
                 .build();
-            std::string source = task.url;
-            if (const auto scheme = source.find("://"); scheme != std::string::npos) {
-                source = source.substr(scheme + 3);
-                if (const auto slash = source.find_first_of("/?#"); slash != std::string::npos) source.resize(slash);
-                if (const auto at = source.rfind('@'); at != std::string::npos) source = source.substr(at + 1);
-            } else if (source.starts_with("magnet:")) source = "MAGNET";
-            components::text(ui, fid + ".source")
-                .position(kCardPad, 56.0f)
-                .size(nameW, 14.0f)
-                .text(ellipsizeText(std::format("#{:04} / {}", task.id, source), nameW, 9.0f, kMonoFont))
-                .fontSize(9.0f)
+            components::text(ui, fid + ".state")
+                .position(kCardPad, 42.0f)
+                .size(nameW - 56.0f, 16.0f)
+                .text(stateLabel(task.state))
+                .fontSize(11.0f)
+                .lineHeight(16.0f)
+                .color(stateColor(task.state))
+                .build();
+            components::text(ui, fid + ".percentage")
+                .position(cardWidth - kCardPad - 52.0f, 42.0f)
+                .size(52.0f, 16.0f)
+                .text(progressText)
                 .fontFamily(kMonoFont)
-                .lineHeight(14.0f)
-                .color(theme.hintText)
+                .fontSize(11.0f)
+                .lineHeight(16.0f)
+                .horizontalAlign(core::HorizontalAlign::Right)
+                .color(theme.metaText)
                 .build();
-            drawVerticalProgress(ui, fid + ".progress", kCardPad, 84.0f,
-                                 108.0f, progress, theme, progressColor);
-            ui.column(fid + ".meter.readout")
-                .position(40.0f, 82.0f)
-                .size(readoutW, 114.0f)
-                .gap(4.0f)
-                .content([&] {
-                    components::text(ui, fid + ".meter.caption")
-                        .size(readoutW, 14.0f)
-                        .text(tr("dl.col_progress"))
-                        .fontSize(9.0f)
-                        .lineHeight(14.0f)
-                        .color(theme.metaText)
-                        .build();
-                    components::text(ui, fid + ".meter.value")
-                        .size(readoutW, 38.0f)
-                        .text(progressText)
-                        .fontFamily(kMonoFont)
-                        .fontSize(28.0f)
-                        .lineHeight(38.0f)
-                        .color(theme.onSurface)
-                        .build();
-                    components::text(ui, fid + ".state")
-                        .size(readoutW, 16.0f)
-                        .text(stateLabel(task.state))
-                        .fontSize(10.0f)
-                        .lineHeight(16.0f)
-                        .color(stateColor(task.state))
-                        .build();
-                    std::string info = cardInfoText(task);
-                    if (task.state == dl::State::Done && task.totalBytes > 0) info = formatBytes(task.totalBytes);
-                    if (task.state == dl::State::Paused || task.state == dl::State::Cancelled) {
-                        info = task.totalBytes > 0 ? std::format("{} / {}", formatBytes(task.downloadedBytes),
-                            formatBytes(task.totalBytes)) : formatBytes(task.downloadedBytes);
-                    }
-                    components::text(ui, fid + ".infotext")
-                        .size(readoutW, 32.0f)
-                        .text(ellipsizeText(info, readoutW * 2.0f, 10.0f, kMonoFont))
-                        .fontSize(10.0f)
-                        .fontFamily(kMonoFont)
-                        .lineHeight(16.0f)
-                        .maxWidth(readoutW)
-                        .wrap(true)
-                        .clip()
-                        .color(theme.metaText)
-                        .build();
-                })
+            ui.rect(fid + ".progress.track")
+                .position(kCardPad, 68.0f)
+                .size(nameW, 3.0f)
+                .color(theme.surfaceContainerHighest)
+                .radius(1.5f)
                 .build();
-            ui.rect(fid + ".actions.divider")
-                .position(kCardPad, 202.0f)
-                .size(nameW, kHairline)
-                .color(theme.outline)
+            ui.rect(fid + ".progress.fill")
+                .position(kCardPad, 68.0f)
+                .size(nameW * progress, 3.0f)
+                .color(progressColor)
+                .radius(1.5f)
+                .transition(core::Transition::make(0.18f, core::Ease::OutCubic))
+                .animate(core::AnimProperty::Frame | core::AnimProperty::Color)
+                .build();
+            std::string info = cardInfoText(task);
+            if (task.state == dl::State::Done && task.totalBytes > 0) info = formatBytes(task.totalBytes);
+            if (task.state == dl::State::Paused || task.state == dl::State::Cancelled) {
+                // 待选择任务保留选择提示，普通暂停任务显示已下载量。
+                if (!task.awaitingTorrentFileSelection && !task.awaitingMediaTrackSelection) {
+                    info = task.totalBytes > 0
+                        ? std::format("{} / {}", formatBytes(task.downloadedBytes), formatBytes(task.totalBytes))
+                        : formatBytes(task.downloadedBytes);
+                }
+            }
+            components::text(ui, fid + ".infotext")
+                .position(kCardPad, 82.0f)
+                .size(nameW, 18.0f)
+                .text(ellipsizeText(info, nameW, 11.0f, kMonoFont))
+                .fontSize(11.0f)
+                .fontFamily(kMonoFont)
+                .lineHeight(18.0f)
+                .color(theme.metaText)
                 .build();
 
             // 操作条件保持按当前任务状态决定，信息不再与按钮争用同一行。

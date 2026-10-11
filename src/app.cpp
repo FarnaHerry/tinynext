@@ -12,7 +12,7 @@
 //   tinynext.ui.utils         UI layout constants (design logical pixels)
 //   tinynext.ui.theme         dark/light AppTheme + currentTheme() + 主题全局
 //   tinynext.ui.platform      DPI boot + folder picker + open helpers
-//   tinynext.ui.widgets       list picker + sidebar/rail/card-action controls
+//   tinynext.ui.widgets       choice buttons + list picker + task actions
 //   tinynext.ui.cards         the download task card
 //   tinynext.ui.downloads_page  downloads page + add-download dialog
 //   tinynext.ui.settings_page   settings page
@@ -65,7 +65,7 @@ const DslAppConfig& dslAppConfig() {
         .uiScale(kUI)
         .windowSize(static_cast<int>(1120.0f * kUI), static_cast<int>(720.0f * kUI))
         // 启动时先给出 1× DPI 的窗口限制；compose 按实际窗口比例补齐高 DPI 换算。
-        // 700×500 的逻辑画布可容纳窄屏两行工具栏、滚动正文和底部操作区。
+        // 700×500 的逻辑画布可容纳顶部工具栏、滚动正文和底部操作区。
         .minWindowSize(static_cast<int>(kMinPageWidth * kUI), static_cast<int>(kMinPageHeight * kUI))
         // 最大帧率写 0 = 自动匹配显示器刷新率（eui 的 updateFrameInterval 在
         // limit<=0 时直接用 getWindowRefreshRate）。

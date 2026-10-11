@@ -30,7 +30,7 @@ void drawMediaTrackSelectionDialog(eui::Ui& ui, const eui::Screen& screen,
                                    const AppTheme& theme);
 
 // ===================== 下载页 =================
-// 布局：左侧分类 / 速率 / 分页与配置，右侧操作工具栏和任务网格。
+// 布局：顶部筛选与操作、中间紧凑任务网格、底部速度与分页。
 export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
     // ---- 数据：筛选 + 排序 + 分页切片（每帧重跑，跟随下载线程实时刷新）----
     const auto tasks = g_tasks.snapshot();
@@ -91,19 +91,25 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const int start = (g_page - 1) * g_pageSize;
     const int end = std::min(totalCount, start + g_pageSize);
 
-    // 传输仪表布局：左侧分类与总速度，右侧操作工具栏和竖向进度任务卡。
-    // 下载网格使用整个窗口宽度；表单页仍使用共用的限宽布局。
-    const float contentX = pageContentInset(screen.width);
-    const float contentW = std::max(0.0f, screen.width - 2.0f * contentX);
-    // 渐进扩展侧栏，避免到 1000px 时突然增加 32px、挤压任务区宽度。
-    const float railW = std::clamp(144.0f + (screen.width - kMinPageWidth) * (32.0f / 300.0f),
-                                  144.0f, 176.0f);
-    const float listX = contentX + railW + 16.0f;
-    const float listW = contentW - railW - 16.0f;
-    const float toolW = 32.0f;
+    // 页面共用限宽、顶部选择行和底部操作行，任务区占据中间的完整宽度。
+    const float contentX = pageContentX(screen.width);
+    const float contentW = pageContentWidth(screen.width);
+    const float listX = contentX;
+    const float listW = contentW;
+    const float toolW = kToolbarButtonSize;
     const float toolGap = 4.0f;
-    const float toolRight = contentX + contentW;
-    const float addX = toolRight - toolW;
+    const float toolY = kPageTop;
+    const float actionsY = toolY;
+    const float addX = contentX + contentW - toolW;
+    const float sortX = addX - toolGap - toolW;
+    const float startAllX = sortX - toolGap - toolW;
+    const float pauseAllX = startAllX - toolGap - toolW;
+    const float footerTop = screen.height - kPageTop - kPageFooterHeight;
+    const float actionY = screen.height - kPageTop - kButtonHeight;
+    const float listTop = toolY + toolW + kPageSectionGap;
+    // 状态消息使用独立留白，不覆盖最后一排任务操作。
+    const float statusSpace = g_statusMessage.empty() ? 0.0f : 44.0f;
+    const float listHeight = std::max(0.0f, footerTop - kPageSectionGap - listTop - statusSpace);
 
     int activeCount = 0, doneCount = 0;
     double totalSpeed = 0.0;
@@ -115,181 +121,30 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         canPause |= task.state == dl::State::Downloading || task.state == dl::State::Queued;
         canResume |= task.state == dl::State::Paused;
     }
-    const char* filterLabels[] = {tr("dl.filter_all"), tr("dl.filter_active"), tr("dl.filter_history")};
-    const int filterCounts[] = {static_cast<int>(tasks.size()), activeCount, doneCount};
+    const std::string filterText[] = {
+        std::format("{}  {}", tr("dl.filter_all"), tasks.size()),
+        std::format("{}  {}", tr("dl.filter_active"), activeCount),
+        std::format("{}  {}", tr("dl.filter_history"), doneCount),
+    };
+    const char* filterLabels[] = {filterText[0].c_str(), filterText[1].c_str(), filterText[2].c_str()};
     const Filter filters[] = {Filter::All, Filter::Active, Filter::Done};
-    const char* filterKeys[] = {"all", "active", "history"};
-    const float toolY = kPageTop;
-    const float actionsY = toolY;
-    const float sortX = addX - 8.0f - toolW;
-    const float pauseAllX = listX;
-    const float startAllX = pauseAllX + toolW + toolGap;
-    const float listTop = toolY + toolW + kPageSectionGap;
-    const float listHeight = std::max(0.0f, screen.height - kPageTop - listTop);
-    const float railHeight = std::max(0.0f, screen.height - kPageTop - toolY);
-
-    ui.stack("downloads.rail")
+    int selectedFilter = 0;
+    for (int i = 0; i < 3; ++i) if (g_filter == filters[i]) selectedFilter = i;
+    ui.stack("downloads.filters")
         .position(contentX, toolY)
-        .size(railW, railHeight)
-        .zIndex(g_pageSizeOpen ? 40 : 10)
+        .size(pauseAllX - contentX - kButtonGap, toolW)
         .content([&] {
-            drawPanel(ui, "downloads.rail.bg", 0, 0, railW, railHeight, theme);
-            components::text(ui, "downloads.rail.caption")
-                .position(12.0f, 14.0f)
-                .size(railW - 24.0f, 16.0f)
-                .text(tr("dl.queue"))
-                .fontSize(10.0f)
-                .lineHeight(16.0f)
-                .color(theme.metaText)
-                .build();
-            ui.column("downloads.filters")
-                .position(12.0f, 42.0f)
-                .size(railW - 24.0f, 124.0f)
-                .gap(8.0f)
-                .content([&] {
-                    for (int i = 0; i < 3; ++i) {
-                        const bool selected = g_filter == filters[i];
-                        components::button(ui, std::string("downloads.filter.") + filterKeys[i])
-                            .size(railW - 24.0f, 36.0f)
-                            .text(ellipsizeText(std::format("{}  {}", filterLabels[i], filterCounts[i]),
-                                               railW - 40.0f, 12.0f))
-                            .fontSize(12.0f)
-                            .theme(theme.components, false)
-                            .textColor(selected ? theme.onPrimary : theme.onSurfaceVariant)
-                            .colors(selected ? theme.primary : core::Color{0, 0, 0, 0},
-                                    selected ? theme.primary : stateLayer(theme.onSurface, 0.08f),
-                                    selected ? theme.primary : stateLayer(theme.onSurface, 0.12f))
-                            .radius(kButtonRadius)
-                            .border(0, {0, 0, 0, 0})
-                            .shadow(0, 0, 0, {0, 0, 0, 0})
-                            .transition(0.16f, core::Ease::OutCubic)
-                            .onClick([filter = filters[i]] { g_filter = filter; g_page = 1; })
-                            .build();
-                    }
-                })
-                .build();
-            ui.rect("downloads.rail.divider")
-                .position(12.0f, 186.0f)
-                .size(railW - 24.0f, kHairline)
-                .color(theme.outline)
-                .build();
-            ui.column("downloads.rate")
-                .position(12.0f, 202.0f)
-                .size(railW - 24.0f, 58.0f)
-                .gap(8.0f)
-                .content([&] {
-                    components::text(ui, "downloads.rate.caption")
-                        .size(railW - 24.0f, 16.0f)
-                        .text(tr("dl.transfer_rate"))
-                        .fontSize(9.0f)
-                        .lineHeight(16.0f)
-                        .color(theme.metaText)
-                        .build();
-                    const std::string rate = totalSpeed > 0.0 ? formatSpeed(totalSpeed) : "0 B/s";
-                    components::text(ui, "downloads.rate.value")
-                        .size(railW - 24.0f, 32.0f)
-                        .text(rate)
-                        .fontFamily(kMonoFont)
-                        .fontSize(core::TextPrimitive::measureTextWidth(rate, kMonoFont, 20.0f) > railW - 24.0f ? 16.0f : 20.0f)
-                        .lineHeight(32.0f)
-                        .color(theme.onSurface)
-                        .build();
-                })
-                .build();
-            // 分页和配置融入侧栏底部，普通 Stack / Row 不裁剪向上展开的选择器。
-            const float innerW = railW - 24.0f;
-            const float controlsY = railHeight - 12.0f - kPagerHeight;
-            const float paginationY = controlsY - 8.0f - kPagerHeight;
-            const float countY = paginationY - 8.0f - 14.0f;
-            ui.rect("downloads.rail.controls.divider")
-                .position(12.0f, countY - 12.0f)
-                .size(innerW, kHairline)
-                .color(theme.outline)
-                .build();
-            components::text(ui, "downloads.rail.count")
-                .position(12.0f, countY)
-                .size(innerW, 14.0f)
-                .text(trf("dl.task_count", totalCount))
-                .fontSize(10.0f)
-                .lineHeight(14.0f)
-                .horizontalAlign(core::HorizontalAlign::Center)
-                .color(theme.metaText)
-                .build();
-            constexpr float gap = 4.0f;
-            const float labelW = innerW - 2.0f * kPagerHeight - 2.0f * gap;
-            ui.row("pager.group")
-                .position(12.0f, paginationY)
-                .size(innerW, kPagerHeight)
-                .gap(gap)
-                .alignItems(core::Align::CENTER)
-                .content([&] {
-                    ui.stack("pager.prev")
-                        .size(kPagerHeight, kPagerHeight)
-                        .content([&] {
-                            drawToolbarIconButton(ui, "pager.prev.icon", 0, 0,
-                                kPagerHeight, kPagerHeight, 0xF053, false, theme,
-                                [] { if (g_page > 1) --g_page; }, false, g_page > 1);
-                        })
-                        .build();
-                    components::text(ui, "pager.label")
-                        .size(labelW, kPagerHeight)
-                        .text(ellipsizeText(std::format("{} / {}", g_page, totalPages), labelW,
-                                            kCompactButtonFontSize, kMonoFont))
-                        .fontSize(kCompactButtonFontSize)
-                        .fontFamily(kMonoFont)
-                        .lineHeight(kPagerHeight)
-                        .horizontalAlign(core::HorizontalAlign::Center)
-                        .verticalAlign(core::VerticalAlign::Center)
-                        .color(theme.metaText)
-                        .build();
-                    ui.stack("pager.next")
-                        .size(kPagerHeight, kPagerHeight)
-                        .content([&] {
-                            drawToolbarIconButton(ui, "pager.next.icon", 0, 0,
-                                kPagerHeight, kPagerHeight, 0xF054, false, theme,
-                                [totalPages] { if (g_page < totalPages) ++g_page; },
-                                false, g_page < totalPages);
-                        })
-                        .build();
-                })
-                .build();
-            const float pageSizeW = innerW - 2.0f * kPagerHeight - 2.0f * gap;
-            ui.row("downloads.rail.actions")
-                .position(12.0f, controlsY)
-                .size(innerW, kPagerHeight)
-                .gap(gap)
-                .alignItems(core::Align::CENTER)
-                .content([&] {
-                    ui.stack("downloads.directory.wrap")
-                        .size(kPagerHeight, kPagerHeight)
-                        .content([&] {
-                            drawToolbarIconButton(ui, "downloads.directory", 0, 0,
-                                kPagerHeight, kPagerHeight, 0xF07C, false, theme,
-                                [] { openFile(cfg::downloadDir()); });
-                        })
-                        .build();
-                    const char* pageLabels[] = {tr("dl.page.5"), tr("dl.page.10"),
-                                               tr("dl.page.20"), tr("dl.page.50"), tr("dl.page.100")};
-                    buildListPicker(ui, "pager.pageSize", pageSizeW, kPagerHeight, theme,
-                                    g_pageSizeOpen, pageLabels, 5, pageSizeIndex(),
-                                    pickerOpensUp(controlsY + kPagerHeight, 5, railHeight),
-                                    PickerField::Plain,
-                                    [](int i) { g_pageSize = kPageSizes[i]; g_page = 1; },
-                                    std::max(96.0f, pageSizeW));
-                    ui.stack("pager.settings")
-                        .size(kPagerHeight, kPagerHeight)
-                        .content([&] {
-                            drawToolbarIconButton(ui, "pager.settings.icon", 0, 0,
-                                kPagerHeight, kPagerHeight, 0xF013, false, theme,
-                                [] { g_page_view = Page::Settings; });
-                        })
-                        .build();
-                })
-                .build();
+            buildChoiceButtons(ui, "downloads.filters.choices", toolW, theme,
+                               filterLabels, 3, selectedFilter,
+                               [](int i) {
+                                   constexpr Filter values[] = {Filter::All, Filter::Active, Filter::Done};
+                                   g_filter = values[i];
+                                   g_page = 1;
+                               }, 12.0f);
         })
         .build();
 
-    // ---- 下载页操作统一纯图标：左侧暂停 / 启动，右侧排序 / 添加 ----
+    // ---- 顶部右侧操作：暂停 / 继续 / 排序 / 添加 ----
     // 排序选择器：图标按钮 + 向下弹出列表（buildListPicker 不设位置，
     // 由外层 stack 绝对定位）。
     const char* kSortLabels[] = {tr("dl.sort_newest"), tr("dl.sort_status_first"),
@@ -414,14 +269,87 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             .build();
     }
 
-    // ---- 状态消息（Snackbar）：任务区底部居中，4s 过期 ----
+    // 底部与设置页采用同一条分隔线；分页不再套一层装饰卡片。
+    ui.rect("downloads.footer.divider")
+        .position(contentX, footerTop)
+        .size(contentW, kHairline)
+        .color(theme.outline)
+        .build();
+    drawToolbarIconButton(ui, "downloads.directory", contentX, actionY,
+                          toolW, kButtonHeight, 0xF07C, false, theme,
+                          [] { openFile(cfg::downloadDir()); });
+    if (totalSpeed > 0.0) {
+        components::text(ui, "downloads.rate")
+            .position(contentX + toolW + 8.0f, actionY)
+            .size(180.0f, kButtonHeight)
+            .text(formatSpeed(totalSpeed))
+            .fontSize(11.0f)
+            .fontFamily(kMonoFont)
+            .lineHeight(kButtonHeight)
+            .color(theme.metaText)
+            .build();
+    }
+    constexpr float pagerW = 220.0f;
+    ui.row("pager.group")
+        .position(contentX + contentW - pagerW, actionY)
+        .size(pagerW, kButtonHeight)
+        .gap(4.0f)
+        .alignItems(core::Align::CENTER)
+        .zIndex(g_pageSizeOpen ? 40 : 10)
+        .content([&] {
+            ui.stack("pager.prev")
+                .size(kPagerHeight, kPagerHeight)
+                .content([&] {
+                    drawToolbarIconButton(ui, "pager.prev.icon", 0, 0,
+                        kPagerHeight, kPagerHeight, 0xF053, false, theme,
+                        [] { if (g_page > 1) --g_page; }, false, g_page > 1);
+                })
+                .build();
+            components::text(ui, "pager.label")
+                .size(54.0f, kPagerHeight)
+                .text(ellipsizeText(std::format("{} / {}", g_page, totalPages), 54.0f,
+                                    kCompactButtonFontSize, kMonoFont))
+                .fontSize(kCompactButtonFontSize)
+                .fontFamily(kMonoFont)
+                .lineHeight(kPagerHeight)
+                .horizontalAlign(core::HorizontalAlign::Center)
+                .verticalAlign(core::VerticalAlign::Center)
+                .color(theme.metaText)
+                .build();
+            ui.stack("pager.next")
+                .size(kPagerHeight, kPagerHeight)
+                .content([&] {
+                    drawToolbarIconButton(ui, "pager.next.icon", 0, 0,
+                        kPagerHeight, kPagerHeight, 0xF054, false, theme,
+                        [totalPages] { if (g_page < totalPages) ++g_page; },
+                        false, g_page < totalPages);
+                })
+                .build();
+            const char* pageLabels[] = {tr("dl.page.5"), tr("dl.page.10"),
+                                       tr("dl.page.20"), tr("dl.page.50"), tr("dl.page.100")};
+            buildListPicker(ui, "pager.pageSize", 74.0f, kPagerHeight, theme,
+                            g_pageSizeOpen, pageLabels, 5, pageSizeIndex(), true,
+                            PickerField::Plain,
+                            [](int i) { g_pageSize = kPageSizes[i]; g_page = 1; }, 96.0f);
+            ui.stack("pager.settings")
+                .size(toolW, kButtonHeight)
+                .content([&] {
+                    drawToolbarIconButton(ui, "pager.settings.icon", 0, 0,
+                        toolW, kButtonHeight, 0xF013, false, theme,
+                        [] { g_page_view = Page::Settings; g_pageSizeOpen = false; g_sortOpen = false; });
+                })
+                .build();
+        })
+        .build();
+
+    // ---- 状态消息（Snackbar）：任务区下方独立留白，4s 过期 ----
     if (!g_statusMessage.empty()) {
         const bool shown = g_statusTimer > 0.0f;
         const float snH = 32.0f;
         const float snW = std::min(listW,
             core::TextPrimitive::measureTextWidth(g_statusMessage, "", 12.0f) + 32.0f);
         const float snX = listX + (listW - snW) * 0.5f;
-        const float snY = screen.height - kPageTop - snH;
+        const float snY = footerTop - kPageSectionGap - snH;
         const auto transition = core::Transition::make(0.18f, core::Ease::OutCubic);
         ui.stack("status.snack")
             .position(snX, snY)
@@ -454,32 +382,31 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     // ---- 添加下载弹窗（模态）：链接 + 每任务高级选项 ----
     if (g_addOpen) {
         const float dlgW = 320.0f;
-        // 直链 tab 最下面的字段是 mediaTrackY(292) + 28 = 320，再留 40 给底部按钮行 →
-        // 400 够用，且窗口最小高度是 500 逻辑像素（app.cpp::minWindowSize），永远放得下。
+        // 最低字段和底部操作留出固定间距；416px 小于 500px 的最小逻辑高度。
         // 因此字段区**不用滚动容器**：components::scrollView 会给根 stack 挂 .clip()，
         // 而 buildListPicker 的「点弹层外收起」是全屏拦截 rect、弹层也在字段区内，
         // 被 clip 之后点标题 / 页签 / 按钮区都收不起弹层（AGENTS.md 约定 14）。
-        const float dlgH = g_addTab == AddTab::Direct ? 400.0f : 220.0f;
+        const float dlgH = g_addTab == AddTab::Direct ? 416.0f : 236.0f;
         const float dlgX = (screen.width - dlgW) * 0.5f;
         const float dlgY = std::max(12.0f, (screen.height - dlgH) * 0.5f);
         const float labelX = 16.0f;
         const float labelW = 56.0f;
         const float inputX = 74.0f;
-        const float tabY = 34.0f;      // 顶部切换（直链下载 / 种子）
+        const float tabY = 44.0f;      // 顶部切换（直链下载 / 种子）
         const float tabW = 88.0f;
         const float tabH = 26.0f;
-        const float urlY = 66.0f;      // 直链：URL 多行输入（磁力 magnet: 也在这）
+        const float urlY = 78.0f;      // 直链：URL 多行输入（磁力 magnet: 也在这）
         const float urlH = 48.0f;
-        const float splitY = 122.0f;   // 直链：分片数
-        const float renameY = 156.0f;  // 直链：重命名
-        const float dirY = 190.0f;     // 直链：下载目录
-        const float mediaY = 224.0f;   // 直链：HLS/DASH 类型与输出容器
-        const float mirrorY = 258.0f;   // 直链：镜像多源 / 磁力文件选择
-        const float mediaTrackY = 292.0f;
+        const float splitY = 134.0f;   // 直链：分片数
+        const float renameY = 168.0f;  // 直链：重命名
+        const float dirY = 202.0f;     // 直链：下载目录
+        const float mediaY = 236.0f;   // 直链：HLS/DASH 类型与输出容器
+        const float mirrorY = 270.0f;   // 直链：镜像多源 / 磁力文件选择
+        const float mediaTrackY = 304.0f;
         const float btnY = dlgH - 40.0f;
-        const float torY = 66.0f;      // 种子 tab：种子文件行
-        const float torDirY = 102.0f;  // 种子 tab：下载目录行
-        const float torHintY = 138.0f; // 种子 tab：提示文字
+        const float torY = 78.0f;      // 种子 tab：种子文件行
+        const float torDirY = 114.0f;  // 种子 tab：下载目录行
+        const float torHintY = 150.0f; // 种子 tab：提示文字
         // 字段区 = urlY 到按钮行 btnY 之间（坐标都相对字段区顶边 urlY）。
         const float directFieldsViewportH = btnY - urlY;
         const float directFieldsContentH = mediaTrackY - urlY + 28.0f;
@@ -606,6 +533,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .value(g_urlText)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                         .theme(theme.components)
+                        .style(flatInputStyle(theme))
                         .onChange([](const std::string& value) { g_urlText = value; })
                         .onEnter([] { if (addDownload()) g_addOpen = false; })
                         .build();
@@ -692,6 +620,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .value(g_addRenameText)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                         .theme(theme.components)
+                        .style(flatInputStyle(theme))
                         .onChange([](const std::string& value) { g_addRenameText = value; })
                         .onEnter([] { if (addDownload()) g_addOpen = false; })
                         .build();
@@ -712,6 +641,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .value(g_addDirText)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                         .theme(theme.components)
+                        .style(flatInputStyle(theme))
                         .onChange([](const std::string& value) { g_addDirText = value; })
                         .onEnter([] { if (addDownload()) g_addOpen = false; })
                         .build();
@@ -803,6 +733,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .value(g_addTorrentPath)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                         .theme(theme.components)
+                        .style(flatInputStyle(theme))
                         .onChange([](const std::string& value) { g_addTorrentPath = value; })
                         .build();
                     components::button(ui, "add.torrent.browse")
@@ -836,6 +767,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .value(g_addDirText)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                         .theme(theme.components)
+                        .style(flatInputStyle(theme))
                         .onChange([](const std::string& value) { g_addDirText = value; })
                         .build();
                     components::button(ui, "add.torrent.dir.browse")
@@ -1849,6 +1781,7 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
                 .value(g_mirrorAddText)
                 .fontFamily("")
                 .theme(theme.components)
+                .style(flatInputStyle(theme))
                 .onChange([](const std::string& v) { g_mirrorAddText = v; })
                 .build();
             if (active) {

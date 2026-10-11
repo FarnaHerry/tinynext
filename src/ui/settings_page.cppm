@@ -35,8 +35,6 @@ std::string g_downloadDirText = cfg::downloadDir().string();
 // 「启动时自动重试失败任务」待提交值（默认关闭；点「保存」才写入配置，
 // 下次启动生效）。
 bool g_autoRetryFailed = cfg::autoRetryFailed();
-bool g_langOpen = false;  // 语言下拉是否展开
-bool g_themeOpen = false;  // 主题下拉是否展开
 
 // aria2 参数待提交值（设置页输入框的文本形式）。
 std::string g_aria2SplitText = std::to_string(cfg::aria2Config().split);
@@ -52,7 +50,6 @@ std::string g_aria2MinSplitUnit = [] {
     splitSizeUnit(cfg::aria2Config().minSplitSize, value, unit);
     return unit;
 }();  // 最小分片单位（KB/MB/GB），随配置解析
-bool g_minSplitUnitOpen = false;  // 最小分片单位下拉是否展开
 std::string g_aria2LimitText =
     std::to_string(cfg::aria2Config().maxDownloadLimit / 1024);  // KB/s
 // daemon 级参数待提交值。
@@ -83,7 +80,6 @@ std::string g_saveCookiesText = cfg::aria2Config().saveCookies;
 std::string g_overallLimitText =
     std::to_string(cfg::aria2Config().maxOverallDownloadLimit / 1024);  // KB/s
 std::string g_fileAllocation = cfg::aria2Config().fileAllocation;  // ""/none/trunc/falloc
-bool g_fileAllocationOpen = false;
 bool g_autoFileRenaming = cfg::aria2Config().autoFileRenaming;
 bool g_allowOverwrite = cfg::aria2Config().allowOverwrite;
 bool g_checkIntegrity = cfg::aria2Config().checkIntegrity;
@@ -190,9 +186,8 @@ void applyThemeChoice(int i) {
 export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
     const float contentX = pageContentX(screen.width);
     const float contentW = pageContentWidth(screen.width);
-    constexpr float panelPad = 16.0f;
-    const float infoX = contentX + panelPad;
-    const float innerW = contentW - 2.0f * panelPad;
+    const float infoX = contentX;
+    const float innerW = std::min(contentW, kMaxSettingsFormWidth);
     drawToolbarIconButton(ui, "settings.close", contentX + contentW - kToolbarButtonSize,
                           kPageTop + 1.0f, kToolbarButtonSize, kToolbarButtonSize,
                           0xF00D, false, theme, [] { g_page_view = Page::Downloads; });
@@ -263,20 +258,22 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         })
         .build();
 
-    constexpr float kLabelW = 90.0f;
+    constexpr float kLabelW = 120.0f;
     constexpr float kFieldH = 26.0f;
     const float footerTop = screen.height - kPageTop - kPageFooterHeight;
     const float actionY = screen.height - kPageTop - kButtonHeight;
-    const float panelTop = headerY + tabsHeight + kPageSectionGap;
-    const float panelHeight = std::max(0.0f, footerTop - kPageSectionGap - panelTop);
-    const float scrollTop = panelTop + 12.0f;
-    const float scrollHeight = std::max(0.0f, panelHeight - 24.0f);
-    drawPanel(ui, "settings.panel", contentX, panelTop, contentW, panelHeight, theme);
-    ui.rect("settings.footer.divider")
-        .position(contentX, footerTop)
-        .size(contentW, kHairline)
-        .color(theme.outline)
-        .build();
+    const float bodyTop = headerY + tabsHeight + kPageSectionGap;
+    const bool hasFooter = g_settingsTab != SettingsTab::About;
+    const float bodyBottom = hasFooter ? footerTop - kPageSectionGap : screen.height - kPageTop;
+    const float scrollTop = bodyTop;
+    const float scrollHeight = std::max(0.0f, bodyBottom - bodyTop);
+    if (hasFooter) {
+        ui.rect("settings.footer.divider")
+            .position(contentX, footerTop)
+            .size(contentW, kHairline)
+            .color(theme.outline)
+            .build();
+    }
 
     // 设置项较多，正文放进 scrollView（主题/路径/aria2 参数）；底部操作行
     // 固定在窗口底部，始终可见。
@@ -286,14 +283,14 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     components::scrollView(ui, "settings.scroll")
         .position(infoX, scrollTop)
         .size(innerW, scrollHeight)
-        .gap(6.0f)
+        .gap(12.0f)
         .scrollbarWidth(kScrollbarWidth)
         .scrollbarGap(kScrollbarGap)
         .theme(theme.components)
         .content([&](eui::Ui& sv, float width, float) {
             const float rowW = width;
             // 全部单列布局（用户要求：不要横向双列）。各字段只留 kInputW 宽度。
-            constexpr float kInputW = 90.0f;
+            constexpr float kInputW = 112.0f;
             const float fullW =
                 std::max(160.0f, rowW - 16.0f - kLabelW - 8.0f);
 
@@ -305,8 +302,6 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 .build();
 
             // 一行 = 一个定高 stack 子项，由 scrollView 纵向自动排布。
-            // zIndex 用于把含弹出下拉的行抬到其它行之上（eui 按 zIndex 稳定排序
-            // 直接子元素），否则弹层会被后面几行盖住。
             auto row = [&](const std::string& id, float height,
                            const std::function<void(eui::Ui&, float)>& draw,
                            int zIndex = 0) {
@@ -338,6 +333,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .value(value)
                     .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
                     .theme(theme.components)
+                    .style(flatInputStyle(theme))
                     .onChange(onChange)
                     .build();
             };
@@ -362,9 +358,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
 
             // ===== 通用：主题 / 关闭行为 / 语言 =====
             if (g_settingsTab == SettingsTab::General) {
-            // ---- 主题（下拉，选择即预览、保存才落盘）----
-            // 行 zIndex 用 200：高于下面语言行的 100——主题下拉弹出会向下盖过语言行，
-            // 同 zIndex 时后画（语言行）会压在弹层之上。
+            // 少量选项直接展示，沿用页面标签的选择样式。
             row("theme", kFieldH, [&](eui::Ui& r, float) {
                 components::text(r, "st.theme.label")
                     .position(0, 0)
@@ -375,22 +369,16 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .color(theme.metaText)
                     .build();
                 r.stack("st.theme.pick")
-                    .position(kLabelW, -2.0f)
-                    .size(90.0f, 26.0f)
-                    .zIndex(30)
+                    .position(kLabelW, 0.0f)
+                    .size(360.0f, kFieldH)
                     .content([&] {
-                        const char* themeLabels[] = {
-                            tr("settings.theme.system"),
-                            tr("settings.theme.dark"),
-                            tr("settings.theme.light"),
-                        };
-                        buildListPicker(r, "theme", 90.0f, 26.0f, theme,
-                                        g_themeOpen, themeLabels, 3,
-                                        themeIndex(), false, PickerField::Text,
-                                        [](int i) { applyThemeChoice(i); });
+                        const char* labels[] = {tr("settings.theme.system"),
+                                                tr("settings.theme.dark"), tr("settings.theme.light")};
+                        buildChoiceButtons(r, "st.theme.choices", kFieldH, theme, labels, 3,
+                                           themeIndex(), [](int i) { applyThemeChoice(i); });
                     })
                     .build();
-            }, 200);  // 行 zIndex：高于语言行（100），弹出下拉不被盖
+            });
 
             // ---- 关闭时缩到托盘（三平台生效；Linux 自 eui 0.5.7 走 SNI 真实
             //      托盘）。eui 只在启动时读一次开关，保存后弹「需要重启」对话框。----
@@ -409,7 +397,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             });
 
             // ---- 启动时自动重试失败任务（默认关闭，下次启动生效）。标签较长，
-            //      90px 标签列会折成两行：行高给到 40，行高 13 两行正好放下。----
+            //      长标签允许换行，40px 行高为中英文都留出空间。----
             row("auto.retry", 40.0f, [&](eui::Ui& r, float) {
                 components::text(r, "st.auto.retry.label")
                     .position(0, 1.0f)
@@ -426,7 +414,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                   [](bool v) { g_autoRetryFailed = v; });
             });
 
-            // ---- 语言（下拉框，立即生效 + 持久化）----
+            // 语言仍选择即生效，使用本族语言名。
             row("lang", kFieldH, [&](eui::Ui& r, float) {
                 components::text(r, "st.lang.label")
                     .position(0, 0)
@@ -437,24 +425,19 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .color(theme.metaText)
                     .build();
                 r.stack("st.lang.pick")
-                    .position(kLabelW, -2.0f)
-                    .size(90.0f, 26.0f)
-                    .zIndex(30)
+                    .position(kLabelW, 0.0f)
+                    .size(360.0f, kFieldH)
                     .content([&] {
-                        // 语言名按本族语言显示，不随 UI 语言翻译。
-                        const char* langLabels[] = {"简体中文", "繁體中文", "English"};
-                        buildListPicker(r, "lang", 90.0f, 26.0f, theme,
-                                        g_langOpen, langLabels, 3,
-                                        g_lang == cfg::Lang::ZhTW ? 1
-                                            : g_lang == cfg::Lang::En ? 2 : 0,
-                                        false, PickerField::Text,
-                                        [](int i) {
-                                            setLanguage(i == 2 ? cfg::Lang::En
-                                                : i == 1 ? cfg::Lang::ZhTW : cfg::Lang::ZhCN);
-                                        });
+                        const char* labels[] = {"简体中文", "繁體中文", "English"};
+                        buildChoiceButtons(r, "st.lang.choices", kFieldH, theme, labels, 3,
+                            g_lang == cfg::Lang::ZhTW ? 1 : g_lang == cfg::Lang::En ? 2 : 0,
+                            [](int i) {
+                                setLanguage(i == 2 ? cfg::Lang::En
+                                    : i == 1 ? cfg::Lang::ZhTW : cfg::Lang::ZhCN);
+                            });
                     })
                     .build();
-            }, 100);  // 行 zIndex：让弹出下拉盖过后面各行
+            });
 
             }  // 全局 tab 结束（主题 / 关闭行为 / 语言）
 
@@ -479,6 +462,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .value(g_downloadDirText)
                         .fontFamily("")
                         .theme(theme.components)
+                        .style(flatInputStyle(theme))
                         .onChange([](const std::string& value) { g_downloadDirText = value; })
                         .build();
                     drawTextButton(r, "st.path.browse", kLabelW + pathInputW + 8.0f, -2.0f,
@@ -502,7 +486,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                  1, 64, 1);
                 });
                 row("a.minsplit", kFieldH, [&](eui::Ui& r, float) {
-                    // 最小分片：数值输入 + 紧跟的单位下拉（KB/MB/GB）。
+                    // 最小分片：数值输入 + KB/MB 直接选择。
                     // aria2 的 --min-split-size 要求 ≥ 1M，保存时统一校验兜底。
                     components::text(r, "st.a.minsplit.label")
                         .position(0, 0)
@@ -517,28 +501,22 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                        [](const std::string& v) { g_aria2MinSplitText = v; },
                                        1, minSplitMax(g_aria2MinSplitUnit), 1);
                     r.stack("st.a.minsplit.unit")
-                        .position(kLabelW + kInputW + 8.0f, -2.0f)
-                        .size(64.0f, 26.0f)
-                        .zIndex(30)
+                        .position(kLabelW + kInputW + 8.0f, 0.0f)
+                        .size(120.0f, kFieldH)
                         .content([&] {
-                            buildListPicker(r, "a.minsplit.unit", 64.0f, 26.0f,
-                                            theme, g_minSplitUnitOpen, kSizeUnits, 2,
-                                            sizeUnitIndex(g_aria2MinSplitUnit), false,
-                                            PickerField::Text,
-                                            [](int i) {
-                                                // 换单位按 1024 进制换算数值（字节量不变），
-                                                // 而不是只改单位标签。
-                                                const std::string newUnit = kSizeUnits[i];
-                                                if (newUnit != g_aria2MinSplitUnit) {
-                                                    g_aria2MinSplitText = convertSizeUnit(
-                                                        g_aria2MinSplitText,
-                                                        g_aria2MinSplitUnit, newUnit);
-                                                    g_aria2MinSplitUnit = newUnit;
-                                                }
-                                            });
+                            buildChoiceButtons(r, "st.a.minsplit.unit.choices", kFieldH, theme,
+                                kSizeUnits, 2, sizeUnitIndex(g_aria2MinSplitUnit),
+                                [](int i) {
+                                    const std::string newUnit = kSizeUnits[i];
+                                    if (newUnit != g_aria2MinSplitUnit) {
+                                        g_aria2MinSplitText = convertSizeUnit(
+                                            g_aria2MinSplitText, g_aria2MinSplitUnit, newUnit);
+                                        g_aria2MinSplitUnit = newUnit;
+                                    }
+                                });
                         })
                         .build();
-                }, 100);  // 行 zIndex：让弹出下拉盖过后面各行
+                });
                 row("a.limit", kFieldH, [&](eui::Ui& r, float) {
                     numericField(r, "a.limit", tr("settings.per_task_limit_kbs"), 0, kInputW, g_aria2LimitText,
                                  [](const std::string& v) { g_aria2LimitText = v; },
@@ -561,23 +539,16 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .color(theme.metaText)
                         .build();
                     r.stack("st.beh.allocation.pick")
-                        .position(kLabelW, -2.0f)
-                        .size(84.0f, 26.0f)
-                        .zIndex(30)
+                        .position(kLabelW, 0.0f)
+                        .size(360.0f, kFieldH)
                         .content([&] {
-                            const char* allocLabels[] = {
-                                tr("settings.file_alloc_default"), "none", "trunc", "falloc"
-                            };
-                            buildListPicker(r, "beh.allocation", 84.0f, 26.0f, theme,
-                                            g_fileAllocationOpen, allocLabels, 4,
-                                            fileAllocationIndex(g_fileAllocation), false,
-                                            PickerField::Text,
-                                            [](int i) {
-                                                g_fileAllocation = kFileAllocValues[i];
-                                            });
+                            const char* labels[] = {tr("settings.file_alloc_default"), "none", "trunc", "falloc"};
+                            buildChoiceButtons(r, "st.beh.allocation.choices", kFieldH, theme,
+                                labels, 4, fileAllocationIndex(g_fileAllocation),
+                                [](int i) { g_fileAllocation = kFileAllocValues[i]; });
                         })
                         .build();
-                }, 100);  // 行 zIndex：文件分配下拉展开时盖过后面各行
+                });
                 row("a.concurrent", kFieldH, [&](eui::Ui& r, float) {
                     numericField(r, "a.concurrent", tr("settings.max_concurrent"), 0, kInputW,
                                  g_maxConcurrentText,
@@ -641,6 +612,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .value(g_headerText)
                         .fontFamily("")
                         .theme(theme.components)
+                        .style(flatInputStyle(theme))
                         .onChange([](const std::string& v) { g_headerText = v; })
                         .build();
                 });
@@ -721,6 +693,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .value(g_btTrackerText)
                         .fontFamily("")
                         .theme(theme.components)
+                        .style(flatInputStyle(theme))
                         .onChange([](const std::string& v) { g_btTrackerText = v; })
                         .build();
                 });

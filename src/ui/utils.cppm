@@ -18,10 +18,11 @@ export import tinynext.utils;
 // dpiScale*uiScale 统一放大；kUI 仍是唯一的缩放旋钮（传给 uiScale + 决定窗口物理尺寸）。
 export constexpr float kUI = 1.4f;
 
-// 响应式页面令牌（设计逻辑像素）。窄窗口将工具栏和设置分组拆行；宽窗口的
+// 响应式页面令牌（设计逻辑像素）。窄窗口保持紧凑工具栏，设置分组按标签宽度换行；宽窗口的
 // 主内容限宽并居中，避免任务卡/表单在超宽屏上被拉得过长。
 export constexpr float kCompactBreakpoint = 820.0f;
-export constexpr float kMaxPageContentWidth = 1440.0f;
+export constexpr float kMaxPageContentWidth = 1040.0f;
+export constexpr float kMaxSettingsFormWidth = 720.0f;
 export bool isCompactLayout(float width) { return width < kCompactBreakpoint; }
 export float pageContentInset(float viewportWidth) {
     return isCompactLayout(viewportWidth) ? 12.0f : 24.0f;
@@ -44,7 +45,7 @@ export constexpr float kMinPageHeight = 500.0f;
 // 布局尺寸都按“设计逻辑像素”书写，并用 screen.width/height 推算；
 // 页面共用 pageContentWidth/pageContentX 做窄屏留白与宽屏限宽居中。
 export constexpr float kPagerHeight = 24.0f;        // 翻页行高
-export constexpr float kCardHeight = 268.0f;        // 网格竖向进度任务卡
+export constexpr float kCardHeight = 160.0f;        // 紧凑任务卡：名称 / 状态 / 进度 / 操作
 export constexpr float kTaskCardMinWidth = 236.0f;
 export constexpr float kCardPad = 16.0f;
 export constexpr float kCardGap = 10.0f;
@@ -63,7 +64,7 @@ export constexpr float kDialogButtonFontSize = 12.0f;
 // 黑白极客：按钮小圆角（pill 已随 M3 退役）。
 export constexpr float kButtonRadius = 6.0f;
 export constexpr float kButtonGap = 8.0f;
-export constexpr float kToolbarButtonSize = 26.0f;
+export constexpr float kToolbarButtonSize = 28.0f;
 export constexpr float kToolbarIconSize = 13.0f;
 export constexpr float kCardActionSize = 22.0f;
 export constexpr float kCardActionIconSize = 11.0f;

@@ -149,8 +149,9 @@ export const AppTheme kDarkTheme = {
         tokens.border = {0.180f, 0.180f, 0.180f, 1.0f};
         // eui input 组件内部默认 `metrics_.typography.input = 17`（未按设计值书写）。
         // uiScale 原生缩放后，app 字号已回到设计值（标签 11-12），这个 17 却仍按
-        // 设计值放大 → 输入框文字比标签大 ~60%。覆写为设计值 13。
-        tokens.metrics.typography.input = 13.0f;
+        // 设计值放大 → 输入框文字比标签大 ~60%。统一为设计值 12。
+        tokens.metrics.typography.input = 12.0f;
+        tokens.metrics.radius.popup = 6.0f;
         return tokens;
     }(),
 };
@@ -202,8 +203,9 @@ export const AppTheme kLightTheme = {
         tokens.surfaceActive = {0.933f, 0.933f, 0.933f, 1.0f};
         tokens.text = {0.067f, 0.067f, 0.067f, 1.0f};
         tokens.border = {0.851f, 0.851f, 0.851f, 1.0f};
-        // 与深色主题一致：input 默认字号覆写为设计值 13（见 kDarkTheme 注释）。
-        tokens.metrics.typography.input = 13.0f;
+        // 与深色主题一致：input 默认字号统一为设计值 12（见 kDarkTheme 注释）。
+        tokens.metrics.typography.input = 12.0f;
+        tokens.metrics.radius.popup = 6.0f;
         return tokens;
     }(),
 };
