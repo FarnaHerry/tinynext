@@ -42,7 +42,7 @@ progress, and version numbers.
 
 - **Downloads:** Filter tasks by all, active, or completed; sort by date, state,
   name, size, or progress; and navigate pages from the bottom toolbar.
-- **Task cards:** Compact grid cards show the file name, state, percentage, a horizontal progress bar, transfer details, and task actions.
+- **Task cards:** Compact grid cards use a vertical progress bar on the left, filling from bottom to top. The file name, state, percentage, and transfer details sit to its right, with task actions below. Unknown totals show `--`; live recordings show `LIVE`.
 - **Add Download:** Enter one or more URLs, set a connection count, rename the
   output, choose a destination, or select a local torrent file. Multiple
   compatible URLs can be combined as mirror sources for one task. Choose

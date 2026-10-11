@@ -146,12 +146,13 @@ export std::string cardInfoText(const dl::TaskView& task) {
     return parts.empty() ? tr("card.state.downloading") : parts;
 }
 
-// 紧凑任务卡：名称、状态与百分比、横向进度、传输信息、底部操作。
+// 紧凑任务卡：左侧竖向进度，右侧名称、状态与百分比、传输信息，底部操作。
 // 列表仍按任务 id 保留身份；菜单与领域命令沿用原来的状态条件。
 export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth) {
     const AppTheme& theme = currentTheme();
     const std::string fid = "task." + std::to_string(task.id);
-    const float nameW = std::max(0.0f, cardWidth - 2.0f * kCardPad);
+    const float textX = kCardPad + kCardProgressWidth + kCardProgressGap;
+    const float nameW = std::max(0.0f, cardWidth - textX - kCardPad);
 
     // 进度值：已完成视为 1，其余按已下载/总量计算。
     float progress = 0.0f;
@@ -191,7 +192,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
 
             // 名称在单行内精确截断；完整名称、链接及错误通过信息入口查看。
             components::text(ui, fid + ".name")
-                .position(kCardPad, 14.0f)
+                .position(textX, 14.0f)
                 .size(nameW, 20.0f)
                 .text(ellipsizeText(taskDisplayName(task), nameW, 13.0f))
                 .fontSize(13.0f)
@@ -199,7 +200,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .color(theme.nameText)
                 .build();
             components::text(ui, fid + ".state")
-                .position(kCardPad, 42.0f)
+                .position(textX, 42.0f)
                 .size(nameW - 56.0f, 16.0f)
                 .text(stateLabel(task.state))
                 .fontSize(11.0f)
@@ -216,17 +217,18 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .horizontalAlign(core::HorizontalAlign::Right)
                 .color(theme.metaText)
                 .build();
+            // 所有任务共用竖向轨道；未知总量和直播保持空轨道，以 -- / LIVE 标示。
             ui.rect(fid + ".progress.track")
-                .position(kCardPad, 68.0f)
-                .size(nameW, 3.0f)
+                .position(kCardPad, kCardPad)
+                .size(kCardProgressWidth, kCardProgressHeight)
                 .color(theme.surfaceContainerHighest)
-                .radius(1.5f)
+                .radius(kCardProgressWidth * 0.5f)
                 .build();
             ui.rect(fid + ".progress.fill")
-                .position(kCardPad, 68.0f)
-                .size(nameW * progress, 3.0f)
+                .position(kCardPad, kCardPad + kCardProgressHeight * (1.0f - progress))
+                .size(kCardProgressWidth, kCardProgressHeight * progress)
                 .color(progressColor)
-                .radius(1.5f)
+                .radius(kCardProgressWidth * 0.5f)
                 .transition(core::Transition::make(0.18f, core::Ease::OutCubic))
                 .animate(core::AnimProperty::Frame | core::AnimProperty::Color)
                 .build();
@@ -241,7 +243,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 }
             }
             components::text(ui, fid + ".infotext")
-                .position(kCardPad, 82.0f)
+                .position(textX, 70.0f)
                 .size(nameW, 18.0f)
                 .text(ellipsizeText(info, nameW, 11.0f, kMonoFont))
                 .fontSize(11.0f)
