@@ -352,6 +352,18 @@ SourceForge 的间歇故障。
 强调；② `quit` 加 `--force`（或 `quit --force`）走真正的退出路径；③ `quit` 直接
 强制退出，想缩托盘的用户点窗口的 X —— ③ 改动最小但要改 agent 帮助文案。
 
+**已拍板（2026-10-11，方案：marshal 超时后自动硬退出）**：`quit` 在 UI 线程
+10s 未应答（托盘待机态）时不再报错，改为在监听线程先回
+`ok: TinyNext is force quitting…`（写进内核缓冲，客户端必达），再执行
+`g_tasks.shutdown()`（saveSession + 杀 daemon，线程安全、幂等）并
+`_exit(0)`/`ExitProcess(0)` 立即结束进程——刻意跳过 atexit/静态析构，避免
+「主循环还活着却开始拆全局」的竞态；X11/Wayland/GLFW 状态由服务端与合成器
+回收，Windows 托盘图标残留到鼠标悬停（外观代价）。窗口可见时仍走 UI 线程的
+优雅路径（托盘图标正常清理）。「add → watch --until-idle → quit」脚本流程在
+托盘模式下闭环。实现：`cli.cppm` 的 `runControl` 超时分支 +
+`g_forceQuitAfterResponse` 标志 + `forceQuitNow()`（响应由监听循环发送后再
+触发硬退出，保证先应答后退出）。
+
 另外顺带记录：排查过程中发现「用 `pkill -x tinynext` 杀不掉 `run.sh` 启动的进程」
 ——进程名是 `ld-linux-x86-64.so.2`（加载器），要按 PID 或
 `pkill -f 'ld-linux.*tinynext'` 杀。

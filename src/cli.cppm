@@ -321,7 +321,27 @@ int exchangeCtl(const std::string& request, std::string& response) {
 // 执行一条控制请求（监听线程调用）。只读动词（status/list/watch）直接执行：
 // snapshot/refreshHealth 线程安全（housekeep 同款用法），窗口缩进托盘时也能应答。
 // 变更动词 marshal 到 UI 线程执行（store 约定：任务命令在 UI 线程发起，与卡片
-// 操作同一条路径）；UI 沉睡/托盘隐藏时 10s 超时报明确错误。
+// 操作同一条路径）；UI 沉睡/托盘隐藏时 10s 超时报明确错误——例外是 quit：托盘
+// 待机时 UI 线程收不到请求，超时后改走硬退出（见 forceQuitNow），让
+// 「add → watch --until-idle → quit」脚本流程在托盘模式下闭环。
+std::atomic<bool> g_forceQuitAfterResponse{false};
+
+// 硬退出：监听线程在 quit 的 marshal 超时、且响应已写回客户端后调用。引擎关闭
+// （saveSession + forceShutdown + 杀 daemon，shutdown 自带锁与幂等）之后用
+// _exit/ExitProcess 立即结束进程——刻意跳过 atexit/静态析构：主循环线程还活着
+// 且没有任何代码路径能在托盘态唤醒它收尾，与其冒访问半析构全局的风险，不如
+// 让 OS 直接回收（X11/Wayland/GLFW 状态由服务端与合成器清理；Windows 托盘
+// 图标会残留到鼠标悬停，外观代价，换取会话必定落盘 + 无孤儿 daemon）。
+void forceQuitNow() {
+    g_appExiting.store(true);  // housekeep/CLI 循环尽早自停（尽力而为）
+    g_tasks.shutdown();
+#ifdef _WIN32
+    ::ExitProcess(0);
+#else
+    ::_exit(0);
+#endif
+}
+
 std::string runControl(const std::vector<std::string>& tokens) {
     if (cli_control::isReadOnlyVerb(tokens[0])) return cli_control::handle(tokens);
     auto reply = std::make_shared<std::promise<std::string>>();
@@ -332,6 +352,11 @@ std::string runControl(const std::vector<std::string>& tokens) {
     }
     core::platform::requestUiUpdate();
     if (fu.wait_for(std::chrono::seconds(10)) != std::future_status::ready) {
+        if (!tokens.empty() && tokens[0] == "quit") {
+            g_forceQuitAfterResponse.store(true);
+            return "ok: TinyNext is force quitting (window hidden to tray; "
+                   "session saved, engine daemon stopped)\n";
+        }
         return "error: TinyNext did not answer within 10s — its window may be hidden "
                "to the tray; restore it and retry\n";
     }
@@ -420,6 +445,10 @@ void cliListenerLoop() {
                 : runControl(tokens);
             if (!resp.ends_with('\n')) resp += '\n';
             sendAll(client.get(), resp);
+            // 响应已写进内核缓冲（客户端必定收到），此刻硬退出安全。
+            if (g_forceQuitAfterResponse.exchange(false)) {
+                forceQuitNow();  // 不返回：进程在此结束
+            }
             continue;
         }
         if (g_appExiting.load()) { closeListen(); return; }
@@ -571,9 +600,10 @@ FOR AI AGENTS
   - Control commands never launch the app: if it may be closed, add a download first
     (`tinynext <url>` auto-launches) or start TinyNext normally.
   - A TinyNext window minimized to the system tray answers status / list / watch, but
-    task operations (pause / resume / retry / remove / quit) only run while its UI loop
-    is alive — restore the window and retry. On Windows, forwarding a download
-    automatically restores the window first.
+    task operations (pause / resume / retry / remove) only run while its UI loop is
+    alive — restore the window and retry. `quit` is the exception: when hidden, it
+    force-quits after the 10s marshal timeout (session saved, engine daemon stopped).
+    On Windows, forwarding a download automatically restores the window first.
   - Per-user state you may inspect: config <configDir>/tinynext.conf, aria2 session
     <configDir>/tinynext.session, engine log <configDir>/tinynext-aria2.log.
     <configDir> = Windows %APPDATA%\TinyNext · macOS ~/Library/Application Support/TinyNext
