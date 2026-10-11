@@ -222,10 +222,10 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
             // 右列名称允许两行；来源与第一版相同，完整名称从信息入口查看。
             components::text(ui, fid + ".name")
                 .position(textX, kCardPad)
-                .size(nameW, 36.0f)
+                .size(nameW, 32.0f)
                 .text(ellipsizeText(taskDisplayName(task), nameW * 2.0f, 13.0f))
                 .fontSize(13.0f)
-                .lineHeight(18.0f)
+                .lineHeight(16.0f)
                 .maxWidth(nameW)
                 .wrap(true)
                 .clip()
@@ -238,12 +238,12 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 if (const auto at = source.rfind('@'); at != std::string::npos) source = source.substr(at + 1);
             } else if (source.starts_with("magnet:")) source = "MAGNET";
             components::text(ui, fid + ".source")
-                .position(textX, 58.0f)
-                .size(nameW, 14.0f)
+                .position(textX, 48.0f)
+                .size(nameW, 12.0f)
                 .text(ellipsizeText(std::format("#{:04} / {}", task.id, source), nameW, 9.0f, kMonoFont))
                 .fontFamily(kMonoFont)
                 .fontSize(9.0f)
-                .lineHeight(14.0f)
+                .lineHeight(12.0f)
                 .color(theme.hintText)
                 .build();
             std::string info = cardInfoText(task);
@@ -257,38 +257,38 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 }
             }
             ui.column(fid + ".meter.readout")
-                .position(textX, 82.0f)
-                .size(nameW, 114.0f)
-                .gap(4.0f)
+                .position(textX, 68.0f)
+                .size(nameW, 92.0f)
+                .gap(2.0f)
                 .content([&] {
                     components::text(ui, fid + ".meter.caption")
-                        .size(nameW, 14.0f)
+                        .size(nameW, 12.0f)
                         .text(tr("dl.col_progress"))
                         .fontSize(9.0f)
-                        .lineHeight(14.0f)
+                        .lineHeight(12.0f)
                         .color(theme.metaText)
                         .build();
                     components::text(ui, fid + ".percentage")
-                        .size(nameW, 38.0f)
+                        .size(nameW, 32.0f)
                         .text(progressText)
                         .fontFamily(kMonoFont)
-                        .fontSize(28.0f)
-                        .lineHeight(38.0f)
+                        .fontSize(24.0f)
+                        .lineHeight(32.0f)
                         .color(theme.onSurface)
                         .build();
                     components::text(ui, fid + ".state")
-                        .size(nameW, 16.0f)
+                        .size(nameW, 14.0f)
                         .text(stateLabel(task.state))
                         .fontSize(10.0f)
-                        .lineHeight(16.0f)
+                        .lineHeight(14.0f)
                         .color(stateColor(task.state))
                         .build();
                     components::text(ui, fid + ".infotext")
-                        .size(nameW, 32.0f)
+                        .size(nameW, 28.0f)
                         .text(ellipsizeText(info, nameW * 2.0f, 10.0f, kMonoFont))
                         .fontSize(10.0f)
                         .fontFamily(kMonoFont)
-                        .lineHeight(16.0f)
+                        .lineHeight(14.0f)
                         .maxWidth(nameW)
                         .wrap(true)
                         .clip()
@@ -332,7 +332,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 (task.mediaState == "recording" || task.mediaState == "paused") &&
                 (task.state == dl::State::Downloading || task.state == dl::State::Paused);
 
-            // 先收集操作，再在末行从右往左摆放（先调用的在最右）。左→右阅读顺序：
+            // 先收集操作，绘制时反向读取，保留既有左→右阅读顺序：
             // 进行中任务：开始/暂停在最左，接着所在文件夹/复制链接，最右是取消。
             // 已完成任务：打开文件/所在文件夹/复制链接成组，接着重新下载，最后删除。
             // 全部普通颜色（无主色），与同类按钮一致。
@@ -425,12 +425,11 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .position(textX, kCardHeight - kCardPad - kCardIconW)
                 .size(actionWidth, kCardIconW)
                 .content([&] {
-                    float bx = actionWidth;
-                    for (auto& action : actions) {
-                        bx -= kCardIconW;
+                    float bx = 0.0f;
+                    for (auto& action : actions | std::views::reverse) {
                         drawCardAction(ui, fid + ".actions." + action.id, bx, 0.0f,
                                        action.icon, action.primary, theme, std::move(action.callback));
-                        bx -= actionGap;
+                        bx += kCardIconW + actionGap;
                     }
                 })
                 .build();

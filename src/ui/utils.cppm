@@ -45,14 +45,15 @@ export constexpr float kMinPageHeight = 500.0f;
 // 布局尺寸都按“设计逻辑像素”书写，并用 screen.width/height 推算；
 // 页面共用 pageContentWidth/pageContentX 做窄屏留白与宽屏限宽居中。
 export constexpr float kPagerHeight = 24.0f;        // 翻页行高
-export constexpr float kCardHeight = 268.0f;        // 第一版竖卡，进度列 / 内容列
-export constexpr float kTaskCardMinWidth = 260.0f; // 内容列容纳最多九个 22px 操作按钮
-export constexpr float kCardPad = 16.0f;
+export constexpr float kCardHeight = 200.0f;        // 紧凑竖卡，进度列 / 内容列
+export constexpr float kTaskCardMinWidth = 244.0f; // 内容列容纳最多九个 22px 操作按钮
+export constexpr float kTaskCardMaxWidth = 260.0f; // 卡片在宽窗口里也保持紧凑
+export constexpr float kCardPad = 12.0f;
 export constexpr float kCardProgressWidth = 6.0f;   // 左侧竖向进度，自下向上填充
 export constexpr float kCardProgressColumnWidth = 12.0f; // 轨道与刻度独占的列宽
 export constexpr float kCardProgressHeight = kCardHeight - 2.0f * kCardPad;
-export constexpr float kCardProgressGap = 12.0f;    // 进度列与内容列的间距
-export constexpr float kCardGap = 10.0f;
+export constexpr float kCardProgressGap = 8.0f;     // 进度列与内容列的间距
+export constexpr float kCardGap = 8.0f;
 export constexpr float kCardIconW = 22.0f;          // 卡片操作图标按钮边长
 export constexpr float kCardIconGap = 4.0f;
 

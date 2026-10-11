@@ -251,8 +251,9 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 // 同一个 Flow 负责整页网格；由滚动区实测宽度决定列数，任务 id 不随列数变化。
                 const int columns = std::max(1, static_cast<int>((width + kCardGap) /
                     (kTaskCardMinWidth + kCardGap)));
-                // Flow 按严格 > 判断换行；取整留出余量，避免浮点累计把最后一张挤到下一行。
-                const float cardWidth = std::floor((width - (columns - 1) * kCardGap) / columns);
+                // 保持卡片尺寸上限；取整留出余量，避免浮点累计把最后一张挤到下一行。
+                const float cardWidth = std::min(kTaskCardMaxWidth,
+                    std::floor((width - (columns - 1) * kCardGap) / columns));
                 const int rows = (end - start + columns - 1) / columns;
                 const float gridHeight = rows * kCardHeight + std::max(0, rows - 1) * kCardGap;
                 sv.flow("task.grid")
