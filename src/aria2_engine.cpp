@@ -516,6 +516,15 @@ std::vector<std::pair<std::string, std::string>> daemonExtraOpts(
     if (std::filesystem::exists(sessionPath, ec)) {
         add("input-file", utf8FromPath(sessionPath));
     }
+    // 异常退出兜底（对齐 Motrix）：主进程崩溃/被强杀时 atexit 链不会执行，没人
+    // terminate daemon。让 aria2 轮询主进程 PID，父进程消失即按正常流程自杀
+    // （含保存会话）。优雅退出仍走 shutdown() 的 saveSession + forceShutdown，
+    // 不依赖本选项。
+#ifdef _WIN32
+    add("stop-with-process", std::to_string(::GetCurrentProcessId()));
+#else
+    add("stop-with-process", std::to_string(::getpid()));
+#endif
     // 磁力/BT：保存元数据为 .torrent + 显式开启 DHT / PEX。
     add("bt-save-metadata", "true");
     add("enable-dht", "true");
