@@ -146,12 +146,12 @@ export std::string cardInfoText(const dl::TaskView& task) {
     return parts.empty() ? tr("card.state.downloading") : parts;
 }
 
-// 紧凑任务卡：左侧竖向进度，右侧名称、状态与百分比、传输信息，底部操作。
+// 竖版任务卡：进度独占左列，第一版的名称 / 来源 / 大号百分比 / 信息排在右列。
 // 列表仍按任务 id 保留身份；菜单与领域命令沿用原来的状态条件。
 export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth) {
     const AppTheme& theme = currentTheme();
     const std::string fid = "task." + std::to_string(task.id);
-    const float textX = kCardPad + kCardProgressWidth + kCardProgressGap;
+    const float textX = kCardPad + kCardProgressColumnWidth + kCardProgressGap;
     const float nameW = std::max(0.0f, cardWidth - textX - kCardPad);
 
     // 进度值：已完成视为 1，其余按已下载/总量计算。
@@ -190,47 +190,61 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .border(kHairline, theme.outline)
                 .build();
 
-            // 名称在单行内精确截断；完整名称、链接及错误通过信息入口查看。
+            // 左侧进度列从卡片顶部延伸到底部，与右侧全部内容独立。
+            ui.stack(fid + ".progress")
+                .position(kCardPad, kCardPad)
+                .size(kCardProgressColumnWidth, kCardProgressHeight)
+                .content([&] {
+                    ui.rect(fid + ".progress.track")
+                        .size(kCardProgressWidth, kCardProgressHeight)
+                        .color(theme.surfaceContainerHighest)
+                        .radius(2.0f)
+                        .build();
+                    ui.rect(fid + ".progress.fill")
+                        .position(0.0f, kCardProgressHeight * (1.0f - progress))
+                        .size(kCardProgressWidth, kCardProgressHeight * progress)
+                        .color(progressColor)
+                        .radius(2.0f)
+                        .transition(core::Transition::make(0.18f, core::Ease::OutCubic))
+                        .animate(core::AnimProperty::Frame | core::AnimProperty::Color)
+                        .build();
+                    for (int tick = 0; tick < 5; ++tick) {
+                        ui.rect(fid + ".progress.tick." + std::to_string(tick))
+                            .position(kCardProgressColumnWidth - 3.0f,
+                                      (kCardProgressHeight - kHairline) * tick / 4.0f)
+                            .size(3.0f, kHairline)
+                            .color(theme.outline)
+                            .build();
+                    }
+                })
+                .build();
+
+            // 右列名称允许两行；来源与第一版相同，完整名称从信息入口查看。
             components::text(ui, fid + ".name")
-                .position(textX, 8.0f)
-                .size(nameW, 20.0f)
-                .text(ellipsizeText(taskDisplayName(task), nameW, 13.0f))
+                .position(textX, kCardPad)
+                .size(nameW, 36.0f)
+                .text(ellipsizeText(taskDisplayName(task), nameW * 2.0f, 13.0f))
                 .fontSize(13.0f)
-                .lineHeight(20.0f)
+                .lineHeight(18.0f)
+                .maxWidth(nameW)
+                .wrap(true)
+                .clip()
                 .color(theme.nameText)
                 .build();
-            components::text(ui, fid + ".state")
-                .position(textX, 30.0f)
-                .size(nameW - 56.0f, 16.0f)
-                .text(stateLabel(task.state))
-                .fontSize(11.0f)
-                .lineHeight(16.0f)
-                .color(stateColor(task.state))
-                .build();
-            components::text(ui, fid + ".percentage")
-                .position(cardWidth - kCardPad - 52.0f, 30.0f)
-                .size(52.0f, 16.0f)
-                .text(progressText)
+            std::string source = task.url;
+            if (const auto scheme = source.find("://"); scheme != std::string::npos) {
+                source = source.substr(scheme + 3);
+                if (const auto slash = source.find_first_of("/?#"); slash != std::string::npos) source.resize(slash);
+                if (const auto at = source.rfind('@'); at != std::string::npos) source = source.substr(at + 1);
+            } else if (source.starts_with("magnet:")) source = "MAGNET";
+            components::text(ui, fid + ".source")
+                .position(textX, 58.0f)
+                .size(nameW, 14.0f)
+                .text(ellipsizeText(std::format("#{:04} / {}", task.id, source), nameW, 9.0f, kMonoFont))
                 .fontFamily(kMonoFont)
-                .fontSize(11.0f)
-                .lineHeight(16.0f)
-                .horizontalAlign(core::HorizontalAlign::Right)
-                .color(theme.metaText)
-                .build();
-            // 所有任务共用竖向轨道；未知总量和直播保持空轨道，以 -- / LIVE 标示。
-            ui.rect(fid + ".progress.track")
-                .position(kCardPad, kCardPad)
-                .size(kCardProgressWidth, kCardProgressHeight)
-                .color(theme.surfaceContainerHighest)
-                .radius(kCardProgressWidth * 0.5f)
-                .build();
-            ui.rect(fid + ".progress.fill")
-                .position(kCardPad, kCardPad + kCardProgressHeight * (1.0f - progress))
-                .size(kCardProgressWidth, kCardProgressHeight * progress)
-                .color(progressColor)
-                .radius(kCardProgressWidth * 0.5f)
-                .transition(core::Transition::make(0.18f, core::Ease::OutCubic))
-                .animate(core::AnimProperty::Frame | core::AnimProperty::Color)
+                .fontSize(9.0f)
+                .lineHeight(14.0f)
+                .color(theme.hintText)
                 .build();
             std::string info = cardInfoText(task);
             if (task.state == dl::State::Done && task.totalBytes > 0) info = formatBytes(task.totalBytes);
@@ -242,14 +256,45 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                         : formatBytes(task.downloadedBytes);
                 }
             }
-            components::text(ui, fid + ".infotext")
-                .position(textX, 48.0f)
-                .size(nameW, 16.0f)
-                .text(ellipsizeText(info, nameW, 11.0f, kMonoFont))
-                .fontSize(11.0f)
-                .fontFamily(kMonoFont)
-                .lineHeight(16.0f)
-                .color(theme.metaText)
+            ui.column(fid + ".meter.readout")
+                .position(textX, 82.0f)
+                .size(nameW, 114.0f)
+                .gap(4.0f)
+                .content([&] {
+                    components::text(ui, fid + ".meter.caption")
+                        .size(nameW, 14.0f)
+                        .text(tr("dl.col_progress"))
+                        .fontSize(9.0f)
+                        .lineHeight(14.0f)
+                        .color(theme.metaText)
+                        .build();
+                    components::text(ui, fid + ".percentage")
+                        .size(nameW, 38.0f)
+                        .text(progressText)
+                        .fontFamily(kMonoFont)
+                        .fontSize(28.0f)
+                        .lineHeight(38.0f)
+                        .color(theme.onSurface)
+                        .build();
+                    components::text(ui, fid + ".state")
+                        .size(nameW, 16.0f)
+                        .text(stateLabel(task.state))
+                        .fontSize(10.0f)
+                        .lineHeight(16.0f)
+                        .color(stateColor(task.state))
+                        .build();
+                    components::text(ui, fid + ".infotext")
+                        .size(nameW, 32.0f)
+                        .text(ellipsizeText(info, nameW * 2.0f, 10.0f, kMonoFont))
+                        .fontSize(10.0f)
+                        .fontFamily(kMonoFont)
+                        .lineHeight(16.0f)
+                        .maxWidth(nameW)
+                        .wrap(true)
+                        .clip()
+                        .color(theme.metaText)
+                        .build();
+                })
                 .build();
 
             // 信息区使用完整文字宽度；操作集中到独立的最后一行。
@@ -368,16 +413,16 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                           });
                       });
             }
-            // 末行跨过竖向进度条下方，使用整张卡片的内宽，不占用信息区。
+            // 操作只占右列最后一行，与名称左边缘对齐，不添加分隔线。
             // 最窄卡片也容纳全部操作：按钮大小固定，只在必要时收紧按钮间距。
-            const float actionWidth = cardWidth - 2.0f * kCardPad;
+            const float actionWidth = nameW;
             const float actionCount = static_cast<float>(actions.size());
             const float actionGap = actions.size() > 1
                 ? std::clamp((actionWidth - actionCount * kCardIconW) / (actionCount - 1.0f),
                              0.0f, kCardIconGap)
                 : 0.0f;
             ui.stack(fid + ".actions")
-                .position(kCardPad, kCardHeight - kCardPad - kCardIconW)
+                .position(textX, kCardHeight - kCardPad - kCardIconW)
                 .size(actionWidth, kCardIconW)
                 .content([&] {
                     float bx = actionWidth;
