@@ -52,13 +52,25 @@ private:
 class UniqueHkey {
 public:
     UniqueHkey() = default;
+    explicit UniqueHkey(HKEY value) noexcept : value_(value) {}
     ~UniqueHkey() { reset(); }
 
     UniqueHkey(const UniqueHkey&) = delete;
     UniqueHkey& operator=(const UniqueHkey&) = delete;
 
+    UniqueHkey(UniqueHkey&& other) noexcept : value_(other.release()) {}
+    UniqueHkey& operator=(UniqueHkey&& other) noexcept {
+        if (this != &other) reset(other.release());
+        return *this;
+    }
+
     explicit operator bool() const noexcept { return value_ != nullptr; }
     HKEY get() const noexcept { return value_; }
+    HKEY release() noexcept {
+        HKEY value = value_;
+        value_ = nullptr;
+        return value;
+    }
     void reset(HKEY value = nullptr) noexcept {
         if (value_) ::RegCloseKey(value_);
         value_ = value;
