@@ -4,6 +4,7 @@
   "private": true,
   "description": "TinyNext 下载器 Chrome 扩展（TypeScript 源码，dist/ 为编译产物）",
   "type": "module",
+  "packageManager": "pnpm@12.0.0",
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch"

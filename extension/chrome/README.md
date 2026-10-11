@@ -47,8 +47,8 @@ Chrome 扩展（MV3） --Native Messaging--> tinynext 宿主模式 --TCP/inbox--
 
 ```bash
 cd extension/chrome
-npm install     # typescript + @types/chrome（devDependencies）
-npm run build   # tsc → dist/；npm run watch 边改边编
+pnpm install    # typescript + @types/chrome（devDependencies）
+pnpm build      # tsc → dist/；pnpm watch 边改边编
 ```
 
 - 入口：`src/background.ts`（service worker）/ `src/popup.ts`（popup），
