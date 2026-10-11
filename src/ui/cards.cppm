@@ -252,7 +252,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .color(theme.metaText)
                 .build();
 
-            // 信息区底边为 64，操作换到第二行时顶边为 68，仍保留独立空间。
+            // 信息区使用完整文字宽度；操作集中到独立的最后一行。
             const bool showPause = task.state == dl::State::Downloading;
             const bool mediaTrackSelectionSupported = !task.awaitingMediaTrackSelection ||
                 g_tasks.health().supportsMediaTrackSelection;
@@ -287,22 +287,21 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 (task.mediaState == "recording" || task.mediaState == "paused") &&
                 (task.state == dl::State::Downloading || task.state == dl::State::Paused);
 
-            // 从右往左摆放（place 递减 bx，先调用的在最右）。左→右阅读顺序：
+            // 先收集操作，再在末行从右往左摆放（先调用的在最右）。左→右阅读顺序：
             // 进行中任务：开始/暂停在最左，接着所在文件夹/复制链接，最右是取消。
             // 已完成任务：打开文件/所在文件夹/复制链接成组，接着重新下载，最后删除。
             // 全部普通颜色（无主色），与同类按钮一致。
-            float btnY = kCardHeight - kCardPad - kCardIconW;
-            float bx = cardWidth - kCardPad;
+            struct CardAction {
+                std::string id;
+                unsigned int icon;
+                bool primary;
+                std::function<void()> callback;
+            };
+            std::vector<CardAction> actions;
+            actions.reserve(9);
             const auto place = [&](const std::string& aid, unsigned int icon,
                                    bool primary, std::function<void()> cb) {
-                if (bx - kCardIconW < kCardPad) {
-                    bx = cardWidth - kCardPad;
-                    btnY -= kCardIconW + kCardIconGap;
-                }
-                bx -= kCardIconW;
-                drawCardAction(ui, fid + "." + aid, bx, btnY, icon, primary, theme,
-                               std::move(cb));
-                bx -= kCardIconGap;
+                actions.push_back({aid, icon, primary, std::move(cb)});
             };
             if (showDelete) {
                 place("delete", 0xF1F8, false,  // fa-trash（仅任务结束后显示）
@@ -369,6 +368,27 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                           });
                       });
             }
+            // 末行跨过竖向进度条下方，使用整张卡片的内宽，不占用信息区。
+            // 最窄卡片也容纳全部操作：按钮大小固定，只在必要时收紧按钮间距。
+            const float actionWidth = cardWidth - 2.0f * kCardPad;
+            const float actionCount = static_cast<float>(actions.size());
+            const float actionGap = actions.size() > 1
+                ? std::clamp((actionWidth - actionCount * kCardIconW) / (actionCount - 1.0f),
+                             0.0f, kCardIconGap)
+                : 0.0f;
+            ui.stack(fid + ".actions")
+                .position(kCardPad, kCardHeight - kCardPad - kCardIconW)
+                .size(actionWidth, kCardIconW)
+                .content([&] {
+                    float bx = actionWidth;
+                    for (auto& action : actions) {
+                        bx -= kCardIconW;
+                        drawCardAction(ui, fid + ".actions." + action.id, bx, 0.0f,
+                                       action.icon, action.primary, theme, std::move(action.callback));
+                        bx -= actionGap;
+                    }
+                })
+                .build();
         })
         .build();
 }

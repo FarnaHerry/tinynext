@@ -45,7 +45,7 @@ export constexpr float kMinPageHeight = 500.0f;
 // 布局尺寸都按“设计逻辑像素”书写，并用 screen.width/height 推算；
 // 页面共用 pageContentWidth/pageContentX 做窄屏留白与宽屏限宽居中。
 export constexpr float kPagerHeight = 24.0f;        // 翻页行高
-export constexpr float kCardHeight = 128.0f;        // 紧凑任务卡，底部容纳最多两行操作
+export constexpr float kCardHeight = 108.0f;        // 信息区 + 独立的末行操作区
 export constexpr float kTaskCardMinWidth = 236.0f;
 export constexpr float kCardPad = 12.0f;
 export constexpr float kCardProgressWidth = 4.0f;   // 左侧竖向进度，自下向上填充
