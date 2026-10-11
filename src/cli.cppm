@@ -563,6 +563,10 @@ FOR AI AGENTS
   - Add, then track:  tinynext https://example.com/big.zip
                       tinynext list --json          (find the task id)
                       tinynext watch --until-idle   (blocks until downloads are done)
+  - Starting the app via a CLI add (no instance running) or the browser extension
+    starts it directly into the tray — no window pops up; restore it from the tray
+    menu. Custom spawners can pass "--start-hidden" for the same behavior. Note the
+    tray-mode limits above (task ops need the window restored).
   - Control commands never launch the app: if it may be closed, add a download first
     (`tinynext <url>` auto-launches) or start TinyNext normally.
   - A TinyNext window minimized to the system tray answers status / list / watch, but
@@ -877,6 +881,14 @@ export void runControlIfRequested() {
 // 单实例：CLI 启动参数是否已添加过（processPendingUrls 首次消费）。模块私有。
 bool g_cliHandled = false;
 
+// CLI 带下载参数自动启动 / 扩展宿主以 --start-hidden 拉起时置位（仅主实例 GUI
+// 路线）：app.cpp 在首帧完成全部初始化（URL 已入队、warmup/IPC/宿主注册启动）
+// 后合成「点 X」事件直接进托盘待机，不弹窗。仅「关闭时缩到托盘」开启时真正
+// 生效（app.cpp 检查；用户关闭该行为时没有「藏」可去，保持弹窗）。
+bool g_startHidden = false;
+
+export bool shouldStartHiddenToTray() { return g_startHidden; }
+
 // 单实例引导：静态初始化（main 之前）尝试获取锁。第二实例转发 URL 并退出、
 // 不闪窗口；主实例正常继续，CLI URL 由 processPendingUrls 添加到下载列表。
 // 模块全局的动态初始化先于任何引用 TU 的静态初始化执行。
@@ -910,6 +922,15 @@ struct CliBoot {
         if (!primary) {
             forwardToRunningInstance(downloadLines());
             std::exit(0);
+        }
+        // 作为主实例被 CLI 唤起（带下载参数）或被扩展宿主以 --start-hidden 拉起：
+        // 首帧后直接进托盘，不弹窗。--restart 是用户显式「立即重启」，正常显示。
+        if (!commandLineRestartMode() &&
+            (!downloadLines().empty() ||
+             std::ranges::any_of(commandLineArgs(), [](const std::string& a) {
+                 return a == "--start-hidden";
+             }))) {
+            g_startHidden = true;
         }
     }
 };

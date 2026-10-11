@@ -210,8 +210,10 @@ export void setThemeMode(ThemeMode mode) {
     saveConfig(j);
 }
 
-// 关闭窗口行为：true = 缩到系统托盘（eui .tray()，三平台生效；Linux 自 eui-neo
-// 0.5.7 起走 SNI 注册真实托盘，KDE/GNOME 可用）。eui 只在启动时读一次开关，
+// 关闭窗口行为：true = X 缩到系统托盘；false = X 直接退出。托盘图标本身强制
+// 常驻（app 的 .tray(true)），本开关不再控制托盘是否存在——托盘是「CLI/扩展
+// 拉起后直接进托盘待机」与后台退出入口的前提。它同时是 CLI/扩展拉起时「首帧
+// 后直接进托盘」的前提（见 app.cpp）。eui 只在启动时读一次开关，
 // 改后重启生效——设置页保存时弹「需要重启」对话框（可一键立即重启）。
 export bool closeToTray() {
     const auto j = loadConfig();

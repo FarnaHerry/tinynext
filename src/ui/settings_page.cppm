@@ -1055,7 +1055,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             cfg::setDownloadDir(g_downloadDirText);
 
             // 汇总提示：aria2 daemon 已启动时，参数保存后需重启才生效。
-            // 关闭行为改动弹「需要重启」对话框（eui 只在启动时读一次 .tray()，
+            // 关闭行为改动弹「需要重启」对话框（关闭行为只在启动时读一次，
             // 4s 的状态条太容易错过，曾被认为是"切换没用"）；对话框提供立即重启。
             if (trayChanged) {
                 g_restartPromptOpen = true;

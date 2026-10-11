@@ -76,10 +76,11 @@ const DslAppConfig& dslAppConfig() {
         .showDebugStatsInTitle(false)
         .textFont("NotoSansSC-Regular.ttf")
         .iconFont("FontAwesome7.otf")
-        // 系统托盘：配置 close_to_tray 决定 X 是否缩到托盘（不退出），托盘菜单
-        // 「显示/退出」。Windows 用 Shell_NotifyIcon（.ico），Linux 0.5.7 起用
-        // StatusNotifierItem（GDBus/GIO），无需额外依赖；设置页可改，重启生效。
-        .tray(cfg::closeToTray())
+        // 系统托盘强制常驻：托盘是「CLI/扩展拉起后直接进托盘待机」（不弹窗）和
+        // 「后台退出入口」的前提，不再提供关闭托盘的选项。close_to_tray 配置只
+        // 决定 X 关闭行为（缩托盘 / 直接退出，见 compose 尾部），eui 只在启动时
+        // 读一次，改后重启生效。
+        .tray(true)
         .trayTitle("TinyNext 下载器")
 #ifdef _WIN32
         .trayIcon("assets/icon.ico")
@@ -208,6 +209,24 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
             }
         })
         .build();
+
+    // 首帧收尾（一次性）：此时 URL 已处理、warmup/IPC/宿主注册全部就绪，可以
+    // 应用关闭策略。
+    //  - CLI 带下载参数 / 扩展宿主拉起的启动：合成一次「点 X」事件 → eui 的
+    //    关闭回调把它转成「隐藏到托盘」，主循环进托盘待机（引擎/IPC/housekeep
+    //    后台线程继续跑，托盘菜单「显示」唤回）。仅「关闭时缩到托盘」开启时
+    //    生效；窗口会闪现一帧，属于 eui 机制下能做到的「直接进托盘」。
+    //  - 用户关闭「关闭时缩到托盘」：托盘仍常驻，但 X 恢复「直接退出」语义
+    //    （eui 只要托盘在就把 X 一律转成缩托盘，见 platform 注释）。
+    static bool closePolicyApplied = false;
+    if (!closePolicyApplied) {
+        closePolicyApplied = true;
+        if (!cfg::closeToTray()) {
+            overrideWindowCloseToExit();
+        } else if (cli::shouldStartHiddenToTray()) {
+            requestHideWindowToTray();
+        }
+    }
 }
 
 } // namespace app

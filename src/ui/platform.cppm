@@ -11,6 +11,9 @@ extern "C" void glfwGetWindowSize(GLFWwindow* window, int* width, int* height);
 extern "C" void glfwSetWindowSize(GLFWwindow* window, int width, int height);
 extern "C" void glfwSetWindowSizeLimits(GLFWwindow* window, int minWidth, int minHeight,
                                        int maxWidth, int maxHeight);
+extern "C" void glfwSetWindowShouldClose(GLFWwindow* window, int value);
+extern "C" void glfwSetWindowCloseCallback(GLFWwindow* window,
+                                           void (*callback)(GLFWwindow*));
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -33,6 +36,12 @@ extern "C" HWND glfwGetWin32Window(GLFWwindow* window);
 #endif
 #ifndef _WIN32
 #include <unistd.h>  // fork/setsid/execv/_exit（restartApp 的自重启）
+#ifndef __APPLE__
+#include <X11/Xlib.h>  // WM_DELETE_WINDOW 合成关闭事件（requestHideWindowToTray）
+// GLFW native access（glfw3native.h，X11 构建下由链接的 glfw 库导出）。
+extern "C" Display* glfwGetX11Display(GLFWwindow* window);
+extern "C" Window glfwGetX11Window(GLFWwindow* window);
+#endif
 #ifdef __APPLE__
 #include <mach-o/dyld.h>  // _NSGetExecutablePath
 #endif
@@ -612,6 +621,55 @@ export void restartApp() {
     }
     // 没找到启动器也照常退出：配置已落盘，用户手动重启同样生效。
     std::exit(0);
+#endif
+}
+
+// ---- 窗口关闭策略（托盘常驻后，见 app.cpp 的说明）----
+
+// 「关闭时缩到托盘」关闭时调用：把主窗口的关闭回调换成「X = 直接退出」。
+// eui 只要托盘存在就把 X 一律转换成隐藏（glfw_app_main 的 close callback 只看
+// trayAvailable，没有独立开关），这里用公开 GLFW API 覆写语义；托盘图标由 eui
+// 退出清理（shutdownTray）移除。eui 原回调里的「模态子窗口聚焦」逻辑本应用
+// 未用到（弹窗都是场景内绘制，不是 GLFW 子窗口）。
+export void overrideWindowCloseToExit() {
+    if (GLFWwindow* window = glfwGetCurrentContext()) {
+        glfwSetWindowCloseCallback(window, [](GLFWwindow* current) {
+            glfwSetWindowShouldClose(current, 1 /* GLFW_TRUE */);
+        });
+    }
+}
+
+// 合成一次「用户点 X」的窗口系统关闭事件，让 eui 的关闭回调把它转换成
+// 「隐藏到托盘」。CLI 带下载参数 / 扩展宿主拉起的首次启动用它进托盘待机。
+// 注意：glfwSetWindowShouldClose 只是置 flag，不会触发关闭回调——主循环会直接
+// 退出而不是隐藏，所以必须走真实的窗口系统事件：
+//   Windows  WM_CLOSE（GLFW 翻译成关闭请求）
+//   Linux    WM_DELETE_WINDOW client message（与标题栏 X 同路径，含 XWayland）
+//   macOS    没有 C++ 可用的等价事件：no-op，隐藏启动降级为正常显示。
+export void requestHideWindowToTray() {
+    GLFWwindow* window = glfwGetCurrentContext();
+    if (!window) return;
+#ifdef _WIN32
+    PostMessageW(glfwGetWin32Window(window), WM_CLOSE, 0, 0);
+#elif !defined(__APPLE__)
+    Display* display = glfwGetX11Display(window);
+    const Window xwindow = glfwGetX11Window(window);
+    if (!display || xwindow == None) return;
+    // ICCCM：关闭请求是 message_type=WM_PROTOCOLS、data.l[0]=WM_DELETE_WINDOW
+    // 的 ClientMessage（与 wmctrl -c / 标题栏 X 完全同路径）。
+    const Atom wmProtocols = XInternAtom(display, "WM_PROTOCOLS", False);
+    const Atom wmDelete = XInternAtom(display, "WM_DELETE_WINDOW", False);
+    XEvent event{};
+    event.xclient.type = ClientMessage;
+    event.xclient.window = xwindow;
+    event.xclient.message_type = wmProtocols;
+    event.xclient.format = 32;
+    event.xclient.data.l[0] = static_cast<long>(wmDelete);
+    event.xclient.data.l[1] = CurrentTime;
+    XSendEvent(display, xwindow, False, NoEventMask, &event);
+    XFlush(display);
+#else
+    (void)window;
 #endif
 }
 

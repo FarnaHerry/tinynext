@@ -89,7 +89,8 @@ std::filesystem::path linuxHostLauncher(const std::filesystem::path& exe) {
 
 // 双 fork 拉起 detached 进程：中间子进程被 waitpid 收尸，孙进程 exec 目标并由
 // init 收养（宿主进程长生命周期，单 fork 会留僵尸）。fork 与 exec 之间只用
-// async-signal-safe 调用。
+// async-signal-safe 调用。目标固定带 --start-hidden：宿主拉起的 GUI 首帧后
+// 直接进托盘（同 CLI 唤起，不弹窗）。
 void spawnDetachedUnix(const std::filesystem::path& launcher) {
     const pid_t pid = ::fork();
     if (pid != 0) {
@@ -108,6 +109,7 @@ void spawnDetachedUnix(const std::filesystem::path& launcher) {
     std::string arg0 = launcher.string();
     std::vector<char*> argv;
     argv.push_back(arg0.data());
+    argv.push_back(const_cast<char*>("--start-hidden"));
     argv.push_back(nullptr);
     ::execv(argv[0], argv.data());
     ::_exit(127);
@@ -122,7 +124,7 @@ void spawnAppDetached() {
     STARTUPINFOW si{};
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
-    std::wstring cmd = exe.wstring();
+    std::wstring cmd = exe.wstring() + L" --start-hidden";
     if (!CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, FALSE, 0,
                         nullptr, nullptr, &si, &pi)) {
         return;

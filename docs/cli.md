@@ -23,7 +23,8 @@ tinynext --mirror https://fast.example.com/big.iso https://slow.example.org/big.
 tinynext --headless https://example.com/file.zip
 echo "exit code: $?"   # 0 = 全部成功，1 = 任一失败或引擎不可用
 
-# 应用没在运行时：自动启动应用并加入下载列表
+# 应用没在运行时：自动启动应用（首帧后直接进托盘待机，不弹窗；托盘菜单「显示」唤回）
+# 并加入下载列表。扩展宿主自拉起同样如此；自定义启动器可显式传 --start-hidden。
 # 应用已在运行时：把链接转发给已运行实例，它自动添加；Windows 上还会把窗口切到前台
 
 # 给 AI/脚本看的 CLI 使用教学（打印到 stdout 后退出，不进 GUI）
