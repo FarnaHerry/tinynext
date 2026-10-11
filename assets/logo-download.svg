@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>TinyNext download logo</title>
+  <desc>Three incoming data chunks, a downward arrow, and a receiving tray.</desc>
+  <rect x="8" y="8" width="240" height="240" rx="48" fill="#0A0A0A"/>
+  <g fill="#FFFFFF">
+    <rect x="92" y="50" width="16" height="18" rx="3"/>
+    <rect x="120" y="50" width="16" height="18" rx="3"/>
+    <rect x="148" y="50" width="16" height="18" rx="3"/>
+    <path d="M116 84h24v34l22-22 16 16-50 50-50-50 16-16 22 22z"/>
+    <path d="M64 158h20v20h88v-20h20v32a8 8 0 0 1-8 8H72a8 8 0 0 1-8-8z"/>
+  </g>
+</svg>
