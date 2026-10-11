@@ -22,3 +22,9 @@ engines/ffmpeg
 engines/aria2-next-2.5.5
 tmp/
 .worktrees/engines/aria2-next-2.5.5
+
+# 浏览器扩展：TS 编译产物需要提交（加载已解压开箱即用），豁免上面的全局 dist/；
+# node_modules 用 npm install 自备。
+extension/chrome/node_modules
+!extension/chrome/dist/
+!extension/chrome/dist/**

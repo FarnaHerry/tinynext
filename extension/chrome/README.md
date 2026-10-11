@@ -40,6 +40,23 @@ Chrome 扩展（MV3） --Native Messaging--> tinynext 宿主模式 --TCP/inbox--
 - 其它 Chromium 系浏览器（Edge/Brave 等）注册路径不同，暂未支持；Firefox
   使用不同的 Native Messaging 端口协议，暂不支持。
 
+## 源码与构建
+
+源码是 TypeScript（`src/*.ts`），编译产物 `dist/*.js` **随仓库提交**——普通用户
+「加载已解压」不需要任何 JS 工具链；只有改扩展源码时才需要构建：
+
+```bash
+cd extension/chrome
+npm install     # typescript + @types/chrome（devDependencies）
+npm run build   # tsc → dist/；npm run watch 边改边编
+```
+
+- 入口：`src/background.ts`（service worker）/ `src/popup.ts`（popup），
+  共享逻辑在 `src/protocol.ts`（宿主协议类型）/ `src/messaging.ts`（客户端）。
+- `package.json` 带 `"type": "module"`，import 一律写带 `.js` 的相对路径
+  （浏览器 ESM 要求显式扩展名，tsc 按 bundler 解析回 .ts）。
+- 没有网络时任何全局 `tsc`（≥5.0）也能编：`tsc -p extension/chrome`。
+
 ## 实现位置
 
 - `src/browser_host.cppm` — 宿主 stdio 协议循环（Chrome 以
