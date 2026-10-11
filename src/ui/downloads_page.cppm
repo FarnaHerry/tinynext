@@ -200,8 +200,6 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             g_addPauseMediaAfterProbe = false;
             g_addMediaModeIndex = 0;
             g_addMediaFormatIndex = 0;
-            g_addMediaModeOpen = false;
-            g_addMediaFormatOpen = false;
             g_addTab = AddTab::Direct;
             const std::string clip = trimText(getClipboardText());
             if (!clip.empty() && isDownloadableSource(clip)) {
@@ -382,12 +380,15 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
 
     // ---- 添加下载弹窗（模态）：链接 + 每任务高级选项 ----
     if (g_addOpen) {
-        const float dlgW = 360.0f;
-        // 最低字段和底部操作留出固定间距；472px 小于 500px 的最小逻辑高度。
-        // 因此字段区**不用滚动容器**：components::scrollView 会给根 stack 挂 .clip()，
-        // 而 buildListPicker 的「点弹层外收起」是全屏拦截 rect、弹层也在字段区内，
-        // 被 clip 之后点标题 / 页签 / 按钮区都收不起弹层（AGENTS.md 约定 14）。
-        const float dlgH = g_addTab == AddTab::Direct ? 472.0f : 276.0f;
+        // 尺寸随窗口缩放：宽度按窗口比例夹到 [360, 540]；高度按窗口比例缩小、
+        // 长到「内容贴合高度」为止。字段区放进 components::scrollView，窗口放
+        // 不下时出内部滚动条。scrollView 会给根 stack 挂 .clip()——字段区里因此
+        // 不能放 buildListPicker（全屏拦截层和弹层会被连点击一起裁掉，AGENTS.md
+        // 约定 14），媒体类型/输出容器改用与顶部 tab 同款的分段按钮（无弹层）。
+        const float dlgW = std::clamp(screen.width * 0.38f, 360.0f, 540.0f);
+        const float dlgH = g_addTab == AddTab::Direct
+            ? std::clamp(screen.height * 0.86f, 340.0f, 484.0f)
+            : std::clamp(screen.height * 0.86f, 260.0f, 268.0f);
         const float dlgX = (screen.width - dlgW) * 0.5f;
         const float dlgY = std::max(12.0f, (screen.height - dlgH) * 0.5f);
         const float labelX = 16.0f;
@@ -401,22 +402,68 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         const float splitY = 150.0f;   // 直链：分片数
         const float renameY = 202.0f;  // 直链：重命名
         const float dirY = 254.0f;     // 直链：下载目录
-        const float mediaY = 306.0f;   // 直链：HLS/DASH 类型与输出容器
-        const float mirrorY = 340.0f;   // 直链：镜像多源 / 磁力文件选择
-        const float mediaTrackY = 374.0f;
+        const float mediaY = 306.0f;   // 直链：媒体类型（分段按钮，无弹层）
+        const float formatY = 340.0f;  // 直链：输出容器 MP4/MKV（分段按钮）
+        const float mirrorY = 374.0f;  // 直链：镜像多源 / 磁力文件选择
+        const float mediaTrackY = 408.0f;
         const float btnY = dlgH - 40.0f;
         const float torY = 78.0f;      // 种子 tab：种子文件行
         const float torDirY = 132.0f;  // 种子 tab：下载目录行
         const float torHintY = 188.0f; // 种子 tab：提示文字
-        // 字段区 = urlY 到按钮行 btnY 之间（坐标都相对字段区顶边 urlY）。
-        const float directFieldsViewportH = btnY - urlY;
+        // 字段区 = urlY 到按钮行之间（按钮行 40 + 8 间距）。视口高随 dlgH 变化，
+        // 内容超出即由 scrollView 滚动；内容高按最后字段底边计算。
+        const float fieldsBottomPad = 48.0f;
+        const float directFieldsViewportH = dlgH - urlY - fieldsBottomPad;
         const float directFieldsContentH = mediaTrackY - urlY + 28.0f;
-        // 媒体类型（4 项）/ 输出容器（2 项）两个选择器同排，都在字段区内。
-        // 弹层向下展开所需高度（字段底边 → 弹层底边）超过「字段底边 → 按钮行」这段
-        // 空间时就向上展开，避免压住底部按钮行或溢出弹窗。
-        const float mediaPickerFieldBottom = mediaY + 1.0f + 26.0f - urlY;
-        const bool mediaPickersOpenUp =
-            pickerOpensUp(mediaPickerFieldBottom, 4, directFieldsViewportH);
+        const float torrentFieldsViewportH = dlgH - torY - fieldsBottomPad;
+        const float torrentFieldsContentH = torHintY - torY + 32.0f;
+
+        // 分段按钮组（弹窗顶部 tab 同款交互）：无弹层，可安全放进带 clip 的
+        // scrollView。单段宽 56 足够「原文件」/ DASH 等最长文案。
+        const auto segGroup = [&](eui::Ui& r, const std::string& id, float x, float y,
+                                  const char* const* labels, int count, int selected,
+                                  const std::function<void(int)>& onPick) {
+            constexpr float segW = 56.0f;
+            constexpr float segGap = 4.0f;
+            constexpr float segH = 26.0f;
+            const float totalW = segW * static_cast<float>(count) +
+                                 segGap * static_cast<float>(count - 1);
+            const auto segTransition = core::Transition::make(0.16f, core::Ease::OutCubic);
+            r.rect(id + ".bg")
+                .position(x, y)
+                .size(totalW, segH)
+                .color(theme.surfaceContainer)
+                .radius(kButtonRadius)
+                .border(kHairline, theme.outline)
+                .build();
+            r.rect(id + ".ind")
+                .position(x + static_cast<float>(selected) * (segW + segGap), y)
+                .size(segW, segH)
+                .color(theme.surfaceContainerHighest)
+                .radius(kButtonRadius)
+                .transition(segTransition)
+                .build();
+            for (int i = 0; i < count; ++i) {
+                const float segX = x + static_cast<float>(i) * (segW + segGap);
+                r.rect(id + ".hit." + std::to_string(i))
+                    .position(segX, y)
+                    .size(segW, segH)
+                    .color({0.0f, 0.0f, 0.0f, 0.0f})
+                    .radius(kButtonRadius)
+                    .onClick([i, onPick] { onPick(i); })
+                    .build();
+                r.text(id + ".label." + std::to_string(i))
+                    .position(segX, y)
+                    .size(segW, segH)
+                    .text(labels[i])
+                    .fontSize(11.0f)
+                    .lineHeight(segH)
+                    .color(i == selected ? theme.onSurface : theme.onSurfaceVariant)
+                    .horizontalAlign(core::HorizontalAlign::Center)
+                    .verticalAlign(core::VerticalAlign::Center)
+                    .build();
+            }
+        };
 
         // 遮罩（scrim α50%），点击空白处关闭。zIndex 高于翻页，
         // 保证整个窗口都被盖住。
@@ -513,22 +560,25 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .build();
 
                 if (g_addTab == AddTab::Direct) {
-                    // 字段区容器：普通 stack（不是 scrollView——见上面 dlgH 的说明，
-                    // clip 会把选择器的收起拦截层和弹层一起裁掉，且这里根本不需要滚动）。
-                    ui.stack("add.direct.fields")
+                    // 字段区：scrollView——窗口缩小时出内部滚动条；canvas 一个定高
+                    // stack 承载全部字段的绝对定位（列布局只需一个子项）。回调给的
+                    // fieldW 已扣除滚动条宽度，字段宽度一律用它而不是 dlgW。
+                    components::scrollView(ui, "add.direct.fields")
                         .position(0.0f, urlY)
                         .size(dlgW, directFieldsViewportH)
-                        .content([&] {
-                            eui::Ui& fields = ui;  // 字段区内建控件沿用 fields 命名
-                            ui.stack("add.direct.fields.canvas")
-                                .size(dlgW, directFieldsContentH)
+                        .scrollbarWidth(kScrollbarWidth)
+                        .scrollbarGap(kScrollbarGap)
+                        .theme(theme.components)
+                        .content([&](eui::Ui& fields, float fieldW, float) {
+                            fields.stack("add.direct.canvas")
+                                .size(fieldW, directFieldsContentH)
                                 .content([&] {
                                     const auto bodyY = [urlY](float y) { return y - urlY; };
                     // URL 多行（磁力 magnet: 也在这里填；直链默认不设 out 让 aria2
                     // 从 Content-Disposition 解析真实文件名）。
                     outlinedInput(fields, "add.url")
                         .position(labelX, bodyY(urlY))
-                        .size(dlgW - 32.0f, urlH)
+                        .size(fieldW - 32.0f, urlH)
                         .multiline(true)  // 多行：长链接完整可见，滚轮可滚动
                         .placeholder(tr("dl.url_placeholder"))
                         .value(g_urlText)
@@ -601,7 +651,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     // ---- 重命名（可选，留空=URL 文件名）----
                     outlinedInput(fields, "add.rename")
                         .position(labelX, bodyY(renameY))
-                        .size(dlgW - labelX - 16.0f, kOutlinedFieldHeight)
+                        .size(fieldW - labelX - 16.0f, kOutlinedFieldHeight)
                         .placeholder(tr("dl.optional"))
                         .value(g_addRenameText)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
@@ -615,7 +665,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     // ---- 下载目录（留空=全局）----
                     outlinedInput(fields, "add.dir")
                         .position(labelX, bodyY(dirY))
-                        .size(dlgW - labelX - 16.0f - 60.0f - 8.0f, kOutlinedFieldHeight)
+                        .size(fieldW - labelX - 16.0f - 60.0f - 8.0f, kOutlinedFieldHeight)
                         .placeholder(tr("dl.dir_hint"))
                         .value(g_addDirText)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
@@ -626,7 +676,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .onEnter([] { if (addDownload()) g_addOpen = false; })
                         .build();
                     components::button(fields, "add.dir.browse")
-                        .position(dlgW - 76.0f, bodyY(dirY + 10.0f))
+                        .position(fieldW - 76.0f, bodyY(dirY + 10.0f))
                         .size(60.0f, kButtonHeight)
                         .text(tr("dl.browse"))
                         .fontSize(kButtonFontSize)
@@ -644,6 +694,8 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     const char* mediaModes[] = {tr("dl.media_auto"), tr("dl.media_file"),
                                                 tr("dl.media_hls"), tr("dl.media_dash")};
                     const char* mediaFormats[] = {"MP4", "MKV"};
+                    // 媒体类型 / 输出容器：分段按钮（带 clip 的滚动区里放不下弹层
+                    // 选择器，见 dlgH 处说明）；与旧 buildListPicker 同一状态。
                     components::text(fields, "add.media.mode.label")
                         .position(labelX, bodyY(mediaY))
                         .size(labelW, 28.0f)
@@ -652,53 +704,44 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .lineHeight(28.0f)
                         .color(theme.metaText)
                         .build();
-                    fields.stack("add.media.mode.wrap")
-                        .position(inputX, bodyY(mediaY + 1.0f))
-                        .size(112.0f, 26.0f)
-                        .content([&] {
-                            // id 用 .picker 子前缀：buildListPicker 内部已经占用了
-                            // 根 id 的 .label/.field/.chevron，直接叫 add.media.mode
-                            // 会和同排说明文字 add.media.mode.label 撞名。
-                            buildListPicker(fields, "add.media.mode.picker", 112.0f, 26.0f, theme,
-                                            g_addMediaModeOpen, mediaModes, 4,
-                                            g_addMediaModeIndex, mediaPickersOpenUp,
-                                            PickerField::Text,
-                                            [](int i) {
-                                                g_addMediaModeIndex = i;
-                                                if (i == 1) g_addPauseMediaAfterProbe = false;
-                                            }, 112.0f);
-                        })
-                        .build();
+                    segGroup(fields, "add.modeseg", inputX, bodyY(mediaY + 1.0f),
+                             mediaModes, 4, g_addMediaModeIndex,
+                             [](int i) {
+                                 g_addMediaModeIndex = i;
+                                 if (i == 1) g_addPauseMediaAfterProbe = false;
+                             });
                     components::text(fields, "add.media.format.label")
-                        .position(196.0f, bodyY(mediaY))
-                        .size(42.0f, 28.0f)
+                        .position(labelX, bodyY(formatY))
+                        .size(labelW, 28.0f)
                         .text(tr("dl.media_format"))
-                        .fontSize(11.0f)
+                        .fontSize(12.0f)
                         .lineHeight(28.0f)
                         .color(theme.metaText)
                         .build();
-                    fields.stack("add.media.format.wrap")
-                        .position(238.0f, bodyY(mediaY + 1.0f))
-                        .size(66.0f, 26.0f)
-                        .content([&] {
-                            buildListPicker(fields, "add.media.format.picker", 66.0f, 26.0f,
-                                            theme,
-                                            g_addMediaFormatOpen, mediaFormats, 2,
-                                            g_addMediaFormatIndex, mediaPickersOpenUp,
-                                            PickerField::Text,
-                                            [](int i) { g_addMediaFormatIndex = i; }, 66.0f);
-                        })
-                        .build();
-                                })
-                                .build();
+                    segGroup(fields, "add.formatseg", inputX, bodyY(formatY + 1.0f),
+                             mediaFormats, 2, g_addMediaFormatIndex,
+                             [](int i) { g_addMediaFormatIndex = i; });
+                            })
+                            .build();
                         })
                         .build();
                 } else {
                     // ---- 种子 tab：独立小面板（无连接数/重命名——对 BT 无意义；
-                    //      内容名由种子决定，README 已提示）----
-                    outlinedInput(ui, "add.torrent")
-                        .position(labelX, torY)
-                        .size(dlgW - labelX - 16.0f - 60.0f - 8.0f, kOutlinedFieldHeight)
+                    //      内容名由种子决定，README 已提示）。同样进 scrollView。----
+                    components::scrollView(ui, "add.torrent.fields")
+                        .position(0.0f, torY)
+                        .size(dlgW, torrentFieldsViewportH)
+                        .scrollbarWidth(kScrollbarWidth)
+                        .scrollbarGap(kScrollbarGap)
+                        .theme(theme.components)
+                        .content([&](eui::Ui& fields, float fieldW, float) {
+                            fields.stack("add.torrent.canvas")
+                                .size(fieldW, torrentFieldsContentH)
+                                .content([&] {
+                                    const auto bodyY = [torY](float y) { return y - torY; };
+                    outlinedInput(fields, "add.torrent")
+                        .position(labelX, bodyY(torY))
+                        .size(fieldW - labelX - 16.0f - 60.0f - 8.0f, kOutlinedFieldHeight)
                         .placeholder(tr("dl.select_torrent"))
                         .value(g_addTorrentPath)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
@@ -707,8 +750,8 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .label(tr("dl.torrent_file"))
                         .onChange([](const std::string& value) { g_addTorrentPath = value; })
                         .build();
-                    components::button(ui, "add.torrent.browse")
-                        .position(dlgW - 76.0f, torY + 10.0f)
+                    components::button(fields, "add.torrent.browse")
+                        .position(fieldW - 76.0f, bodyY(torY + 10.0f))
                         .size(60.0f, kButtonHeight)
                         .text(tr("dl.browse"))
                         .fontSize(kButtonFontSize)
@@ -722,9 +765,9 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .build();
 
                     // 下载目录（种子内容名不由文件名决定，明确提示填写）
-                    outlinedInput(ui, "add.torrent.dir")
-                        .position(labelX, torDirY)
-                        .size(dlgW - labelX - 16.0f - 60.0f - 8.0f, kOutlinedFieldHeight)
+                    outlinedInput(fields, "add.torrent.dir")
+                        .position(labelX, bodyY(torDirY))
+                        .size(fieldW - labelX - 16.0f - 60.0f - 8.0f, kOutlinedFieldHeight)
                         .placeholder(tr("dl.dir_hint"))
                         .value(g_addDirText)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
@@ -733,8 +776,8 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .label(tr("dl.directory"))
                         .onChange([](const std::string& value) { g_addDirText = value; })
                         .build();
-                    components::button(ui, "add.torrent.dir.browse")
-                        .position(dlgW - 76.0f, torDirY + 10.0f)
+                    components::button(fields, "add.torrent.dir.browse")
+                        .position(fieldW - 76.0f, bodyY(torDirY + 10.0f))
                         .size(60.0f, kButtonHeight)
                         .text(tr("dl.browse"))
                         .fontSize(kButtonFontSize)
@@ -747,13 +790,17 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         })
                         .build();
 
-                    components::text(ui, "add.torrent.hint")
-                        .position(labelX, torHintY)
-                        .size(dlgW - 32.0f, 32.0f)
+                    components::text(fields, "add.torrent.hint")
+                        .position(labelX, bodyY(torHintY))
+                        .size(fieldW - 32.0f, 32.0f)
                         .text(tr("dl.torrent_name_hint"))
                         .fontSize(11.0f)
                         .lineHeight(16.0f)
                         .color(theme.metaText)
+                        .build();
+                                })
+                                .build();
+                        })
                         .build();
                 }
 

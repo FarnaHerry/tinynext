@@ -133,8 +133,9 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
     被裁，点击外部失效）：放进带裁剪的容器
     前先用 `pickerOpensUp(字段底边, 项数, viewport 高)`（`tinynext.ui.widgets`）算
     方向，弹层高度用 `pickerPopupHeight(count)`，不要各处硬编码 22/3/3。
-    更稳的做法是**别把选择器放进 `scrollView`**：添加下载弹窗的字段区就改成固定高度
-    `ui.stack`（窗口最小尺寸保证放得下），拦截层和弹层都不再被裁。
+    最稳的做法是**别把选择器放进 `scrollView`**：字段区要滚动的弹窗（添加下载
+    弹窗）就把弹层选择器换成无弹层的分段按钮（`segGroup` 模式，见
+    `downloads_page.cppm`），拦截层与弹层问题即不存在。
 15. **提交与发布**：改动在 feature 分支提交；验证通过后由助手直接 merge 到 `main`
     并 push 代码。**不要因普通代码改动自动递增版本号、创建或推送 `v*` tag、发布
     GitHub Release**；只有用户明确提出发布新版本时，才更新版本号、创建 tag 并发布。

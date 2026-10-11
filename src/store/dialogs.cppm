@@ -49,8 +49,6 @@ export bool g_addPauseMetadata = false;
 export bool g_addPauseMediaAfterProbe = false;
 export int g_addMediaModeIndex = 0;
 export int g_addMediaFormatIndex = 0;
-export bool g_addMediaModeOpen = false;
-export bool g_addMediaFormatOpen = false;
 
 // “添加下载”弹窗提交：按顶部切换（直链下载 / 种子）分流。
 // 直链：URL/磁力 + 连接数/重命名/目录/镜像；种子：本地 .torrent + 目录。
