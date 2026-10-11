@@ -26,6 +26,7 @@
 // "ui/eui_ui.h" — kept as a minimal include surface (the old mangled-name clash
 // motivation is gone in 0.5.6).
 #include <eui_neo.h>
+#include "versions.generated.h"  // TINY_APP_VERSION（侧栏底部版本号）
 
 import std;
 import tinynext.config;
@@ -53,6 +54,91 @@ std::atomic<bool> g_warmupFailed{false};
 std::atomic<bool> g_warmupDone{false};
 std::atomic<bool> g_appShuttingDown{false};
 std::thread g_warmupThread;
+
+// ---- 左侧导航栏（常驻）：下载 / 设置 / 扩展 ----
+// 三个页面画在它右侧的内容区（Screen 副本缩窄传入，页面内部零改动）。
+struct NavItem {
+    const char* id;
+    unsigned int icon;      // FontAwesome 7 码点
+    const char* labelKey;   // tr() key
+    Page page;
+};
+
+void drawSidebar(eui::Ui& ui, const eui::Screen& screen, const AppTheme& theme) {
+    // 面板底 + 右侧 1px 分隔线（与岛卡同语言：panelBg + hairline，无投影）。
+    ui.rect("sidebar.bg")
+        .position(0, 0)
+        .size(kSidebarWidth, screen.height)
+        .color(theme.panelBg)
+        .build();
+    ui.rect("sidebar.divider")
+        .position(kSidebarWidth - kHairline, 0)
+        .size(kHairline, screen.height)
+        .color(theme.outline)
+        .build();
+
+    components::text(ui, "sidebar.title")
+        .position(16.0f, 18.0f)
+        .size(kSidebarWidth - 32.0f, 22.0f)
+        .text("TinyNext")
+        .fontSize(14.0f)
+        .lineHeight(22.0f)
+        .color(theme.titleText)
+        .build();
+
+    static constexpr NavItem kItems[] = {
+        {"downloads", 0xF019, "nav.downloads", Page::Downloads},
+        {"settings", 0xF013, "nav.settings", Page::Settings},
+        {"extensions", 0xF12E, "nav.extensions", Page::Extensions},
+    };
+    float y = 56.0f;
+    for (const auto& item : kItems) {
+        const std::string base = std::string("sidebar.item.") + item.id;
+        const bool active = g_page_view == item.page;
+        ui.rect(base + ".hit")
+            .position(10.0f, y)
+            .size(kSidebarWidth - 20.0f, 40.0f)
+            .color(active ? theme.surfaceContainerHighest
+                          : core::Color{0.0f, 0.0f, 0.0f, 0.0f})
+            .states(active ? theme.surfaceContainerHighest
+                           : core::Color{0.0f, 0.0f, 0.0f, 0.0f},
+                    stateLayer(theme.onSurface, 0.08f),
+                    stateLayer(theme.onSurface, 0.12f))
+            .radius(kButtonRadius)
+            .onClick([page = item.page] { g_page_view = page; })
+            .build();
+        ui.text(base + ".icon")
+            .position(24.0f, y)
+            .size(20.0f, 40.0f)
+            .icon(item.icon)
+            .fontSize(14.0f)
+            .lineHeight(40.0f)
+            .color(active ? theme.onSurface : theme.onSurfaceVariant)
+            .horizontalAlign(core::HorizontalAlign::Center)
+            .verticalAlign(core::VerticalAlign::Center)
+            .build();
+        ui.text(base + ".label")
+            .position(54.0f, y)
+            .size(kSidebarWidth - 64.0f, 40.0f)
+            .text(tr(item.labelKey))
+            .fontSize(13.0f)
+            .lineHeight(40.0f)
+            .color(active ? theme.onSurface : theme.onSurfaceVariant)
+            .verticalAlign(core::VerticalAlign::Center)
+            .build();
+        y += 44.0f;
+    }
+
+    ui.text("sidebar.version")
+        .position(16.0f, screen.height - 26.0f)
+        .size(kSidebarWidth - 32.0f, 16.0f)
+        .text(std::format("v{}", TINY_APP_VERSION))
+        .fontSize(10.0f)
+        .lineHeight(16.0f)
+        .fontFamily(kMonoFont)
+        .color(theme.metaText)
+        .build();
+}
 
 const DslAppConfig& dslAppConfig() {
     static const DslAppConfig config = DslAppConfig{}
@@ -203,12 +289,23 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 .color(theme.components.background)
                 .build();
 
-            // 页面直接铺在主题背景上：分页器齿轮进设置、拼图进扩展。
-            switch (g_page_view) {
-                case Page::Downloads: drawDownloadsPage(ui, screen, theme); break;
-                case Page::Settings:  drawSettingsPage(ui, screen, theme); break;
-                case Page::Extensions: drawExtensionsPage(ui, screen, theme); break;
-            }
+            // 页面画在左侧导航栏右侧的内容区：父 stack 定位到内容区原点（eui
+            // 坐标相对父元素，页面内部零改动），Screen 副本缩窄传入约束宽度。
+            // 弹窗遮罩也只在内容区内，侧栏保持可点。
+            drawSidebar(ui, screen, theme);
+            eui::Screen area = screen;
+            area.width = screen.width - kSidebarWidth;
+            ui.stack("page.area")
+                .position(kSidebarWidth, 0)
+                .size(area.width, screen.height)
+                .content([&] {
+                    switch (g_page_view) {
+                        case Page::Downloads: drawDownloadsPage(ui, area, theme); break;
+                        case Page::Settings:  drawSettingsPage(ui, area, theme); break;
+                        case Page::Extensions: drawExtensionsPage(ui, area, theme); break;
+                    }
+                })
+                .build();
         })
         .build();
 

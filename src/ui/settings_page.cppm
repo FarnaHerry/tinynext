@@ -188,9 +188,8 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     const float contentW = pageContentWidth(screen.width);
     const float infoX = contentX;
     const float innerW = std::min(contentW, kMaxSettingsFormWidth);
-    drawToolbarIconButton(ui, "settings.close", contentX + contentW - kToolbarButtonSize,
-                          kPageTop + 1.0f, kToolbarButtonSize, kToolbarButtonSize,
-                          0xF00D, false, theme, [] { g_page_view = Page::Downloads; });
+    // 关闭入口移除：左侧导航栏常驻后由侧栏切换页面。
+   
 
     // 分组用一个 Flow 按文字自然换行，中文与英文都保留完整标签。
     const float headerY = kPageTop;

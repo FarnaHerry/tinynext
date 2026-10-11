@@ -59,9 +59,8 @@ export void drawExtensionsPage(eui::Ui& ui, const eui::Screen& screen,
     const float contentX = pageContentX(screen.width);
     const float contentW = pageContentWidth(screen.width);
     const float innerW = std::min(contentW, kMaxSettingsFormWidth);
-    drawToolbarIconButton(ui, "ext.close", contentX + contentW - kToolbarButtonSize,
-                          kPageTop + 1.0f, kToolbarButtonSize, kToolbarButtonSize,
-                          0xF00D, false, theme, [] { g_page_view = Page::Downloads; });
+    // 关闭入口移除：左侧导航栏常驻后由侧栏切换页面。
+   
 
     components::text(ui, "ext.title")
         .position(contentX, kPageTop)

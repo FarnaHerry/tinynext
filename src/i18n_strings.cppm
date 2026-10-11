@@ -329,6 +329,9 @@ export constexpr Entry kEntries[] = {
     Entry{"settings.tab.about", "关于", "關於", "About"},
     // ---- 扩展页（浏览器扩展 + MCP）----
     Entry{"ext.title", "扩展", "擴充功能", "Extensions"},
+    Entry{"nav.downloads", "下载", "下載", "Downloads"},
+    Entry{"nav.settings", "设置", "設定", "Settings"},
+    Entry{"nav.extensions", "扩展", "擴充功能", "Extensions"},
     Entry{"ext.subtitle", "浏览器扩展与 AI 助手（MCP）的接入状态与指引",
           "瀏覽器擴充功能與 AI 助手（MCP）的接入狀態與指引",
           "Browser extension and AI assistant (MCP) integration status & guide"},
