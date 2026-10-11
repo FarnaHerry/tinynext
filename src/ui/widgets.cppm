@@ -183,13 +183,114 @@ export core::Color onPrimaryColor(const AppTheme& theme, bool primary = true) {
     return primary ? theme.onPrimary : theme.components.text;
 }
 
-// 输入框与按钮共用小圆角和 hairline；覆盖 EUI 默认的弹层投影。
-export components::InputStyle flatInputStyle(const AppTheme& theme) {
+// 原生 input 只负责编辑、选择、IME 与滚动；Outlined 外壳统一负责视觉。
+components::InputStyle bareInputStyle(const AppTheme& theme) {
     components::InputStyle style(theme.components);
-    style.radius = kButtonRadius;
-    style.border = theme.outline;
+    const core::Color transparent{0, 0, 0, 0};
+    style.background = transparent;
+    style.focused = transparent;
+    style.border = transparent;
+    style.focusBorder = transparent;
+    style.radius = 0;
     style.shadow = core::Shadow{};
     return style;
+}
+
+// frame/label 是无事件装饰，不参与输入命中；顶部留口使用所在页面/弹窗底色。
+void drawOutlinedFrame(eui::Ui& ui, const std::string& id, float width, float height,
+                       const AppTheme& theme, core::Color background, bool focused) {
+    const float top = kOutlinedLabelHeight * 0.5f;
+    ui.rect(id + ".outline")
+        .position(0, top).size(width, height - top)
+        .color(background).radius(kOutlinedRadius)
+        .border(focused ? kOutlinedFocusBorder : kHairline,
+                focused ? theme.primary : theme.outline)
+        .build();
+}
+
+void drawOutlinedLabel(eui::Ui& ui, const std::string& id, float width, float height,
+                       const std::string& label, const AppTheme& theme,
+                       core::Color background, bool focused, bool floating) {
+    if (label.empty()) return;
+    const float fontSize = floating ? 10.0f : theme.components.metrics.typography.input;
+    const float lineHeight = floating ? kOutlinedLabelHeight : fontSize * 1.2f;
+    const float available = std::max(0.0f, width - 2.0f * kOutlinedInset);
+    const auto text = ellipsizeText(label, available, fontSize);
+    const float textWidth = core::TextPrimitive::measureTextWidth(text, "", fontSize);
+    if (floating) {
+        ui.rect(id + ".notch")
+            .position(kOutlinedInset - 4.0f, 0)
+            .size(textWidth + 8.0f, kOutlinedLabelHeight)
+            .color(background).build();
+    }
+    components::text(ui, id + ".label")
+        .position(kOutlinedInset, floating ? 0.0f
+            : kOutlinedLabelHeight * 0.5f + (height - kOutlinedLabelHeight * 0.5f - lineHeight) * 0.5f)
+        .size(available, lineHeight).text(text).fontSize(fontSize).lineHeight(lineHeight)
+        .color(focused ? theme.primary : theme.onSurfaceVariant).build();
+}
+
+export class OutlinedInputBuilder {
+public:
+    OutlinedInputBuilder(eui::Ui& ui, std::string id) : ui_(ui), id_(std::move(id)) {}
+    OutlinedInputBuilder& position(float x, float y) { x_ = x; y_ = y; return *this; }
+    OutlinedInputBuilder& size(float width, float height) { width_ = width; height_ = height; return *this; }
+    OutlinedInputBuilder& label(std::string value) { label_ = std::move(value); return *this; }
+    OutlinedInputBuilder& value(std::string value) { value_ = std::move(value); return *this; }
+    OutlinedInputBuilder& placeholder(std::string value) { placeholder_ = std::move(value); return *this; }
+    OutlinedInputBuilder& multiline(bool value = true) { multiline_ = value; return *this; }
+    OutlinedInputBuilder& scrollbar(bool value = true) { scrollbar_ = value; return *this; }
+    OutlinedInputBuilder& fontFamily(std::string value) { fontFamily_ = std::move(value); return *this; }
+    OutlinedInputBuilder& theme(const AppTheme& value) { theme_ = &value; background_ = value.surface; return *this; }
+    OutlinedInputBuilder& background(core::Color value) { background_ = value; return *this; }
+    OutlinedInputBuilder& onChange(std::function<void(const std::string&)> value) { onChange_ = std::move(value); return *this; }
+    OutlinedInputBuilder& onEnter(std::function<void()> value) { onEnter_ = std::move(value); return *this; }
+    void build() {
+        const bool focused = ui_.isFocused(id_ + ".editor.hit");
+        const bool floating = focused || !value_.empty();
+        ui_.stack(id_).position(x_, y_).size(width_, height_).content([&] {
+            drawOutlinedFrame(ui_, id_, width_, height_, *theme_, background_, focused);
+            // 原生 input 的文本 dirtyKey 不含 placeholder，动态切换占位提示会复用
+            // 空文本缓存。提示在这里独立绘制，仍让原生编辑器负责光标和 IME。
+            if ((floating || label_.empty()) && value_.empty() && !placeholder_.empty()) {
+                const float top = kOutlinedLabelHeight * 0.5f;
+                const float bodyHeight = height_ - top;
+                const float fontSize = theme_->components.metrics.typography.input;
+                const float lineHeight = fontSize * 1.2f;
+                const float gutter = multiline_ && scrollbar_
+                    ? theme_->components.metrics.control.scrollbar + 4.0f : 0.0f;
+                const float textWidth = std::max(0.0f, width_ - 2 * kOutlinedInset - gutter);
+                ui_.text(id_ + ".hint")
+                    .position(kOutlinedInset, top + (multiline_ ? kOutlinedInset : (bodyHeight - lineHeight) * 0.5f))
+                    .size(textWidth, multiline_ ? bodyHeight - 2 * kOutlinedInset : lineHeight)
+                    .text(multiline_ ? placeholder_ : ellipsizeText(placeholder_, textWidth, fontSize, fontFamily_))
+                    .fontFamily(fontFamily_).fontSize(fontSize).lineHeight(lineHeight)
+                    .maxWidth(textWidth).wrap(multiline_).clip()
+                    .color(components::theme::withOpacity(theme_->onSurface, 0.45f)).build();
+            }
+            components::input(ui_, id_ + ".editor")
+                .position(0, kOutlinedLabelHeight * 0.5f)
+                .size(width_, height_ - kOutlinedLabelHeight * 0.5f)
+                .value(value_).placeholder("")
+                .multiline(multiline_).scrollbar(scrollbar_).fontFamily(fontFamily_)
+                .inset(kOutlinedInset).theme(theme_->components).style(bareInputStyle(*theme_))
+                .onChange(onChange_).onEnter(onEnter_).build();
+            drawOutlinedLabel(ui_, id_, width_, height_, label_, *theme_, background_, focused, floating);
+        }).build();
+    }
+private:
+    eui::Ui& ui_;
+    std::string id_, label_, value_, placeholder_, fontFamily_;
+    float x_ = 0, y_ = 0, width_ = 160, height_ = kOutlinedFieldHeight;
+    bool multiline_ = false, scrollbar_ = true;
+    const AppTheme* theme_ = &currentTheme();
+    core::Color background_ = currentTheme().surface;
+    std::function<void(const std::string&)> onChange_;
+    std::function<void()> onEnter_;
+};
+
+export OutlinedInputBuilder outlinedInput(eui::Ui& ui, std::string id) {
+    return OutlinedInputBuilder(ui, std::move(id));
 }
 
 // 单岛布局里的竖向分隔线：同一张岛卡内，把二级侧边栏与内容区区分开（整页一张岛、
@@ -469,57 +570,44 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
         .build();
 }
 
-// 数字步进输入：一体式组合控件——[-] [输入] [+] 共用一个外壳（surface 底 +
-// hairline 描边 + 圆角），± 是壳内透明命中区（hover 叠 state layer），中间的
-// 输入框用覆写 InputStyle 去掉自身底/描边，视觉上是「一个框」而不是三个控件。
+// 数字步进输入：[-] [输入] [+] 共用 Outlined 外壳与顶部标签。
 // value 是当前文本（可手输数字；空/非法按 0），加减基于解析出的整数，夹到
 // [min,max]、步长 step，改完写回并回调。输入框聚焦时外壳描边转主色。
 export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, float y,
                                float width, float height, const AppTheme& theme,
                                const std::string& value,
                                const std::function<void(const std::string&)>& onChange,
-                               int min, int max, int step) {
+                               int min, int max, int step, std::string label = "",
+                               std::optional<core::Color> background = std::nullopt) {
     const auto& tokens = theme.components;
     const auto transition = core::Transition::make(0.14f, core::Ease::OutCubic);
     const core::Color transparent{0.0f, 0.0f, 0.0f, 0.0f};
-    const float radius = tokens.metrics.radius.popup;  // 与相邻输入框同一圆角
-    const float btnW = height;                          // ± 区方形
+    const float radius = kOutlinedRadius;
+    const float top = kOutlinedLabelHeight * 0.5f;
+    const float bodyHeight = height - top;
+    const float btnW = std::min(28.0f, bodyHeight);
     const float inputW = std::max(0.0f, width - btnW * 2.0f);
 
     // 一体外壳（聚焦时描边转主色，与独立输入框的聚焦反馈一致）。
     const bool focused = ui.isFocused(id + ".input.hit");
-    ui.rect(id + ".box")
-        .position(x, y)
-        .size(width, height)
-        .color(tokens.surface)
-        .radius(radius)
-        .border(kHairline,
-                focused ? components::theme::withAlpha(tokens.primary, 0.86f)
-                        : theme.outline)
-        .transition(transition)
-        .build();
-
-    // 输入框：覆写 InputStyle 去掉自身底/描边/聚焦投影，融进外壳。
-    components::InputStyle inputStyle(tokens);
-    inputStyle.background = transparent;
-    inputStyle.focused = transparent;
-    inputStyle.border = transparent;
-    inputStyle.focusBorder = transparent;
-    inputStyle.shadow = core::Shadow{};
-    inputStyle.radius = 0.0f;
+    ui.stack(id + ".frame").position(x, y).size(width, height).content([&] {
+        drawOutlinedFrame(ui, id, width, height, theme, background.value_or(theme.surface), focused);
+        drawOutlinedLabel(ui, id, width, height, label, theme,
+                          background.value_or(theme.surface), focused, true);
+    }).build();
     // 文本在 ± 之间的中段内水平居中：inset = (中段宽 - 文本宽)/2（输入框只有
     // 左对齐 + inset，用真实字体度量动态算 inset；每帧重算，编辑时自跟随）。
     const float inputFontSize = tokens.metrics.typography.input;
     const float textW = core::TextPrimitive::measureTextWidth(value, "", inputFontSize);
     const float inputInset = std::max(2.0f, (inputW - textW) * 0.5f);
     components::input(ui, id + ".input")
-        .position(x + btnW, y)
-        .size(inputW, height)
+        .position(x + btnW, y + top)
+        .size(inputW, bodyHeight)
         .inset(inputInset)
         .value(value)
         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
         .theme(tokens)
-        .style(inputStyle)
+        .style(bareInputStyle(theme))
         .onChange([onChange](const std::string& v) {
             // 只保留数字：手输字母/符号会被滤掉（eui input 每帧用 value() 覆盖
             // 内部文本，写回纯数字状态后显示即同步）。范围校验在保存层。
@@ -535,8 +623,8 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
     const auto drawStepButton = [&](const std::string& btnId, float btnX,
                                     unsigned int icon, int delta) {
         ui.rect(btnId + ".hit")
-            .position(btnX, y)
-            .size(btnW, height)
+            .position(btnX, y + top)
+            .size(btnW, bodyHeight)
             .states(transparent, stateLayer(theme.onSurface, 0.08f),
                     stateLayer(theme.onSurface, 0.12f))
             .radius(radius)
@@ -548,11 +636,11 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
             })
             .build();
         ui.text(btnId + ".icon")
-            .position(btnX, y)
-            .size(btnW, height)
+            .position(btnX, y + top)
+            .size(btnW, bodyHeight)
             .icon(icon)
             .fontSize(kStepperIconSize)
-            .lineHeight(height)
+            .lineHeight(bodyHeight)
             .color(tokens.text)
             .horizontalAlign(core::HorizontalAlign::Center)
             .verticalAlign(core::VerticalAlign::Center)

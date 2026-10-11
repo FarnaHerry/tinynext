@@ -290,9 +290,9 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         .content([&](eui::Ui& sv, float width, float) {
             const float rowW = width;
             // 全部单列布局（用户要求：不要横向双列）。各字段只留 kInputW 宽度。
-            constexpr float kInputW = 112.0f;
+            constexpr float kInputW = 280.0f;
             const float fullW =
-                std::max(160.0f, rowW - 16.0f - kLabelW - 8.0f);
+                std::max(160.0f, rowW - 24.0f);
 
             // 顶部占位行：把第一个表单行往下推一点，避免其顶边贴住滚动区上缘被裁掉。
             sv.stack("st.top.pad")
@@ -313,47 +313,24 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                     .build();
             };
 
-            // 行内"标签 + 输入框"：x 相对行内，标签在左、输入框在右。
+            // Outlined 标签置于控件内，保留单列表单与既有草稿回调。
             auto field = [&](eui::Ui& r, const std::string& id, const char* label,
                              float x, float inputW, const std::string& value,
                              const std::function<void(const std::string&)>& onChange,
                              const char* placeholder = "") {
-                components::text(r, "st." + id + ".label")
-                    .position(x, 0)
-                    .size(kLabelW, kFieldH)
-                    .text(label)
-                    .fontSize(11.0f)
-                    .lineHeight(kFieldH)
-                    .color(theme.metaText)
-                    .build();
-                components::input(r, "st." + id + ".input")
-                    .position(x + kLabelW, -2.0f)
-                    .size(inputW, 26.0f)
-                    .placeholder(placeholder)
-                    .value(value)
-                    .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
-                    .theme(theme.components)
-                    .style(flatInputStyle(theme))
-                    .onChange(onChange)
-                    .build();
+                outlinedInput(r, "st." + id + ".input")
+                    .position(x, 0).size(std::min(fullW, std::max(280.0f, inputW)), kOutlinedFieldHeight)
+                    .label(label).placeholder(placeholder).value(value).theme(theme)
+                    .onChange(onChange).build();
             };
-
-            // 行内"标签 + 数字步进输入"：与 field 同布局，但输入框带 -/+ 步进按钮。
-            // 只接受数字的字段用这个，既能手输又能点加减。
             auto numericField = [&](eui::Ui& r, const std::string& id, const char* label,
                                     float x, float inputW, const std::string& value,
                                     const std::function<void(const std::string&)>& onChange,
                                     int min, int max, int step) {
-                components::text(r, "st." + id + ".label")
-                    .position(x, 0)
-                    .size(kLabelW, kFieldH)
-                    .text(label)
-                    .fontSize(11.0f)
-                    .lineHeight(kFieldH)
-                    .color(theme.metaText)
-                    .build();
-                buildNumberStepper(r, "st." + id + ".input", x + kLabelW, -2.0f,
-                                   inputW, 26.0f, theme, value, onChange, min, max, step);
+                const float labelWidth = core::TextPrimitive::measureTextWidth(label, "", 10.0f);
+                buildNumberStepper(r, "st." + id + ".input", x, 0,
+                    std::min(fullW, std::max(inputW, labelWidth + 2 * kOutlinedInset)),
+                    kOutlinedFieldHeight, theme, value, onChange, min, max, step, label);
             };
 
             // ===== 通用：主题 / 关闭行为 / 语言 =====
@@ -444,28 +421,20 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             // ============== 下载 tab（下载路径 / 分片 / 连接 / 限速 / 并发 / 重试 / 缓存）==============
             if (g_settingsTab == SettingsTab::Download) {
                 // ---- 下载路径：默认保存目录（输入框 + 系统文件夹选择器）----
-                row("path", kFieldH, [&](eui::Ui& r, float w) {
-                    components::text(r, "st.path.label")
-                        .position(0, 0)
-                        .size(kLabelW, kFieldH)
-                        .text(tr("settings.download_path"))
-                        .fontSize(12.0f)
-                        .lineHeight(kFieldH)
-                        .color(theme.metaText)
-                        .build();
+                row("path", kOutlinedFieldHeight, [&](eui::Ui& r, float w) {
                     const float pathInputW =
-                        std::max(160.0f, w - 16.0f - kLabelW - 8.0f - 60.0f);
-                    components::input(r, "st.path.input")
-                        .position(kLabelW, -2.0f)
-                        .size(pathInputW, 26.0f)
+                        std::max(160.0f, w - 24.0f - 68.0f);
+                    outlinedInput(r, "st.path.input")
+                        .position(0, 0)
+                        .size(pathInputW, kOutlinedFieldHeight)
                         .placeholder(tr("settings.download_dir_placeholder"))
                         .value(g_downloadDirText)
                         .fontFamily("")
-                        .theme(theme.components)
-                        .style(flatInputStyle(theme))
+                        .theme(theme)
+                        .label(tr("settings.download_path"))
                         .onChange([](const std::string& value) { g_downloadDirText = value; })
                         .build();
-                    drawTextButton(r, "st.path.browse", kLabelW + pathInputW + 8.0f, -2.0f,
+                    drawTextButton(r, "st.path.browse", pathInputW + 8.0f, 10.0f,
                                    60.0f, kButtonHeight, tr("dl.browse"), theme,
                                    [] {
                             // 只填待提交值，点「保存」才写入配置。
@@ -475,33 +444,25 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                             }
                         });
                 });
-                row("a.split", kFieldH, [&](eui::Ui& r, float) {
+                row("a.split", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     numericField(r, "a.split", tr("dl.splits"), 0, kInputW, g_aria2SplitText,
                                  [](const std::string& v) { g_aria2SplitText = v; },
                                  1, 64, 1);
                 });
-                row("a.conn", kFieldH, [&](eui::Ui& r, float) {
+                row("a.conn", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     numericField(r, "a.conn", tr("settings.conn_per_server"), 0, kInputW, g_aria2ConnText,
                                  [](const std::string& v) { g_aria2ConnText = v; },
                                  1, 64, 1);
                 });
-                row("a.minsplit", kFieldH, [&](eui::Ui& r, float) {
+                row("a.minsplit", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     // 最小分片：数值输入 + KB/MB 直接选择。
                     // aria2 的 --min-split-size 要求 ≥ 1M，保存时统一校验兜底。
-                    components::text(r, "st.a.minsplit.label")
-                        .position(0, 0)
-                        .size(kLabelW, kFieldH)
-                        .text(tr("settings.min_split"))
-                        .fontSize(11.0f)
-                        .lineHeight(kFieldH)
-                        .color(theme.metaText)
-                        .build();
-                    buildNumberStepper(r, "st.a.minsplit.input", kLabelW, -2.0f,
-                                       kInputW, 26.0f, theme, g_aria2MinSplitText,
+                    buildNumberStepper(r, "st.a.minsplit.input", 0, 0,
+                                       kInputW, kOutlinedFieldHeight, theme, g_aria2MinSplitText,
                                        [](const std::string& v) { g_aria2MinSplitText = v; },
-                                       1, minSplitMax(g_aria2MinSplitUnit), 1);
+                                       1, minSplitMax(g_aria2MinSplitUnit), 1, tr("settings.min_split"));
                     r.stack("st.a.minsplit.unit")
-                        .position(kLabelW + kInputW + 8.0f, 0.0f)
+                        .position(kInputW + 8.0f, 10.0f)
                         .size(120.0f, kFieldH)
                         .content([&] {
                             buildChoiceButtons(r, "st.a.minsplit.unit.choices", kFieldH, theme,
@@ -517,13 +478,13 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         })
                         .build();
                 });
-                row("a.limit", kFieldH, [&](eui::Ui& r, float) {
+                row("a.limit", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     numericField(r, "a.limit", tr("settings.per_task_limit_kbs"), 0, kInputW, g_aria2LimitText,
                                  [](const std::string& v) { g_aria2LimitText = v; },
                                  0, 1000000, 100);
                 });
                 // 全局限速 / 文件分配：各占一行（daemon 级，重启生效）。
-                row("beh.overall", kFieldH, [&](eui::Ui& r, float) {
+                row("beh.overall", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     numericField(r, "beh.overall", tr("settings.global_limit_kbs"), 0, kInputW,
                                  g_overallLimitText,
                                  [](const std::string& v) { g_overallLimitText = v; },
@@ -549,23 +510,23 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         })
                         .build();
                 });
-                row("a.concurrent", kFieldH, [&](eui::Ui& r, float) {
+                row("a.concurrent", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     numericField(r, "a.concurrent", tr("settings.max_concurrent"), 0, kInputW,
                                  g_maxConcurrentText,
                                  [](const std::string& v) { g_maxConcurrentText = v; },
                                  1, 64, 1);
                 });
-                row("a.maxtries", kFieldH, [&](eui::Ui& r, float) {
+                row("a.maxtries", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     numericField(r, "a.maxtries", tr("settings.max_retries"), 0, kInputW, g_maxTriesText,
                                  [](const std::string& v) { g_maxTriesText = v; },
                                  0, 100, 1);
                 });
-                row("a.retrywait", kFieldH, [&](eui::Ui& r, float) {
+                row("a.retrywait", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     numericField(r, "a.retrywait", tr("settings.retry_wait"), 0, kInputW, g_retryWaitText,
                                  [](const std::string& v) { g_retryWaitText = v; },
                                  0, 600, 1);
                 });
-                row("a.diskcache", kFieldH, [&](eui::Ui& r, float) {
+                row("a.diskcache", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     field(r, "a.diskcache", tr("settings.disk_cache"), 0, fullW, g_diskCacheText,
                           [](const std::string& v) { g_diskCacheText = v; },
                           tr("settings.disk_cache_hint"));
@@ -575,53 +536,45 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
 
             // ============== 网络 tab（代理 / UA / Referer / 请求头 / Cookie）==============
             if (g_settingsTab == SettingsTab::Network) {
-                row("a.proxy", kFieldH, [&](eui::Ui& r, float) {
+                row("a.proxy", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     field(r, "a.proxy", tr("settings.proxy"), 0, fullW, g_proxyText,
                           [](const std::string& v) { g_proxyText = v; },
                           "http://user:pass@host:port");
                 });
-                row("a.noproxy", kFieldH, [&](eui::Ui& r, float) {
+                row("a.noproxy", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     field(r, "a.noproxy", tr("settings.no_proxy"), 0, fullW, g_noProxyText,
                           [](const std::string& v) { g_noProxyText = v; },
                           tr("settings.no_proxy_hint"));
                 });
-                row("a.ua", kFieldH, [&](eui::Ui& r, float) {
+                row("a.ua", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     field(r, "a.ua", "User-Agent", 0, fullW, g_userAgentText,
                           [](const std::string& v) { g_userAgentText = v; });
                 });
-                row("a.referer", kFieldH, [&](eui::Ui& r, float) {
+                row("a.referer", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     field(r, "a.referer", "Referer", 0, fullW, g_refererText,
                           [](const std::string& v) { g_refererText = v; });
                 });
-                // 请求头：多行输入（每行一个 --header），行高放大到 52 容纳两行。
-                row("http.headers", 52.0f, [&](eui::Ui& r, float w) {
-                    components::text(r, "st.http.headers.label")
+                // 请求头：多行输入（每行一个 --header），64px 留出标签和两行正文。
+                row("http.headers", 64.0f, [&](eui::Ui& r, float w) {
+                    outlinedInput(r, "st.http.headers.input")
                         .position(0, 0)
-                        .size(kLabelW, 52.0f)
-                        .text(tr("settings.headers"))
-                        .fontSize(11.0f)
-                        .lineHeight(52.0f)
-                        .color(theme.metaText)
-                        .build();
-                    components::input(r, "st.http.headers.input")
-                        .position(kLabelW, -2.0f)
-                        .size(std::max(160.0f, w - 16.0f - kLabelW - 8.0f), 52.0f)
+                        .size(std::max(160.0f, w - 24.0f), 64.0f)
                         .multiline(true)
                         .scrollbar()   // eui 0.6.0：多行溢出时出垂直滚动条
                         .placeholder(tr("settings.headers_hint"))
                         .value(g_headerText)
                         .fontFamily("")
-                        .theme(theme.components)
-                        .style(flatInputStyle(theme))
+                        .theme(theme)
+                        .label(tr("settings.headers"))
                         .onChange([](const std::string& v) { g_headerText = v; })
                         .build();
                 });
-                row("http.loadcookie", kFieldH, [&](eui::Ui& r, float) {
+                row("http.loadcookie", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     field(r, "http.loadcookie", tr("settings.cookie_file"), 0, fullW, g_loadCookiesText,
                           [](const std::string& v) { g_loadCookiesText = v; },
                           tr("settings.cookie_file_hint"));
                 });
-                row("http.savecookie", kFieldH, [&](eui::Ui& r, float) {
+                row("http.savecookie", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     field(r, "http.savecookie", tr("settings.save_cookies"), 0, fullW, g_saveCookiesText,
                           [](const std::string& v) { g_saveCookiesText = v; },
                           tr("settings.save_cookies_hint"));
@@ -640,23 +593,23 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .color(theme.titleText)
                         .build();
                 });
-                row("bt.seedtime", kFieldH, [&](eui::Ui& r, float) {
+                row("bt.seedtime", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     numericField(r, "bt.seedtime", tr("settings.seed_time"), 0, kInputW, g_seedTimeText,
                                  [](const std::string& v) { g_seedTimeText = v; },
                                  0, 100000, 60);
                 });
-                row("bt.maxpeers", kFieldH, [&](eui::Ui& r, float) {
+                row("bt.maxpeers", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     numericField(r, "bt.maxpeers", tr("settings.max_peers"), 0, kInputW,
                                  g_btMaxPeersText,
                                  [](const std::string& v) { g_btMaxPeersText = v; },
                                  0, 10000, 10);
                 });
-                row("bt.seedratio", kFieldH, [&](eui::Ui& r, float) {
+                row("bt.seedratio", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     field(r, "bt.seedratio", tr("settings.seed_ratio"), 0, fullW, g_seedRatioText,
                           [](const std::string& v) { g_seedRatioText = v; },
                           tr("settings.seed_ratio_hint"));
                 });
-                row("bt.port", kFieldH, [&](eui::Ui& r, float) {
+                row("bt.port", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     field(r, "bt.port", tr("settings.listen_port"), 0, fullW, g_listenPortText,
                           [](const std::string& v) { g_listenPortText = v; },
                           tr("settings.listen_port_hint"));
@@ -675,25 +628,17 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                       [](bool v) { g_btEnableLpd = v; });
                 });
                 // ---- Tracker 服务器：额外 tracker 列表（多行，每行一个；也接受逗号分隔）----
-                row("bt.tracker", 52.0f, [&](eui::Ui& r, float w) {
-                    components::text(r, "st.bt.tracker.label")
+                row("bt.tracker", 64.0f, [&](eui::Ui& r, float w) {
+                    outlinedInput(r, "st.bt.tracker.input")
                         .position(0, 0)
-                        .size(kLabelW, 52.0f)
-                        .text(tr("settings.tracker"))
-                        .fontSize(11.0f)
-                        .lineHeight(52.0f)
-                        .color(theme.metaText)
-                        .build();
-                    components::input(r, "st.bt.tracker.input")
-                        .position(kLabelW, -2.0f)
-                        .size(std::max(160.0f, w - 16.0f - kLabelW - 8.0f), 52.0f)
+                        .size(std::max(160.0f, w - 24.0f), 64.0f)
                         .multiline(true)
                         .scrollbar()   // eui 0.6.0：多行溢出时出垂直滚动条
                         .placeholder(tr("settings.tracker_hint"))
                         .value(g_btTrackerText)
                         .fontFamily("")
-                        .theme(theme.components)
-                        .style(flatInputStyle(theme))
+                        .theme(theme)
+                        .label(tr("settings.tracker"))
                         .onChange([](const std::string& v) { g_btTrackerText = v; })
                         .build();
                 });
@@ -711,22 +656,22 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                         .color(theme.titleText)
                         .build();
                 });
-                row("ed2k.listen", kFieldH, [&](eui::Ui& r, float) {
+                row("ed2k.listen", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     field(r, "ed2k.listen", tr("settings.ed2k_listen_tcp"), 0, kInputW, g_ed2kListenPortText,
                           [](const std::string& v) { g_ed2kListenPortText = v; },
                           tr("settings.ed2k_tcp_default"));
                 });
-                row("ed2k.udp", kFieldH, [&](eui::Ui& r, float) {
+                row("ed2k.udp", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     field(r, "ed2k.udp", tr("settings.ed2k_udp_port"), 0, kInputW, g_ed2kUdpPortText,
                           [](const std::string& v) { g_ed2kUdpPortText = v; },
                           tr("settings.ed2k_udp_default"));
                 });
-                row("ed2k.servers", kFieldH, [&](eui::Ui& r, float) {
+                row("ed2k.servers", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     field(r, "ed2k.servers", tr("settings.ed2k_servers"), 0, fullW, g_ed2kServersText,
                           [](const std::string& v) { g_ed2kServersText = v; },
                           tr("settings.ed2k_servers_hint"));
                 });
-                row("ed2k.slots", kFieldH, [&](eui::Ui& r, float) {
+                row("ed2k.slots", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     numericField(r, "ed2k.slots", tr("settings.ed2k_upload_slots"), 0, kInputW,
                                  g_ed2kUploadSlotsText,
                                  [](const std::string& v) { g_ed2kUploadSlotsText = v; },
@@ -772,7 +717,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                       36.0f, 20.0f, g_allowOverwrite, theme,
                                       [](bool v) { g_allowOverwrite = v; });
                 });
-                row("a.oncomplete", kFieldH, [&](eui::Ui& r, float) {
+                row("a.oncomplete", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     field(r, "a.oncomplete", tr("settings.on_complete"), 0, fullW, g_onCompleteText,
                           [](const std::string& v) { g_onCompleteText = v; },
                           tr("settings.on_complete_args"));
@@ -801,7 +746,7 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                                       36.0f, 20.0f, g_checkIntegrity, theme,
                                       [](bool v) { g_checkIntegrity = v; });
                 });
-                row("chk.checksum", kFieldH, [&](eui::Ui& r, float) {
+                row("chk.checksum", kOutlinedFieldHeight, [&](eui::Ui& r, float) {
                     field(r, "chk.checksum", tr("settings.checksum"), 0, fullW, g_checksumText,
                           [](const std::string& v) { g_checksumText = v; },
                           tr("settings.checksum_hint"));

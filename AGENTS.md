@@ -114,6 +114,10 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
     **任务卡进度条统一竖向**（用户明确偏好，2026-10-11）：放在卡片左侧，自下向上
     填充，右侧排文件名、状态 / 百分比与传输信息；所有任务状态使用同一布局。
     未知总量显示 `--`、直播显示 `LIVE`，不伪造进度。后续布局精简应保留竖向风格。
+    **输入框采用 MD3 Outlined（描边式）**（用户明确偏好，2026-10-11）：统一使用
+    `widgets::outlinedInput`，空值未聚焦时标签在框内，聚焦或有值时标签浮到顶部描边
+    留口；常态 1px、聚焦 2px 描边、4px 圆角、无投影，沿用黑白配色。数字步进框
+    共用同一外壳。浮动标签不得放进原生 input 的 clip 内；页面和弹窗需传匹配底色。
 12. **eui 元素 id 全局唯一且稳定**：Runtime 按解析后的 id 索引元素，同一已组合树里重名会互相覆盖，影响绘制、命中和缓存；Stack 不会自动给子元素加命名空间。新增控件先检查同 frame 已有 id 和 builder 内部生成的后缀（如 `buildListPicker(id)` 会创建 `id.label`），子节点统一用根 id 的子前缀。动态列表项用稳定业务 key（任务 id、aria2 文件 index、媒体 track id），不要用可能随排序/过滤变化的数组位置或随机值；回调也按同一 key 找当前数据项。测量型组件的 `content` 回调必须用参数提供的 `eui::Ui&` 构造子项；`scrollView` 会用临时 `Ui` 测量再对真实树 compose，捕获外层 `ui` 会把控件重复塞入真实树。**`scrollView` 还会给容器加 `.clip()`，而 eui 的命中测试会与元素的 clip 矩形求交**——所以「全屏拦截层 / 溢出容器的弹层」这类需要越界的子元素不能塞进 `scrollView`（会被连同点击一起裁掉，见第 14 条）；只有内容真的可能超出视口时才用 `scrollView`，固定高度弹窗用普通 `ui.stack` 绝对定位。
 13. **非阻塞打开**：`openFile` / `openContainingFolder` / `openUrl` 在 Windows 走
     `ShellExecuteW`（`platform.cppm::shellExecFn()`），立即返回；**不要用

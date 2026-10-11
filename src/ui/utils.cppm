@@ -74,6 +74,13 @@ export constexpr float kCardActionIconSize = 11.0f;
 export constexpr float kStepperButtonSize = 20.0f;
 export constexpr float kStepperIconSize = 9.0f;
 
+// 紧凑 MD3 Outlined 输入：顶部预留浮动标签，聚焦描边加粗，无投影。
+export constexpr float kOutlinedFieldHeight = 40.0f;
+export constexpr float kOutlinedLabelHeight = 12.0f;
+export constexpr float kOutlinedInset = 12.0f;
+export constexpr float kOutlinedRadius = 4.0f;
+export constexpr float kOutlinedFocusBorder = 2.0f;
+
 // ---- 滚动条设计令牌（设计逻辑像素）----
 // 所有 TinyNext scrollView 显式使用这组值，避免依赖 EUI 默认的 8px 宽度
 // 和 18px 间距；uiScale(kUI) 会负责原生缩放。

@@ -381,12 +381,12 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
 
     // ---- 添加下载弹窗（模态）：链接 + 每任务高级选项 ----
     if (g_addOpen) {
-        const float dlgW = 320.0f;
-        // 最低字段和底部操作留出固定间距；416px 小于 500px 的最小逻辑高度。
+        const float dlgW = 360.0f;
+        // 最低字段和底部操作留出固定间距；472px 小于 500px 的最小逻辑高度。
         // 因此字段区**不用滚动容器**：components::scrollView 会给根 stack 挂 .clip()，
         // 而 buildListPicker 的「点弹层外收起」是全屏拦截 rect、弹层也在字段区内，
         // 被 clip 之后点标题 / 页签 / 按钮区都收不起弹层（AGENTS.md 约定 14）。
-        const float dlgH = g_addTab == AddTab::Direct ? 416.0f : 236.0f;
+        const float dlgH = g_addTab == AddTab::Direct ? 472.0f : 276.0f;
         const float dlgX = (screen.width - dlgW) * 0.5f;
         const float dlgY = std::max(12.0f, (screen.height - dlgH) * 0.5f);
         const float labelX = 16.0f;
@@ -396,17 +396,17 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         const float tabW = 88.0f;
         const float tabH = 26.0f;
         const float urlY = 78.0f;      // 直链：URL 多行输入（磁力 magnet: 也在这）
-        const float urlH = 48.0f;
-        const float splitY = 134.0f;   // 直链：分片数
-        const float renameY = 168.0f;  // 直链：重命名
-        const float dirY = 202.0f;     // 直链：下载目录
-        const float mediaY = 236.0f;   // 直链：HLS/DASH 类型与输出容器
-        const float mirrorY = 270.0f;   // 直链：镜像多源 / 磁力文件选择
-        const float mediaTrackY = 304.0f;
+        const float urlH = 60.0f;
+        const float splitY = 150.0f;   // 直链：分片数
+        const float renameY = 202.0f;  // 直链：重命名
+        const float dirY = 254.0f;     // 直链：下载目录
+        const float mediaY = 306.0f;   // 直链：HLS/DASH 类型与输出容器
+        const float mirrorY = 340.0f;   // 直链：镜像多源 / 磁力文件选择
+        const float mediaTrackY = 374.0f;
         const float btnY = dlgH - 40.0f;
         const float torY = 78.0f;      // 种子 tab：种子文件行
-        const float torDirY = 114.0f;  // 种子 tab：下载目录行
-        const float torHintY = 150.0f; // 种子 tab：提示文字
+        const float torDirY = 132.0f;  // 种子 tab：下载目录行
+        const float torHintY = 188.0f; // 种子 tab：提示文字
         // 字段区 = urlY 到按钮行 btnY 之间（坐标都相对字段区顶边 urlY）。
         const float directFieldsViewportH = btnY - urlY;
         const float directFieldsContentH = mediaTrackY - urlY + 28.0f;
@@ -525,15 +525,16 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                                     const auto bodyY = [urlY](float y) { return y - urlY; };
                     // URL 多行（磁力 magnet: 也在这里填；直链默认不设 out 让 aria2
                     // 从 Content-Disposition 解析真实文件名）。
-                    components::input(fields, "add.url")
+                    outlinedInput(fields, "add.url")
                         .position(labelX, bodyY(urlY))
                         .size(dlgW - 32.0f, urlH)
                         .multiline(true)  // 多行：长链接完整可见，滚轮可滚动
                         .placeholder(tr("dl.url_placeholder"))
                         .value(g_urlText)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
-                        .theme(theme.components)
-                        .style(flatInputStyle(theme))
+                        .theme(theme)
+                        .background(theme.surfaceContainerLow)
+                        .label("URL")
                         .onChange([](const std::string& value) { g_urlText = value; })
                         .onEnter([] { if (addDownload()) g_addOpen = false; })
                         .build();
@@ -591,64 +592,40 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     }
 
                     // ---- 分片数（0=配置默认；仅 aria2 生效）----
-                    components::text(fields, "add.conn.label")
-                        .position(labelX, bodyY(splitY))
-                        .size(labelW, 28.0f)
-                        .text(tr("dl.splits"))
-                        .fontSize(12.0f)
-                        .lineHeight(28.0f)
-                        .color(theme.metaText)
-                        .build();
-                    buildNumberStepper(fields, "add.conn", inputX, bodyY(splitY - 2.0f),
-                                       84.0f, 28.0f, theme, g_addConnectionsText,
+                    buildNumberStepper(fields, "add.conn", labelX, bodyY(splitY),
+                                       176.0f, kOutlinedFieldHeight, theme, g_addConnectionsText,
                                        [](const std::string& v) { g_addConnectionsText = v; },
-                                       0, 64, 1);  // 0=用配置默认
+                                       0, 64, 1, tr("dl.splits"), theme.surfaceContainerLow);  // 0=用配置默认
 
                     // ---- 重命名（可选，留空=URL 文件名）----
-                    components::text(fields, "add.rename.label")
+                    outlinedInput(fields, "add.rename")
                         .position(labelX, bodyY(renameY))
-                        .size(labelW, 28.0f)
-                        .text(tr("dl.rename"))
-                        .fontSize(12.0f)
-                        .lineHeight(28.0f)
-                        .color(theme.metaText)
-                        .build();
-                    components::input(fields, "add.rename")
-                        .position(inputX, bodyY(renameY - 2.0f))
-                        .size(dlgW - inputX - 16.0f, 28.0f)
+                        .size(dlgW - labelX - 16.0f, kOutlinedFieldHeight)
                         .placeholder(tr("dl.optional"))
                         .value(g_addRenameText)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
-                        .theme(theme.components)
-                        .style(flatInputStyle(theme))
+                        .theme(theme)
+                        .background(theme.surfaceContainerLow)
+                        .label(tr("dl.rename"))
                         .onChange([](const std::string& value) { g_addRenameText = value; })
                         .onEnter([] { if (addDownload()) g_addOpen = false; })
                         .build();
 
                     // ---- 下载目录（留空=全局）----
-                    components::text(fields, "add.dir.label")
+                    outlinedInput(fields, "add.dir")
                         .position(labelX, bodyY(dirY))
-                        .size(labelW, 28.0f)
-                        .text(tr("dl.directory"))
-                        .fontSize(12.0f)
-                        .lineHeight(28.0f)
-                        .color(theme.metaText)
-                        .build();
-                    components::input(fields, "add.dir")
-                        .position(inputX, bodyY(dirY - 2.0f))
-                        .size(dlgW - inputX - 16.0f - 60.0f - 8.0f, 28.0f)
+                        .size(dlgW - labelX - 16.0f - 60.0f - 8.0f, kOutlinedFieldHeight)
                         .placeholder(tr("dl.dir_hint"))
                         .value(g_addDirText)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
-                        .theme(theme.components)
-                        .style(flatInputStyle(theme))
+                        .theme(theme)
+                        .background(theme.surfaceContainerLow)
+                        .label(tr("dl.directory"))
                         .onChange([](const std::string& value) { g_addDirText = value; })
                         .onEnter([] { if (addDownload()) g_addOpen = false; })
                         .build();
                     components::button(fields, "add.dir.browse")
-                        .position(inputX + (dlgW - inputX - 16.0f - 60.0f - 8.0f) +
-                                      8.0f,
-                                  bodyY(dirY - 2.0f))
+                        .position(dlgW - 76.0f, bodyY(dirY + 10.0f))
                         .size(60.0f, kButtonHeight)
                         .text(tr("dl.browse"))
                         .fontSize(kButtonFontSize)
@@ -718,27 +695,19 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                 } else {
                     // ---- 种子 tab：独立小面板（无连接数/重命名——对 BT 无意义；
                     //      内容名由种子决定，README 已提示）----
-                    components::text(ui, "add.torrent.label")
+                    outlinedInput(ui, "add.torrent")
                         .position(labelX, torY)
-                        .size(labelW, 28.0f)
-                        .text(tr("dl.torrent_file"))
-                        .fontSize(12.0f)
-                        .lineHeight(28.0f)
-                        .color(theme.metaText)
-                        .build();
-                    components::input(ui, "add.torrent")
-                        .position(inputX, torY - 2.0f)
-                        .size(dlgW - inputX - 16.0f - 60.0f - 8.0f, 28.0f)
+                        .size(dlgW - labelX - 16.0f - 60.0f - 8.0f, kOutlinedFieldHeight)
                         .placeholder(tr("dl.select_torrent"))
                         .value(g_addTorrentPath)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
-                        .theme(theme.components)
-                        .style(flatInputStyle(theme))
+                        .theme(theme)
+                        .background(theme.surfaceContainerLow)
+                        .label(tr("dl.torrent_file"))
                         .onChange([](const std::string& value) { g_addTorrentPath = value; })
                         .build();
                     components::button(ui, "add.torrent.browse")
-                        .position(inputX + (dlgW - inputX - 16.0f - 60.0f - 8.0f) + 8.0f,
-                                  torY - 2.0f)
+                        .position(dlgW - 76.0f, torY + 10.0f)
                         .size(60.0f, kButtonHeight)
                         .text(tr("dl.browse"))
                         .fontSize(kButtonFontSize)
@@ -752,27 +721,19 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .build();
 
                     // 下载目录（种子内容名不由文件名决定，明确提示填写）
-                    components::text(ui, "add.torrent.dir.label")
+                    outlinedInput(ui, "add.torrent.dir")
                         .position(labelX, torDirY)
-                        .size(labelW, 28.0f)
-                        .text(tr("dl.directory"))
-                        .fontSize(12.0f)
-                        .lineHeight(28.0f)
-                        .color(theme.metaText)
-                        .build();
-                    components::input(ui, "add.torrent.dir")
-                        .position(inputX, torDirY - 2.0f)
-                        .size(dlgW - inputX - 16.0f - 60.0f - 8.0f, 28.0f)
+                        .size(dlgW - labelX - 16.0f - 60.0f - 8.0f, kOutlinedFieldHeight)
                         .placeholder(tr("dl.dir_hint"))
                         .value(g_addDirText)
                         .fontFamily("")  // 用应用字体（Noto Sans SC），不要 eui 默认的 Microsoft YaHei
-                        .theme(theme.components)
-                        .style(flatInputStyle(theme))
+                        .theme(theme)
+                        .background(theme.surfaceContainerLow)
+                        .label(tr("dl.directory"))
                         .onChange([](const std::string& value) { g_addDirText = value; })
                         .build();
                     components::button(ui, "add.torrent.dir.browse")
-                        .position(inputX + (dlgW - inputX - 16.0f - 60.0f - 8.0f) + 8.0f,
-                                  torDirY - 2.0f)
+                        .position(dlgW - 76.0f, torDirY + 10.0f)
                         .size(60.0f, kButtonHeight)
                         .text(tr("dl.browse"))
                         .fontSize(kButtonFontSize)
@@ -1765,28 +1726,21 @@ void drawMirrorDialog(eui::Ui& ui, const eui::Screen& screen, const AppTheme& th
             if (g_mirrorAddClearPending.exchange(false)) {
                 g_mirrorAddText.clear();
             }
-            components::text(ui, "mirror.add.label")
-                .position(16.0f, 250.0f)
-                .size(60.0f, kButtonHeight)
-                .text(tr("dl.add_source"))
-                .fontSize(11.0f)
-                .lineHeight(26.0f)
-                .color(theme.metaText)
-                .build();
-            components::input(ui, "mirror.add.input")
-                .position(74.0f, 248.0f)
-                .size(dlgW - 74.0f - 64.0f - 16.0f, 26.0f)
+            outlinedInput(ui, "mirror.add.input")
+                .position(16.0f, 244.0f)
+                .size(dlgW - 96.0f, kOutlinedFieldHeight)
                 .placeholder(active ? tr("dl.mirror_url")
                                     : tr("dl.only_active_add"))
                 .value(g_mirrorAddText)
                 .fontFamily("")
-                .theme(theme.components)
-                .style(flatInputStyle(theme))
+                .theme(theme)
+                .background(theme.surfaceContainerLow)
+                .label(tr("dl.add_source"))
                 .onChange([](const std::string& v) { g_mirrorAddText = v; })
                 .build();
             if (active) {
                 components::button(ui, "mirror.add.btn")
-                    .position(dlgW - 16.0f - 56.0f, 248.0f)
+                    .position(dlgW - 16.0f - 56.0f, 254.0f)
                     .size(56.0f, kButtonHeight)
                     .text(tr("dl.add"))
                     .fontSize(kButtonFontSize)
