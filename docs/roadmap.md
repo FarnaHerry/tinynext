@@ -266,6 +266,37 @@ Motrix 经典版 `aria2` npm 包「WS 打开走 WS、否则 HTTP」。故混合 
 - 失败任务保留在会话文件（下次 GUI 启动续传）。daemon 输出重定向到
   `configDir/tinynext-aria2.log`（终端保持干净）。
 
+### MCP server：AI 助手接入（已实现 2026-10-11）
+
+`tinynext --mcp` 是一个 stdio MCP（Model Context Protocol）server，AI 客户端
+（Claude Desktop / Claude Code / ZCode…）按 mcpServers 配置拉起它即可管理下载
+（9 个工具：get_status / list_downloads / add_download / pause / resume /
+cancel / retry / remove / wait_until_idle）。实现为独立模块
+`tinynext.mcp_server`（`src/mcp_server.cppm`），`CliBoot` 接管（不进 GUI、
+不抢单实例锁），工具调用翻译成控制面动词经 TCP 交运行中的实例；应用未运行时
+add 走转发路径（落 inbox + 拉起 GUI 进托盘，同 `tinynext <url>`）。详见
+`docs/mcp.md`。
+
+**架构决策：aria2-next 不打包成独立服务，MCP 走伴生进程。**
+
+- 「CLI = GUI 伴生入口」决策（2026-10-11）的自然延伸：AI 助手是又一个客户端，
+  下载状态（任务表/seq/失败闸门/会话恢复）继续归 GUI 进程所有。
+- 独立服务的代价：daemon 生命周期脱离应用（自启动/系统服务、固定端口+secret
+  落盘与随机安全模型冲突）、组件更新「停 daemon 才能换二进制」要重做、
+  stop-with-process 孤儿兜底要为服务模式反转。
+- 参考实现调研：[Aria2 Agent](https://github.com/Rehui-2006/aria2-agent)（Python，
+  8 工具，直连 aria2 RPC，需自补防幻影文件等安全规则）与
+  [aria2-mcp-rs](https://github.com/nicholaswilde/aria2-mcp-rs)（Rust，17 工具 +
+  HTTP/SSE + RSS/带宽计划，自述 not production-ready）——都绕开应用层，因此要
+  重新发明任务语义/沙箱；TinyNext 的 MCP 面向 TaskStore/控制面，语义天然继承。
+  吸收了两点：`list_downloads` 的 query 过滤（学 search_downloads）、
+  V2 预留 HTTP 传输 + Bearer token（学 aria2-mcp-rs）。
+- **再评估触发条件**：出现「无 GUI 常驻下载」的真实需求（NAS/服务器场景）时，
+  再评估独立 daemon 模式；届时 MCP 传输可平移。
+- V1.5 候选：带参数的 `add` 控制动词（name/dir/connections；ctl token 无引号
+  转义需先定编码，dir 必须限下载目录内防路径穿越）、`tinynext mcp register`
+  写客户端配置、MCP resources。
+
 ## CI 打包：Windows runner 固定 windows-2022（2026-10-01）
 
 **问题**：发 v0.7.12 时 `build-win64` 卡在 «Install NSIS» 一步——curl 从

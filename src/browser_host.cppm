@@ -116,8 +116,11 @@ void spawnDetachedUnix(const std::filesystem::path& launcher) {
 }
 #endif
 
-// TinyNext 未运行时拉起 GUI（消费刚写入 inbox 的 URL）。
-void spawnAppDetached() {
+} // namespace
+
+// 拉起 GUI（消费 inbox 里排队的 URL）。浏览器宿主（主实例不在时）与 MCP server
+// 的 add_download 共用；带 --start-hidden，首帧后直接进托盘。
+export void spawnAppDetached() {
     const std::filesystem::path exe = programExePath();
     if (exe.empty()) return;
 #ifdef _WIN32
@@ -141,6 +144,9 @@ void spawnAppDetached() {
 #endif
 #endif
 }
+
+namespace {
+// ---- 以下为模块内部助手（匿名命名空间，外部链接不导出）----
 
 // ---- Chrome Native Messaging 框架（u32 长度前缀 + JSON；各支持平台均为小端）----
 

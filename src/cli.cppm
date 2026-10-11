@@ -61,6 +61,7 @@ import tinynext.utils;            // isDownloadableSource（下载源白名单�
 import tinynext.download_engine;  // dl::StartOptions（--mirror 的多源任务）
 import tinynext.headless;         // --headless 脚本模式（CliBoot 在 main 前接管）
 import tinynext.browser_host;     // 浏览器扩展 Native Messaging 宿主（CliBoot 接管）
+import tinynext.mcp_server;       // MCP stdio server（CliBoot 接管，AI 助手入口）
 import tinynext.cli_control;      // 控制面命令执行与输出格式
 
 namespace cli {
@@ -589,6 +590,11 @@ FOR AI AGENTS
     Google Chrome (HKCU registry on Windows, user profile dir on Linux/macOS) every
     time the GUI starts. Extension fixed ID:
     chrome-extension://ebhblmhndabomflakjjljpipfolmajia/
+  - MCP (Model Context Protocol): AI clients (Claude Desktop, Claude Code, ZCode,
+    Cursor...) manage downloads by launching `tinynext --mcp` as a stdio MCP server
+    (tools: get_status / list_downloads / add_download / pause / resume / cancel /
+    retry / remove / wait_until_idle). Add to the client's mcpServers config with
+    {"command": "<tinynext path>", "args": ["--mcp"]}; see docs/mcp.md.
 
 TROUBLESHOOTING
   - A download did not start: the argument must start with a recognized scheme (above).
@@ -900,6 +906,19 @@ struct CliBoot {
         // 实例，主实例不在时由宿主拉起 GUI。
         if (browser_host::nativeHostRequested()) {
             std::exit(browser_host::runNativeHost(forwardUrlsFromBrowser));
+        }
+        // MCP stdio server：AI 客户端（Claude Desktop/Claude Code/ZCode…）按
+        // mcpServers 配置以 stdio 拉起 `tinynext --mcp`。绝不进 GUI；工具调用经
+        // 控制面 TCP 转发运行中的实例，add_download 应用未运行时转发 + 拉起
+        // （同 CLI 唤起语义）。与浏览器宿主同为「外部程序拉起的伴生进程」。
+        if (mcp_server::mcpServerRequested()) {
+            std::exit(mcp_server::runMcpServer(
+                [](const std::string& line, std::string& response) {
+                    // line 不含 "ctl:" 前缀（mcp_server 的工具层只给动词+参数），
+                    // 线路格式在这里统一补齐。
+                    return exchangeCtl("ctl:" + line, response) == 0;
+                },
+                forwardUrlsFromBrowser));
         }
         // `tinynext agent`：打印 CLI 使用教学并退出，不进 GUI、不走单实例。
         if (runAgentHelpIfRequested()) {
