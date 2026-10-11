@@ -366,4 +366,72 @@ export void registerChromeNativeHost() {
     (void)registerManifestInChrome(manifest);
 }
 
+// 扩展固定 origin（extension/chrome/manifest.json 的 key 派生；扩展页展示用）。
+export std::string chromeExtensionOrigin() {
+    return kExtensionOrigin;
+}
+
+// 宿主注册状态：清单落盘且 Chrome 侧登记到位（POSIX 检查 Chrome 用户目录的
+// 副本；Windows 检查 HKCU 注册表默认值非空）。扩展页状态行 + 重新注册按钮用。
+export bool chromeHostRegistered() {
+    const std::filesystem::path manifest =
+        cfg::configDir() / "browser-host" / (std::string(kHostName) + ".json");
+    std::error_code ec;
+    if (!std::filesystem::exists(manifest, ec)) return false;
+#ifdef _WIN32
+    const std::wstring subKey =
+        std::wstring(L"Software\\Google\\Chrome\\NativeMessagingHosts\\") +
+        std::wstring(kHostName, kHostName + std::char_traits<char>::length(kHostName));
+    HKEY raw = nullptr;
+    if (::RegOpenKeyExW(HKEY_CURRENT_USER, subKey.c_str(), 0, KEY_QUERY_VALUE,
+                        &raw) != ERROR_SUCCESS) {
+        return false;
+    }
+    tinynext::native::UniqueHkey key(raw);
+    DWORD type = 0, bytes = 0;
+    if (::RegQueryValueExW(key.get(), nullptr, nullptr, &type, nullptr,
+                           &bytes) != ERROR_SUCCESS ||
+        type != REG_SZ || bytes <= sizeof(wchar_t)) {
+        return false;
+    }
+    std::wstring value(bytes / sizeof(wchar_t), L'\0');
+    if (::RegQueryValueExW(key.get(), nullptr, nullptr, nullptr,
+                           reinterpret_cast<BYTE*>(value.data()), &bytes) !=
+        ERROR_SUCCESS) {
+        return false;
+    }
+    value.resize(bytes / sizeof(wchar_t) - 1);
+    return !value.empty();
+#else
+    const char* home = std::getenv("HOME");
+    if (!home || !*home) return false;
+#ifdef __APPLE__
+    const std::filesystem::path registered =
+        std::filesystem::path(home) / "Library" / "Application Support" /
+        "Google" / "Chrome" / "NativeMessagingHosts" / manifest.filename();
+#else
+    const std::filesystem::path registered =
+        std::filesystem::path(home) / ".config" / "google-chrome" /
+        "NativeMessagingHosts" / manifest.filename();
+#endif
+    return std::filesystem::exists(registered, ec);
+#endif
+}
+
+// 扩展源码目录（「打开扩展目录」按钮 + 加载已解压扩展的路径指引）：
+// exe 旁 extension/chrome（发行包布局）→ 开发树（exe 上四级）extension/chrome。
+// 都不存在返回空路径，调用方据此禁用按钮。
+export std::filesystem::path chromeExtensionDir() {
+    const std::filesystem::path exe = programExePath();
+    if (exe.empty()) return {};
+    const std::filesystem::path exeDir = exe.parent_path();
+    std::error_code ec;
+    for (const std::filesystem::path& base :
+         {exeDir, (exeDir / "../../../../").lexically_normal()}) {
+        const std::filesystem::path candidate = base / "extension" / "chrome";
+        if (std::filesystem::exists(candidate, ec)) return candidate;
+    }
+    return {};
+}
+
 } // namespace browser_host

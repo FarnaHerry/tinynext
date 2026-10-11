@@ -288,7 +288,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             .color(theme.metaText)
             .build();
     }
-    constexpr float pagerW = 220.0f;
+    constexpr float pagerW = 252.0f;
     ui.row("pager.group")
         .position(contentX + contentW - pagerW, actionY)
         .size(pagerW, kButtonHeight)
@@ -330,6 +330,14 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                             g_pageSizeOpen, pageLabels, 5, pageSizeIndex(), true,
                             PickerField::Plain,
                             [](int i) { g_pageSize = kPageSizes[i]; g_page = 1; }, 96.0f);
+            ui.stack("pager.extensions")
+                .size(toolW, kButtonHeight)
+                .content([&] {
+                    drawToolbarIconButton(ui, "pager.extensions.icon", 0, 0,
+                        toolW, kButtonHeight, 0xF12E, false, theme,
+                        [] { g_page_view = Page::Extensions; g_pageSizeOpen = false; g_sortOpen = false; });
+                })
+                .build();
             ui.stack("pager.settings")
                 .size(toolW, kButtonHeight)
                 .content([&] {
@@ -796,6 +804,8 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .text(tr("dl.torrent_name_hint"))
                         .fontSize(11.0f)
                         .lineHeight(16.0f)
+                        .maxWidth(fieldW - 32.0f)
+                        .wrap(true)
                         .color(theme.metaText)
                         .build();
                                 })

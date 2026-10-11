@@ -48,6 +48,7 @@ if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
 New-Item -ItemType Directory -Path $dist | Out-Null
 Copy-Item $exe (Join-Path $dist $exeName)
 Copy-Item (Join-Path $root "assets") (Join-Path $dist "assets") -Recurse
+Copy-Item (Join-Path $root "extension") (Join-Path $dist "extension") -Recurse
 # 第三方二进制（aria2-next）的许可与来源声明，随包带到根目录。
 if (Test-Path (Join-Path $root "THIRD-PARTY-NOTICES.md")) {
     Copy-Item (Join-Path $root "THIRD-PARTY-NOTICES.md") (Join-Path $dist "THIRD-PARTY-NOTICES.md")

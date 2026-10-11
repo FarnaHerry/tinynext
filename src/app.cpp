@@ -36,6 +36,7 @@ import tinynext.ui.theme_watch;
 import tinynext.ui.theme;
 import tinynext.ui.downloads_page;
 import tinynext.ui.settings_page;
+import tinynext.ui.extensions_page;
 import tinynext.ui.platform;
 import tinynext.ui.housekeep;
 import tinynext.store.tasks;    // g_tasks（启动预热 warmup）
@@ -202,10 +203,11 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
                 .color(theme.components.background)
                 .build();
 
-            // 页面直接铺在主题背景上，由下载页分页器进入设置页。
+            // 页面直接铺在主题背景上：分页器齿轮进设置、拼图进扩展。
             switch (g_page_view) {
                 case Page::Downloads: drawDownloadsPage(ui, screen, theme); break;
-                case Page::Settings:  drawSettingsPage(ui, screen, theme);  break;
+                case Page::Settings:  drawSettingsPage(ui, screen, theme); break;
+                case Page::Extensions: drawExtensionsPage(ui, screen, theme); break;
             }
         })
         .build();

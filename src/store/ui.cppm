@@ -11,7 +11,7 @@ import tinynext.download_engine;  // dl::State（stateMatches 的任务状态入
 
 // ---- 页面 ----
 
-export enum class Page { Downloads, Settings };
+export enum class Page { Downloads, Settings, Extensions };
 export Page g_page_view = Page::Downloads;  // 默认打开下载列表
 export std::atomic<bool> g_engineMonitorTabActive{false};
 
