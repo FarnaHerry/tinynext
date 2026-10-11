@@ -60,6 +60,7 @@ import tinynext.store.ui;         // showStatus（转发/CLI 添加下载的结�
 import tinynext.utils;            // isDownloadableSource（下载源白名单）
 import tinynext.download_engine;  // dl::StartOptions（--mirror 的多源任务）
 import tinynext.headless;         // --headless 脚本模式（CliBoot 在 main 前接管）
+import tinynext.browser_host;     // 浏览器扩展 Native Messaging 宿主（CliBoot 接管）
 import tinynext.cli_control;      // 控制面命令执行与输出格式
 
 namespace cli {
@@ -577,6 +578,13 @@ FOR AI AGENTS
     mutex), forwarding over TCP 127.0.0.1 (port in <temp>/tinynext.port, protocol
     TINYNEXT-CLI/2, control requests are "ctl:<verb> ..." lines with a reply), plus the
     <temp>/tinynext.inbox fallback file for early adds.
+  - Browser extension (Chrome): the repo's extension/chrome/ talks Native Messaging to
+    this binary — Chrome spawns it with a "chrome-extension://..." argument and this
+    process becomes the native host ("--native-host" does the same for debugging).
+    The host manifest is written to <configDir>/browser-host/ and registered for
+    Google Chrome (HKCU registry on Windows, user profile dir on Linux/macOS) every
+    time the GUI starts. Extension fixed ID:
+    chrome-extension://ebhblmhndabomflakjjljpipfolmajia/
 
 TROUBLESHOOTING
   - A download did not start: the argument must start with a recognized scheme (above).
@@ -744,6 +752,21 @@ export std::vector<std::string> drainInbox() {
     return urls;
 }
 
+// 浏览器扩展宿主（browser_host）注入用的转发回调：TCP 直连主实例；不在则落
+// inbox 并返回 false（宿主会顺带拉起 GUI 消费）。不抢焦点——扩展转发是后台
+// 动作，不该打断用户当前窗口。
+export bool forwardUrlsFromBrowser(const std::vector<std::string>& urls) {
+    if (urls.empty()) return true;
+    if (trySendUrls(urls)) return true;
+    std::ofstream out(inboxPath(), std::ios::app);
+    if (out) {
+        for (const auto& u : urls) {
+            if (!u.empty()) out << u << '\n';
+        }
+    }
+    return false;
+}
+
 // ---- 控制面客户端（`tinynext status/list/watch/pause/...`）----
 
 bool hasToken(const std::vector<std::string>& tokens, std::string_view flag) {
@@ -859,6 +882,13 @@ bool g_cliHandled = false;
 // 模块全局的动态初始化先于任何引用 TU 的静态初始化执行。
 struct CliBoot {
     CliBoot() {
+        // 浏览器扩展 Native Messaging 宿主：Chrome 以 chrome-extension://<id>/
+        // 拉起主程序（或显式 --native-host 调试）。最先接管——宿主模式绝不进
+        // GUI、不抢单实例锁；URL 经 forwardUrlsFromBrowser（TCP→inbox）交主
+        // 实例，主实例不在时由宿主拉起 GUI。
+        if (browser_host::nativeHostRequested()) {
+            std::exit(browser_host::runNativeHost(forwardUrlsFromBrowser));
+        }
         // `tinynext agent`：打印 CLI 使用教学并退出，不进 GUI、不走单实例。
         if (runAgentHelpIfRequested()) {
             std::exit(0);

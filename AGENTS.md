@@ -51,6 +51,7 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
 | `tinynext.store.ui` | `src/store/ui.cppm` | 视图 store：状态消息 / 页面 / 筛选·排序·分页 |
 | `tinynext.store.dialogs` | `src/store/dialogs.cppm` | 视图 store：弹窗状态机 + addDownload/requestDelete |
 | `tinynext.cli` | `src/cli.cppm` | 单实例 + 命令行 URL + TCP socket 转发 + 控制面请求入口 |
+| `tinynext.browser_host` | `src/browser_host.cppm` | 浏览器扩展 Native Messaging 宿主（Chrome 拉起主程序时的 stdio 协议循环）+ 宿主清单注册（extension/chrome/）|
 | `tinynext.cli_control` | `src/cli_control.cppm` | CLI 控制面：`status/list/watch`（只读，IPC 线程直答）+ `pause/resume/cancel/retry/remove/clear/quit`（marshal 到 UI 线程执行），支持 `--json` |
 | `tinynext.ui.*` | `src/ui/*.cppm` | utils（布局常量）/ theme / platform / housekeep / widgets / cards / downloads_page / settings_page / engine_page |
 | `src/app.cpp` | 普通 TU | 入口：`app::dslAppConfig()` + `app::compose()` |

@@ -75,6 +75,21 @@ tinynext status --json              # tasks.awaitingSelection
 tinynext resume 2                   # error: #2 is waiting for torrent file selection (…)
 ```
 
+## 浏览器扩展（Chrome）
+
+仓库 `extension/chrome/` 提供 Chrome 扩展（MV3）：链接右键菜单转发 + 可选的
+浏览器下载接管。它不直连 TinyNext，而是走 Chrome 官方 Native Messaging：
+Chrome 以 `chrome-extension://<id>/` 参数拉起本主程序进入宿主模式
+（`src/browser_host.cppm`，stdio 上的长度前缀 JSON 协议），宿主再经本文件描述的
+单实例 TCP / inbox 通道转发给运行中的实例；主实例不在时落 inbox 并自动拉起 GUI。
+
+- 宿主清单：GUI 启动时自动写到 `<configDir>/browser-host/com.tinynext.host.json`
+  并登记 Chrome（Windows HKCU 注册表；Linux/macOS 用户配置目录），幂等。
+- 扩展固定 ID：`chrome-extension://ebhblmhndabomflakjjljpipfolmajia/`
+  （manifest `key` 派生；宿主白名单写死此 origin）。
+- 调试：`tinynext --native-host` 直接进宿主循环，可手动喂消息。
+- 安装步骤与细节见 `extension/chrome/README.md`。
+
 ## 实现位置
 
 - `src/cli.cppm`（模块 `tinynext.cli`）：
@@ -92,7 +107,8 @@ tinynext resume 2                   # error: #2 is waiting for torrent file sele
   - `startCliIpc()` — 后台线程：bind 127.0.0.1 随机端口 + 写端口文件，阻塞 accept；
   - `processPendingUrls()` — UI 线程每次被唤醒时调用：首帧加自身 CLI URL，随后处理
     socket 队列 + 兜底 inbox；
-  - `CliBoot` — 静态初始化：第二实例转发后 `exit(0)`。
+  - `CliBoot` — 静态初始化：浏览器扩展宿主模式（`chrome-extension://` 参数或
+    `--native-host`）最先接管；第二实例转发后 `exit(0)`。
 - 端口文件：`<temp>/tinynext.port`（主实例写入，第二实例转发时读取）；兜底 inbox：
   `<temp>/tinynext.inbox`。
 

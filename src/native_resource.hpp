@@ -48,6 +48,26 @@ private:
     HANDLE value_ = nullptr;
 };
 
+// Registry key owner (RegCreateKeyExW / RegOpenKeyExW → RegCloseKey).
+class UniqueHkey {
+public:
+    UniqueHkey() = default;
+    ~UniqueHkey() { reset(); }
+
+    UniqueHkey(const UniqueHkey&) = delete;
+    UniqueHkey& operator=(const UniqueHkey&) = delete;
+
+    explicit operator bool() const noexcept { return value_ != nullptr; }
+    HKEY get() const noexcept { return value_; }
+    void reset(HKEY value = nullptr) noexcept {
+        if (value_) ::RegCloseKey(value_);
+        value_ = value;
+    }
+
+private:
+    HKEY value_ = nullptr;
+};
+
 class UniqueModule {
 public:
     UniqueModule() = default;

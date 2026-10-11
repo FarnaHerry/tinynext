@@ -39,6 +39,7 @@ import tinynext.ui.settings_page;
 import tinynext.ui.platform;
 import tinynext.ui.housekeep;
 import tinynext.store.tasks;    // g_tasks（启动预热 warmup）
+import tinynext.browser_host;   // 浏览器扩展宿主注册（Native Messaging 清单）
 import tinynext.component_updater;  // 引擎更新生命周期与版本探测
 import tinynext.store.ui;       // 状态消息 / 页面
 
@@ -105,6 +106,10 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
         updater::setWakeUi([] {
             if (!g_appShuttingDown.load()) core::platform::requestUiUpdate();
         });
+        // 浏览器扩展宿主注册（幂等 best-effort）：写 Native Messaging 清单并
+        // 登记 Chrome。扩展首连前至少要跑过一次 GUI；失败静默（扩展 popup 的
+        // 「检测」会提示未注册）。
+        browser_host::registerChromeNativeHost();
         updater::prepareForShutdown(g_tasks.engine());
         cli::startCliIpc();
         housekeep::startHousekeeping();

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: dark; }
+  body {
+    width: 260px;
+    margin: 0;
+    padding: 12px 14px 14px;
+    background: #0a0a0a;
+    color: #e6e6e6;
+    font: 12px/1.6 "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  h1 {
+    margin: 0 0 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  h1 img { width: 16px; height: 16px; }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 0;
+  }
+  .hint { color: #9a9a9a; font-size: 11px; margin: 6px 0 0; }
+  #status { min-height: 16px; color: #9a9a9a; font-size: 11px; margin-top: 8px; }
+  #status.ok { color: #4c9e63; }
+  #status.bad { color: #c96a6a; }
+  button {
+    background: #1f1f1f;
+    border: 1px solid #333;
+    border-radius: 6px;
+    color: #e6e6e6;
+    font: inherit;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  button:hover { background: #2a2a2a; }
+  /* 单色开关 */
+  .switch { position: relative; width: 36px; height: 20px; flex: none; }
+  .switch input { display: none; }
+  .switch .track {
+    position: absolute; inset: 0;
+    background: #2a2a2a;
+    border: 1px solid #3d3d3d;
+    border-radius: 10px;
+    transition: background .15s, border-color .15s;
+  }
+  .switch .thumb {
+    position: absolute; top: 3px; left: 3px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #8a8a8a;
+    transition: left .15s, background .15s;
+  }
+  .switch input:checked ~ .track { background: #e6e6e6; border-color: #e6e6e6; }
+  .switch input:checked ~ .thumb { left: 19px; background: #0a0a0a; }
+</style>
+</head>
+<body>
+  <h1><img src="icons/icon32.png" alt="">TinyNext 下载器</h1>
+  <div class="row">
+    <span>接管浏览器下载</span>
+    <label class="switch">
+      <input type="checkbox" id="takeover">
+      <span class="track"></span>
+      <span class="thumb"></span>
+    </label>
+  </div>
+  <p class="hint">开启后，浏览器开始下载文件时自动取消并改用 TinyNext 下载（blob:/data: 除外）。任意链接也可右键 →「用 TinyNext 下载此链接」。</p>
+  <div class="row">
+    <span>连接状态</span>
+    <button id="test">检测</button>
+  </div>
+  <div id="status"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

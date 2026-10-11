@@ -21,6 +21,7 @@ module;
 #include "native_resource.hpp"  // UniqueModule / UniqueLocalAlloc
 #elif defined(__APPLE__)
 #include <crt_externs.h>  // _NSGetArgc/_NSGetArgv
+#include <mach-o/dyld.h>  // _NSGetExecutablePath（programExePath）
 #endif
 
 export module tinynext.utils;
@@ -328,6 +329,62 @@ export std::vector<std::string> commandLineArgs() {
         for (std::size_t i = first; i < tokens.size(); ++i) args.push_back(tokens[i]);
 #endif
         return args;
+    }();
+    return cached;
+}
+
+// 本程序可执行文件的真实路径（restartApp 自重启 / 浏览器扩展宿主清单 / 拉起
+// GUI 共用）。Windows / macOS / 正常 Linux 启动下就是系统 API / /proc/self/exe；
+// Linux 经动态加载器直接启动（run.sh）时 /proc/self/exe 指向 ld.so 本身（没有
+// 真正的 execve，见 commandLineArgs 的说明），此时从 /proc/self/cmdline 剥掉
+// 加载器与它的选项后取程序路径——剥离规则与 commandLineArgs 保持一致，别在
+// 别处再写一份。
+export std::filesystem::path programExePath() {
+    static const std::filesystem::path cached = []() -> std::filesystem::path {
+#ifdef _WIN32
+        std::wstring buf(32768, L'\0');  // long-path 感知清单下路径可超 MAX_PATH
+        const DWORD n = GetModuleFileNameW(nullptr, buf.data(),
+                                           static_cast<DWORD>(buf.size()));
+        if (n == 0 || n >= buf.size()) return {};
+        buf.resize(n);
+        return std::filesystem::path(buf);
+#elif defined(__APPLE__)
+        std::string buf(4096, '\0');
+        std::uint32_t size = static_cast<std::uint32_t>(buf.size());
+        if (_NSGetExecutablePath(buf.data(), &size) != 0) {
+            buf.resize(size);  // 返回 -1 时 size 是所需大小
+            if (_NSGetExecutablePath(buf.data(), &size) != 0) return {};
+        }
+        std::error_code ec;
+        return std::filesystem::weakly_canonical(buf.data(), ec);  // 解析 .app 内 symlink
+#else
+        std::error_code ec;
+        const std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", ec);
+        if (ec) return {};
+        const std::string base = exe.filename().string();
+        if (!(base.starts_with("ld-linux") || base.starts_with("ld-musl") ||
+              base == "ld.so" || base.starts_with("ld.so."))) {
+            return exe;  // 正常启动：/proc/self/exe 就是程序本身
+        }
+        std::ifstream in("/proc/self/cmdline", std::ios::binary);
+        std::string s((std::istreambuf_iterator<char>(in)),
+                      std::istreambuf_iterator<char>());
+        std::vector<std::string> tokens;
+        std::size_t start = 0;
+        while (start < s.size()) {
+            const std::size_t end = s.find('\0', start);
+            tokens.push_back(s.substr(start, end - start));
+            if (end == std::string::npos) break;
+            start = end + 1;
+        }
+        std::size_t i = 1;
+        while (i < tokens.size() && tokens[i].starts_with("--") && tokens[i] != "--") {
+            i += loaderOptionTakesValue(tokens[i]) ? 2 : 1;
+        }
+        if (i < tokens.size() && tokens[i] == "--") ++i;
+        return i < tokens.size() ? std::filesystem::path(tokens[i])
+                                 : std::filesystem::path{};
+#endif
     }();
     return cached;
 }

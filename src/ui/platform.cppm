@@ -41,6 +41,7 @@ extern "C" HWND glfwGetWin32Window(GLFWwindow* window);
 export module tinynext.ui.platform;
 
 import std;
+import tinynext.utils;  // programExePath（run.sh 经 ld.so 启动时的真实程序路径）
 
 // EUI 的 Screen 已经除过 DPI 和 uiScale；GLFW 的窗口单位在不同平台上可能
 // 是物理像素，也可能是点。由两者的实际比例换算最小画布，避免高 DPI 时
@@ -519,30 +520,11 @@ export void openUrl(const std::string& url) {
 
 namespace {
 
-// 自身可执行文件路径：Windows GetModuleFileNameW；Linux /proc/self/exe；
-// macOS _NSGetExecutablePath。
+// 自身可执行文件路径：统一走 utils::programExePath——run.sh 经 ld.so 直接启动
+// 时 /proc/self/exe 指向加载器本身，必须从 cmdline 还原真实程序路径（否则
+// Linux 开发树下「立即重启」会拉起 /usr/bin 的安装版）。
 std::filesystem::path selfExePath() {
-#ifdef _WIN32
-    std::wstring buf(32768, L'\0');  // long-path 感知清单下路径可超 MAX_PATH
-    const DWORD n = GetModuleFileNameW(nullptr, buf.data(),
-                                       static_cast<DWORD>(buf.size()));
-    if (n == 0 || n >= buf.size()) return {};
-    buf.resize(n);
-    return std::filesystem::path(buf);
-#elif defined(__APPLE__)
-    std::string buf(4096, '\0');
-    std::uint32_t size = static_cast<std::uint32_t>(buf.size());
-    if (_NSGetExecutablePath(buf.data(), &size) != 0) {
-        buf.resize(size);  // 返回 -1 时 size 是所需大小
-        if (_NSGetExecutablePath(buf.data(), &size) != 0) return {};
-    }
-    std::error_code ec;
-    return std::filesystem::weakly_canonical(buf.data(), ec);  // 解析 .app 内的 symlink
-#else
-    std::error_code ec;
-    const std::filesystem::path p = std::filesystem::read_symlink("/proc/self/exe", ec);
-    return ec ? std::filesystem::path{} : p;
-#endif
+    return programExePath();
 }
 
 #ifndef _WIN32

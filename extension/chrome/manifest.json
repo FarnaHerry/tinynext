@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "TinyNext 下载器",
+  "version": "0.1.0",
+  "description": "把网页链接与浏览器下载转发给 TinyNext 下载器（aria2-next 引擎）。",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsggEBOUXnyqfFDqqnfZuUP1ghkC2P7uNDptxLWMWq2roSmsTVw6IzB9iSLIOXGYMw+7GwFMaL4cz/f9Piz+1LKEBmmiX3ZHbDw+GuGInkudC7OEFh/cilavTLljowa+qEoql74/G0mJFkrGTxD7jeFINqwxGZTFxCBk4sxs9nCnsuwjUL/kWf4n1MqP9VjVvNNdf2Q0roviswr0S2Y4Iy1T9LsJ8qqfCqm9ILTl6pE1nvnK1IbV3ce1GgdVk865hPMrBijSepvJumBT2rsofrsiFxIJHxkrD1OmegYIHwwSSoDMz2ogoWhRrZOZL3gPotRZsj3l9XwfpdsFfKu8t7wIDAQAB",
+  "minimum_chrome_version": "102",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "TinyNext 下载器",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["contextMenus", "downloads", "nativeMessaging", "storage"]
+}
