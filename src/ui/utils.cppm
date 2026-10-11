@@ -45,13 +45,13 @@ export constexpr float kMinPageHeight = 500.0f;
 // 布局尺寸都按“设计逻辑像素”书写，并用 screen.width/height 推算；
 // 页面共用 pageContentWidth/pageContentX 做窄屏留白与宽屏限宽居中。
 export constexpr float kPagerHeight = 24.0f;        // 翻页行高
-export constexpr float kCardHeight = 160.0f;        // 紧凑任务卡：名称 / 状态 / 进度 / 操作
+export constexpr float kCardHeight = 128.0f;        // 紧凑任务卡，底部容纳最多两行操作
 export constexpr float kTaskCardMinWidth = 236.0f;
-export constexpr float kCardPad = 16.0f;
+export constexpr float kCardPad = 12.0f;
 export constexpr float kCardProgressWidth = 4.0f;   // 左侧竖向进度，自下向上填充
-export constexpr float kCardProgressHeight = 72.0f;
-export constexpr float kCardProgressGap = 12.0f;    // 进度条与文字的间距
-export constexpr float kCardGap = 10.0f;
+export constexpr float kCardProgressHeight = 52.0f;
+export constexpr float kCardProgressGap = 8.0f;     // 进度条与文字的间距
+export constexpr float kCardGap = 8.0f;
 export constexpr float kCardIconW = 22.0f;          // 卡片操作图标按钮边长
 export constexpr float kCardIconGap = 4.0f;
 

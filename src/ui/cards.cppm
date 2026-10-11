@@ -192,7 +192,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
 
             // 名称在单行内精确截断；完整名称、链接及错误通过信息入口查看。
             components::text(ui, fid + ".name")
-                .position(textX, 14.0f)
+                .position(textX, 8.0f)
                 .size(nameW, 20.0f)
                 .text(ellipsizeText(taskDisplayName(task), nameW, 13.0f))
                 .fontSize(13.0f)
@@ -200,7 +200,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .color(theme.nameText)
                 .build();
             components::text(ui, fid + ".state")
-                .position(textX, 42.0f)
+                .position(textX, 30.0f)
                 .size(nameW - 56.0f, 16.0f)
                 .text(stateLabel(task.state))
                 .fontSize(11.0f)
@@ -208,7 +208,7 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 .color(stateColor(task.state))
                 .build();
             components::text(ui, fid + ".percentage")
-                .position(cardWidth - kCardPad - 52.0f, 42.0f)
+                .position(cardWidth - kCardPad - 52.0f, 30.0f)
                 .size(52.0f, 16.0f)
                 .text(progressText)
                 .fontFamily(kMonoFont)
@@ -243,16 +243,16 @@ export void drawTaskCard(eui::Ui& ui, const dl::TaskView& task, float cardWidth)
                 }
             }
             components::text(ui, fid + ".infotext")
-                .position(textX, 70.0f)
-                .size(nameW, 18.0f)
+                .position(textX, 48.0f)
+                .size(nameW, 16.0f)
                 .text(ellipsizeText(info, nameW, 11.0f, kMonoFont))
                 .fontSize(11.0f)
                 .fontFamily(kMonoFont)
-                .lineHeight(18.0f)
+                .lineHeight(16.0f)
                 .color(theme.metaText)
                 .build();
 
-            // 操作条件保持按当前任务状态决定，信息不再与按钮争用同一行。
+            // 信息区底边为 64，操作换到第二行时顶边为 68，仍保留独立空间。
             const bool showPause = task.state == dl::State::Downloading;
             const bool mediaTrackSelectionSupported = !task.awaitingMediaTrackSelection ||
                 g_tasks.health().supportsMediaTrackSelection;
