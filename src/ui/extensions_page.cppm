@@ -87,8 +87,10 @@ export void drawExtensionsPage(eui::Ui& ui, const eui::Screen& screen,
     // 面板 A：pad12 + 状态30 + 4 + ID30 + 6 + 步骤3×22 + 6 + 按钮28 + pad12
     const float panelA = 12.0f + 30.0f + 4.0f + 30.0f + 6.0f + 3 * 22.0f + 6.0f +
                          28.0f + 12.0f;
-    // 面板 B：pad12 + 说明36 + 标签22 + mono 5×18 + 6 + 提示34 + pad12
-    const float panelB = 12.0f + 36.0f + 22.0f + 5 * 18.0f + 6.0f + 34.0f + 12.0f;
+    // 面板 B：pad12 + 说明36 + 4 + 标签22 + 2 + mono 5×18 + 6 + 提示34 + pad12
+    //（各段之间的空隙也算在内，少算会让 hint 文本溢出面板底边）。
+    const float panelB = 12.0f + 36.0f + 4.0f + 22.0f + 2.0f + 5 * 18.0f + 6.0f +
+                         34.0f + 12.0f;
     constexpr float secTitleH = 20.0f;
     constexpr float secGap = 18.0f;
     const float contentH = secTitleH + 6.0f + panelA + secGap + secTitleH + 6.0f +

@@ -800,6 +800,14 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                         .build();
                 }
 
+                // 字段区与底部按钮行之间的 hairline 分隔：内容超高滚动时，
+                // 最后一行不会再以「半截文字」直接贴住按钮行。
+                ui.rect("add.fields.divider")
+                    .position(labelX, dlgH - fieldsBottomPad)
+                    .size(dlgW - 32.0f, kHairline)
+                    .color(theme.outline)
+                    .build();
+
                 // M3 对话框操作：左 = text button（取消），右 = filled button（提交）。
                 drawTextButton(ui, "add.cancel", dlgW - 16.0f - 76.0f - 8.0f - 76.0f, btnY,
                                76.0f, kButtonHeight, tr("dl.cancel"), theme,

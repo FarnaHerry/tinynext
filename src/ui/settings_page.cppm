@@ -826,7 +826,11 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
                 for (int i = 0; i < static_cast<int>(std::size(kAboutLinks)); ++i) {
                     const std::string rowId = "about.link." + std::to_string(i);
                     row(rowId, 30.0f, [&, i, rowId](eui::Ui& r, float) {
-                        drawTextButton(r, "st." + rowId, 0.0f, 0.0f, i == 0 ? 350.0f : 220.0f,
+                        // 链接按钮宽度贴合文字（drawTextButton 文字居中），避免
+                        // 定宽按钮里居中文字与上方值列错位。
+                        const float w = core::TextPrimitive::measureTextWidth(
+                                            kAboutLinks[i].label, "", kButtonFontSize) + 16.0f;
+                        drawTextButton(r, "st." + rowId, 0.0f, 0.0f, w,
                                        kCompactButtonHeight, kAboutLinks[i].label, theme,
                                        [url = std::string(kAboutLinks[i].url)] { openUrl(url); });
                     });
