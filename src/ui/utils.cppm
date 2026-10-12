@@ -25,7 +25,7 @@ export constexpr float kMaxPageContentWidth = 1040.0f;
 export constexpr float kMaxSettingsFormWidth = 720.0f;
 
 // 左侧导航栏宽度（app.cpp 绘制；三个页面的内容区从它右侧开始）。
-export constexpr float kSidebarWidth = 208.0f;
+export constexpr float kSidebarWidth = 148.0f;
 export bool isCompactLayout(float width) { return width < kCompactBreakpoint; }
 export float pageContentInset(float viewportWidth) {
     return isCompactLayout(viewportWidth) ? 12.0f : 24.0f;
