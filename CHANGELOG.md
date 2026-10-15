@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.14（2026-10-15）
+
+### UI
+- **MD3 Outlined 输入框浮动标签滑动动画**：聚焦/输入时标签从框内滑到顶部描边
+  留口、失焦且清空后滑回（0.16 秒 OutCubic），聚焦变色（主色）与描边 1px↔2px
+  过渡同节奏。动画走 eui Frame 插值，字号按姿态原生光栅（静置 11px / 浮动
+  10px），静止时不产生常驻动画状态，弹窗空闲 CPU 与无动画版本持平。
+- 输入框聚焦描边（hairline↔2px 主色）由硬切改为同节奏过渡插值。
+
+### 依赖
+- eui-neo 0.6.0 → 0.6.1：上游为窗口生命周期 + 组件修复（透明帧缓冲、
+  beginWindowMove/Resize、onStart/appId、下拉/滑块 z-order、OpenGL
+  pixel-unpack）；CORE_SOURCES 与 0.6.0 逐字节一致，对本项目代码零改动。
+
 ## 0.7.13（2026-10-11）
 
 ### UI
