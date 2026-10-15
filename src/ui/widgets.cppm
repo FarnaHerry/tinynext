@@ -200,33 +200,59 @@ components::InputStyle bareInputStyle(const AppTheme& theme) {
 void drawOutlinedFrame(eui::Ui& ui, const std::string& id, float width, float height,
                        const AppTheme& theme, core::Color background, bool focused) {
     const float top = kOutlinedLabelHeight * 0.5f;
+    // 聚焦反馈不只是变色：hairline↔2px 主色描边用过渡插值，与标签滑动同节奏。
+    // 通道只开 Border（纪律见 drawOutlinedLabel 注释）。
+    core::Transition anim = core::Transition::make(kOutlinedAnimSeconds, core::Ease::OutCubic);
+    anim.properties = core::AnimProperty::Border;
     ui.rect(id + ".outline")
         .position(0, top).size(width, height - top)
         .color(background).radius(kOutlinedRadius)
         .border(focused ? kOutlinedFocusBorder : kHairline,
                 focused ? theme.primary : theme.outline)
+        .transition(anim)
         .build();
 }
 
+// 标签两姿态：静置 = 框内正文垂直居中（原生字号）；浮动 = 顶部留口内的小字。
+// 动画用 eui 的 Frame 插值（.animate 显式开启）：布局帧在两姿态间插值，标签
+// 平滑滑上/滑回；静止时 Frame 目标与布局帧恒等，不产生常驻动画状态，空闲
+// CPU 与无动画版本持平（弹窗各状态实测一致）。字号按姿态原生光栅（静置
+// 11px / 浮动 10px，各自最锐利），切换瞬间的字号跳变由滑动运动掩护；
+// TextColor 同参数过渡（聚焦变主色）。rect 上不要挂 transition+opacity 做
+// 留口淡入淡出：留口改用硬切、与标签滑动同帧发生，0.16s 内不可辨。
+// pinFloating：永不静置的控件（数字步进框）直接按浮动姿态布局。
 void drawOutlinedLabel(eui::Ui& ui, const std::string& id, float width, float height,
                        const std::string& label, const AppTheme& theme,
-                       core::Color background, bool focused, bool floating) {
+                       core::Color background, bool focused, bool floating,
+                       bool pinFloating = false) {
     if (label.empty()) return;
-    const float fontSize = floating ? 10.0f : theme.components.metrics.typography.input;
-    const float lineHeight = floating ? kOutlinedLabelHeight : fontSize * 1.2f;
     const float available = std::max(0.0f, width - 2.0f * kOutlinedInset);
-    const auto text = ellipsizeText(label, available, fontSize);
+    const float fontSize = (pinFloating || floating)
+        ? kOutlinedFloatLabelSize : theme.components.metrics.typography.input;
+    const float lineHeight = (pinFloating || floating)
+        ? kOutlinedLabelHeight : fontSize * 1.2f;
+    const std::string text = ellipsizeText(label, available, fontSize);
     const float textWidth = core::TextPrimitive::measureTextWidth(text, "", fontSize);
-    if (floating) {
+    const float restY = kOutlinedLabelHeight * 0.5f
+        + (height - kOutlinedLabelHeight * 0.5f - lineHeight) * 0.5f;
+    const float y = (pinFloating || floating) ? 0.0f : restY;
+
+    // 顶部留口：压掉描边的背景色块，只在浮动态组装（与标签滑动同帧出现/消失）。
+    if (pinFloating || floating) {
         ui.rect(id + ".notch")
             .position(kOutlinedInset - 4.0f, 0)
             .size(textWidth + 8.0f, kOutlinedLabelHeight)
             .color(background).build();
     }
+
+    core::Transition anim = core::Transition::make(kOutlinedAnimSeconds, core::Ease::OutCubic);
+    anim.properties = core::AnimProperty::Frame | core::AnimProperty::TextColor;
     components::text(ui, id + ".label")
-        .position(kOutlinedInset, floating ? 0.0f
-            : kOutlinedLabelHeight * 0.5f + (height - kOutlinedLabelHeight * 0.5f - lineHeight) * 0.5f)
-        .size(available, lineHeight).text(text).fontSize(fontSize).lineHeight(lineHeight)
+        .position(kOutlinedInset, y)
+        .size(available, lineHeight).text(text)
+        .fontSize(fontSize).lineHeight(lineHeight)
+        .transition(anim)
+        .animate(core::AnimProperty::Frame | core::AnimProperty::TextColor)
         .color(focused ? theme.primary : theme.onSurfaceVariant).build();
 }
 
@@ -252,7 +278,9 @@ public:
             drawOutlinedFrame(ui_, id_, width_, height_, *theme_, background_, focused);
             // 原生 input 的文本 dirtyKey 不含 placeholder，动态切换占位提示会复用
             // 空文本缓存。提示在这里独立绘制，仍让原生编辑器负责光标和 IME。
-            if ((floating || label_.empty()) && value_.empty() && !placeholder_.empty()) {
+            // 只在可见时组装：text 上挂常驻 opacity 过渡同样有 retained-layer 代价。
+            const bool hintVisible = (floating || label_.empty()) && value_.empty();
+            if (!placeholder_.empty() && hintVisible) {
                 const float top = kOutlinedLabelHeight * 0.5f;
                 const float bodyHeight = height_ - top;
                 const float fontSize = theme_->components.metrics.typography.input;
@@ -592,8 +620,9 @@ export void buildNumberStepper(eui::Ui& ui, const std::string& id, float x, floa
     const bool focused = ui.isFocused(id + ".input.hit");
     ui.stack(id + ".frame").position(x, y).size(width, height).content([&] {
         drawOutlinedFrame(ui, id, width, height, theme, background.value_or(theme.surface), focused);
+        // 步进框标签永不静置：按浮动姿态原生光栅布局（pinFloating），不参与缩放。
         drawOutlinedLabel(ui, id, width, height, label, theme,
-                          background.value_or(theme.surface), focused, true);
+                          background.value_or(theme.surface), focused, true, true);
     }).build();
     // 文本在 ± 之间的中段内水平居中：inset = (中段宽 - 文本宽)/2（输入框只有
     // 左对齐 + inset，用真实字体度量动态算 inset；每帧重算，编辑时自跟随）。

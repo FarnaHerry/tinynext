@@ -124,6 +124,14 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
     `widgets::outlinedInput`，空值未聚焦时标签在框内，聚焦或有值时标签浮到顶部描边
     留口；常态 1px、聚焦 2px 描边、4px 圆角、无投影，沿用黑白配色。数字步进框
     共用同一外壳。浮动标签不得放进原生 input 的 clip 内；页面和弹窗需传匹配底色。
+    **标签滑动动画**（2026-10-15）：静置↔浮动用 eui Frame 插值（`.transition` +
+    `.animate(Frame|TextColor)`，`kOutlinedAnimSeconds`=0.16s），字号按姿态原生
+    光栅（`kOutlinedFloatLabelSize`=10px / 静置 typography.input）。**动画通道
+    纪律**：eui 只对「无活跃动画的子树」做 retained-layer 缓存（runtime_render
+    的 `subtreeAnimating` 门控），所以动画元素静止时的插值目标必须与布局帧/静态
+    属性恒等（Frame 方案天然满足）；text 不挂 transform（scale/translate 会走
+    变换绘制路径），装饰性显隐（留口 notch、占位提示）用随姿态组装/消失的硬切，
+    不挂常驻 opacity 过渡；只 `.animate()` 需要的通道，不要全开。
 12. **eui 元素 id 全局唯一且稳定**：Runtime 按解析后的 id 索引元素，同一已组合树里重名会互相覆盖，影响绘制、命中和缓存；Stack 不会自动给子元素加命名空间。新增控件先检查同 frame 已有 id 和 builder 内部生成的后缀（如 `buildListPicker(id)` 会创建 `id.label`），子节点统一用根 id 的子前缀。动态列表项用稳定业务 key（任务 id、aria2 文件 index、媒体 track id），不要用可能随排序/过滤变化的数组位置或随机值；回调也按同一 key 找当前数据项。测量型组件的 `content` 回调必须用参数提供的 `eui::Ui&` 构造子项；`scrollView` 会用临时 `Ui` 测量再对真实树 compose，捕获外层 `ui` 会把控件重复塞入真实树。**`scrollView` 还会给容器加 `.clip()`，而 eui 的命中测试会与元素的 clip 矩形求交**——所以「全屏拦截层 / 溢出容器的弹层」这类需要越界的子元素不能塞进 `scrollView`（会被连同点击一起裁掉，见第 14 条）；只有内容真的可能超出视口时才用 `scrollView`，固定高度弹窗用普通 `ui.stack` 绝对定位。
 13. **非阻塞打开**：`openFile` / `openContainingFolder` / `openUrl` 在 Windows 走
     `ShellExecuteW`（`platform.cppm::shellExecFn()`），立即返回；**不要用

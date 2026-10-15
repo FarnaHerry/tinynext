@@ -85,6 +85,11 @@ export constexpr float kOutlinedLabelHeight = 12.0f;
 export constexpr float kOutlinedInset = 12.0f;
 export constexpr float kOutlinedRadius = 4.0f;
 export constexpr float kOutlinedFocusBorder = 2.0f;
+// 浮动态标签字号（静置用 typography.input）；eui 没有可动画的 fontSize，
+// 标签滑动用 transform.scale = 浮动/静置 模拟字号变化。
+export constexpr float kOutlinedFloatLabelSize = 10.0f;
+// Outlined 输入的动画时长：标签滑动/留口与提示淡入淡出/聚焦描边共用。
+export constexpr float kOutlinedAnimSeconds = 0.16f;
 
 // ---- 滚动条设计令牌（设计逻辑像素）----
 // 所有 TinyNext scrollView 显式使用这组值，避免依赖 EUI 默认的 8px 宽度
