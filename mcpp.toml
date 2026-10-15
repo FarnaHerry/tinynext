@@ -49,19 +49,20 @@ description       = "TinyNext 下载器"
 original-filename = "tinynext.exe"
 internal-name     = "tinynext"
 
-# eui-neo 0.6.0：新增 core::audio::Player 流式音频子系统（miniaudio：MP3/WAV/FLAC/OGG）
-# 与 GpuImage 零拷贝外部纹理（OpenGL/Vulkan interop，ImageBuilder 可直接绑外部 GPU
-# 纹理；0.5.8 的 ImageStream 是 CPU 像素上传版）；DslAppConfig 新增
-# resizable/decorated/alwaysOnTop/maximized/highDpi 窗口配置与 onShutdown 退出回调；
-# 多行 Input 加 .scrollbar() 与 IME preedit 展示、段落级增量排版；VirtualList 滚动
-# 仅在可见槽范围变化时 recompose；Color 支持 "#RGB/#RGBA/#RRGGBB/#RRGGBBAA" 串与
-# fromHex 构造。0.5.9 渲染缓存加固、0.5.8 eui_app_run() 库模式入口沿用；compat 配方
-# 加包级 -fno-char8_t（修 u8string() 返回 char8_t 赋给 std::string 的 C++23 编译错，
-# 上游仍未修）+ 补 -ldwmapi（glfw win32 深色标题栏）。0.5.6 起 eui_neo.h 不再包含
+# eui-neo 0.6.1：窗口生命周期 + 组件修复——DslAppConfig 新增 transparent 透明帧
+# 缓冲与 onStart()/appId()，beginWindowMove/beginWindowResize 程序化移动/缩放
+# （Linux 走 EWMH _NET_WM_MOVERESIZE 委托，libX11 运行时 dlopen，无链接期依赖）；
+# 下拉/滑块 z-order、OpenGL pixel-unpack 修复。CORE_SOURCES 与 0.6.0 逐字节一致，
+# 配方 flags/deps 原样沿用（包级 -fno-char8_t 仍在，上游未修）。0.6.0 曾新增
+# core::audio::Player 流式音频（miniaudio：MP3/WAV/FLAC/OGG）与 GpuImage 零拷贝
+# 外部纹理；DslAppConfig 窗口配置（resizable/decorated/alwaysOnTop/maximized/
+# highDpi）与 onShutdown 退出回调；多行 Input 加 .scrollbar() 与 IME preedit。
+# 0.5.9 渲染缓存加固、0.5.8 eui_app_run() 库模式入口沿用；compat 配方补 -ldwmapi
+# （glfw win32 深色标题栏）。0.5.6 起 eui_neo.h 不再包含
 # eui/detail/dsl_app_impl.h（入口机制挪进 app-main 的 glfw_app_main.cpp 内部），
 # app.cpp 只需提供 app::dslAppConfig() + app::compose()。版本决策见 docs/roadmap.md。
 [dependencies.compat]
-eui-neo = { version = "0.6.0", features = ["app-main"] }
+eui-neo = { version = "0.6.1", features = ["app-main"] }
 # 包装 IXWebSocket（client-only、零依赖）：aria2 RPC 的 WebSocket 事件推送
 # （onDownloadStart/Complete/Error/...），让状态迁移/完成通知即时，进度轮询降到 1s。
 websocket = "12.0.1"

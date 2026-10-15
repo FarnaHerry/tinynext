@@ -18,7 +18,7 @@
 EUI input 的编辑能力与独立外壳：浮动标签 / 顶部描边留口 / 聚焦 2px 描边 / 4px 圆角 /
 无投影，沿用黑白主题。常规字段采用 40 逻辑像素的紧凑高度，多行字段加高；标签留在
 编辑器 clip 外，留口底色匹配页面或弹窗。设置页、添加下载和镜像地址统一使用；数字
-步进框共用外壳。该样式由应用封装，EUI-NEO 保持锁定 0.6.0。
+步进框共用外壳。该样式由应用封装，EUI-NEO 保持锁定 0.6.1。
 
 ## 已评估 · 放弃
 
@@ -166,6 +166,22 @@ aria2），让 mcpp / xlings 等其他包管理器「直接复用 TinyNext 作�
   `app_runner.h` 只加了统计字段。全量构建 + GUI/daemon/托盘冒烟通过。
 -  backdrop 捕获作废修复对我们相关：设置页/弹窗用 `glassFill` 背景模糊，0.5.8
   及之前在清屏帧可能复用过期模糊底。
+
+### eui-neo 升 0.6.1（2026-10，已实现）
+
+- 上游 0.6.1 是**窗口生命周期 + 组件修复**：DslAppConfig 新增 transparent 透明帧
+  缓冲与 onStart()/appId()；beginWindowMove/beginWindowResize 程序化移动/缩放
+  （Linux 走 EWMH `_NET_WM_MOVERESIZE` 委托，新头 `x11_moveresize.h` 在运行时
+  dlopen libX11，无链接期 X11 依赖）；下拉/滑块 z-order、OpenGL pixel-unpack 修复。
+  **CORE_SOURCES 与 0.6.0 逐字节一致**；头文件变化全是增量（dsl_app.h 新增字段/回调），
+  `components/progress.h` 与 0.6.0 diff 一致，竖向进度卡方案的前提（progress 只有
+  横向填充）仍成立。
+- 对本项目影响为 0：无已用 API 变动，`mcpp.toml` 升版本 + `gen-versions.sh` 重生成
+  + 全量构建通过。compat 配方的包级 `-fno-char8_t` 原样保留（上游未修）。
+- 索引侧（mcpplibs PR #531）带一个包私有 shim：上游 SDL2 窗口分支的
+  `sendX11MoveResizeForWindow` 声明在三重宏守卫内而调用点无守卫，macOS/Windows 的
+  SDL2 构建必炸；索引在 `mcpp_eui_backends.h` 里按平台补宏/桩。本项目用默认
+  GLFW 后端，不经过该分支。
 
 ### 根 onFrame 导致空闲 90 FPS 全量重绘（2026-08 发现并修复）
 

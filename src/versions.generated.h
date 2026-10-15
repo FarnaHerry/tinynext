@@ -4,6 +4,6 @@
 #pragma once
 
 #define TINY_APP_VERSION "0.7.13"
-#define TINY_EUI_VERSION "0.6.0"
+#define TINY_EUI_VERSION "0.6.1"
 #define TINY_WS_VERSION "12.0.1"
 #define TINY_JSON_VERSION "3.12.0"
