@@ -105,17 +105,11 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
     const float startAllX = sortX - toolGap - toolW;
     const float pauseAllX = startAllX - toolGap - toolW;
     const float footerTop = screen.height - kPageTop - kPageFooterHeight;
-    const float actionY = footerTop + (kPageFooterHeight - kButtonHeight) * 0.5f;
+    const float actionY = screen.height - kPageTop - kButtonHeight;
     const float listTop = toolY + toolW + kPageSectionGap;
-    // 任务区装进 GitHub 盒式容器：头部条（标题+计数）→ 卡片网格 → 底部操作行
-    // （panelBg + 1px 顶边），整盒 1px 边框 + 6px 圆角。
-    const float boxTop = listTop;
-    const float boxBottom = screen.height - kPageTop;
-    const float boxH = std::max(0.0f, boxBottom - boxTop);
     // 状态消息使用独立留白，不覆盖最后一排任务操作。
     const float statusSpace = g_statusMessage.empty() ? 0.0f : 44.0f;
-    const float listTopInner = boxTop + kBoxHeaderHeight;
-    const float listHeight = std::max(0.0f, footerTop - listTopInner - statusSpace);
+    const float listHeight = std::max(0.0f, footerTop - kPageSectionGap - listTop - statusSpace);
 
     int activeCount = 0, doneCount = 0;
     double totalSpeed = 0.0;
@@ -218,15 +212,11 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         })
         .build();
 
-    // 任务容器（GitHub 盒式分组：标题条 + 计数），空态提示与网格都画在其内容区。
-    drawBoxedGroup(ui, "downloads.box", listX, boxTop, listW, boxH,
-                   tr("dl.tasks"), std::to_string(totalCount), theme);
-
     // 空状态和筛选无结果给出不同提示；真正有任务时才创建滚动容器。
     if (filtered.empty()) {
         const float emptyW = std::max(0.0f, listW - 32.0f);
         ui.column("downloads.empty")
-            .position(listX + 16.0f, listTopInner + std::max(12.0f, (listHeight - 58.0f) * 0.5f))
+            .position(listX + 16.0f, listTop + std::max(12.0f, (listHeight - 58.0f) * 0.5f))
             .size(emptyW, 58.0f)
             .gap(8.0f)
             .content([&] {
@@ -250,7 +240,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             .build();
     } else {
         components::scrollView(ui, "task.list")
-            .position(listX, listTopInner)
+            .position(listX, listTop)
             .size(listW, listHeight)
             .scrollbarWidth(kScrollbarWidth)
             .scrollbarGap(kScrollbarGap)
@@ -278,32 +268,13 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
             .build();
     }
 
-    // 底部操作行并入容器：panelBg 底条（顶部方角补丁）+ 1px 顶边分隔。
-    ui.rect("downloads.footer.band")
-        .position(listX, footerTop)
-        .size(listW, kPageFooterHeight)
-        .color(theme.panelBg)
-        .radius(kIslandRadius)
-        .build();
-    ui.rect("downloads.footer.band.patch")
-        .position(listX, footerTop)
-        .size(listW, kIslandRadius)
-        .color(theme.panelBg)
-        .build();
+    // 底部与设置页采用同一条分隔线；分页不再套一层装饰卡片。
     ui.rect("downloads.footer.divider")
-        .position(listX, footerTop)
-        .size(listW, kHairline)
+        .position(contentX, footerTop)
+        .size(contentW, kHairline)
         .color(theme.outline)
         .build();
-    // 盒子边框最后再罩一遍：盖住 footer 条压住的底部圆角边框。
-    ui.rect("downloads.box.border")
-        .position(listX, boxTop)
-        .size(listW, boxH)
-        .color({0.0f, 0.0f, 0.0f, 0.0f})
-        .radius(kIslandRadius)
-        .border(kHairline, theme.outline)
-        .build();
-    drawToolbarIconButton(ui, "downloads.directory", contentX + kHairline, actionY,
+    drawToolbarIconButton(ui, "downloads.directory", contentX, actionY,
                           toolW, kButtonHeight, 0xF07C, false, theme,
                           [] { openFile(cfg::downloadDir()); });
     if (totalSpeed > 0.0) {
@@ -418,6 +389,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         const float labelW = 56.0f;
         const float inputX = 74.0f;
         const float tabY = 44.0f;      // 顶部切换（直链下载 / 种子）
+        const float tabW = 88.0f;
         const float tabH = 26.0f;
         const float urlY = 78.0f;      // 直链：URL 多行输入（磁力 magnet: 也在这）
         const float urlH = 60.0f;
@@ -440,13 +412,51 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         const float torrentFieldsViewportH = dlgH - torY - fieldsBottomPad;
         const float torrentFieldsContentH = torHintY - torY + 32.0f;
 
-        // 分段按钮组（GitHub 分段组样式）：无弹层，可安全放进带 clip 的
-        // scrollView。段宽按文字实测自适应。
+        // 分段按钮组（弹窗顶部 tab 同款交互）：无弹层，可安全放进带 clip 的
+        // scrollView。单段宽 56 足够「原文件」/ DASH 等最长文案。
         const auto segGroup = [&](eui::Ui& r, const std::string& id, float x, float y,
                                   const char* const* labels, int count, int selected,
                                   const std::function<void(int)>& onPick) {
-            buildChoiceButtons(r, id, 26.0f, theme, labels, count, selected,
-                               onPick, 11.0f, x, y);
+            constexpr float segW = 56.0f;
+            constexpr float segGap = 4.0f;
+            constexpr float segH = 26.0f;
+            const float totalW = segW * static_cast<float>(count) +
+                                 segGap * static_cast<float>(count - 1);
+            const auto segTransition = core::Transition::make(0.16f, core::Ease::OutCubic);
+            r.rect(id + ".bg")
+                .position(x, y)
+                .size(totalW, segH)
+                .color(theme.surfaceContainer)
+                .radius(kButtonRadius)
+                .border(kHairline, theme.outline)
+                .build();
+            r.rect(id + ".ind")
+                .position(x + static_cast<float>(selected) * (segW + segGap), y)
+                .size(segW, segH)
+                .color(theme.surfaceContainerHighest)
+                .radius(kButtonRadius)
+                .transition(segTransition)
+                .build();
+            for (int i = 0; i < count; ++i) {
+                const float segX = x + static_cast<float>(i) * (segW + segGap);
+                r.rect(id + ".hit." + std::to_string(i))
+                    .position(segX, y)
+                    .size(segW, segH)
+                    .color({0.0f, 0.0f, 0.0f, 0.0f})
+                    .radius(kButtonRadius)
+                    .onClick([i, onPick] { onPick(i); })
+                    .build();
+                r.text(id + ".label." + std::to_string(i))
+                    .position(segX, y)
+                    .size(segW, segH)
+                    .text(labels[i])
+                    .fontSize(11.0f)
+                    .lineHeight(segH)
+                    .color(i == selected ? theme.onSurface : theme.onSurfaceVariant)
+                    .horizontalAlign(core::HorizontalAlign::Center)
+                    .verticalAlign(core::VerticalAlign::Center)
+                    .build();
+            }
         };
 
         // 遮罩（scrim α50%），点击空白处关闭。zIndex 高于翻页，
@@ -487,18 +497,61 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
                     .color(theme.titleText)
                     .build();
 
-                // 顶部切换（直链下载 / 种子）：GitHub 下划线标签页，行底 1px
-                // 通栏线横贯弹窗内宽，选中项 2px 主色下划线。
-                const char* kAddTabs[] = {tr("dl.tab.direct"), tr("dl.tab.torrent")};
-                buildUnderlineTabs(ui, "add.tabs", labelX, tabY,
-                                   dlgW - labelX * 2.0f, tabH,
-                                   kAddTabs, 2,
-                                   g_addTab == AddTab::Torrent ? 1 : 0, theme,
-                                   [](int i) {
-                                       g_addTab = i == 1 ? AddTab::Torrent
-                                                         : AddTab::Direct;
-                                   },
-                                   kButtonFontSize);
+                // segmented button：容器 surfaceContainer + hairline，
+                // 选中段 surfaceContainerHighest 指示块 + onSurface 文字。
+                const auto segTransition =
+                    core::Transition::make(0.16f, core::Ease::OutCubic);
+                ui.rect("add.tabs.bg")
+                    .position(labelX, tabY)
+                    .size(tabW * 2.0f + 8.0f, tabH)
+                    .color(theme.surfaceContainer)
+                    .radius(kButtonRadius)
+                    .border(kHairline, theme.outline)
+                    .build();
+                ui.rect("add.tabs.ind")
+                    .position(labelX + (g_addTab == AddTab::Torrent ? tabW + 8.0f : 0.0f),
+                              tabY)
+                    .size(tabW, tabH)
+                    .color(theme.surfaceContainerHighest)
+                    .radius(kButtonRadius)
+                    .transition(segTransition)
+                    .build();
+                ui.rect("add.tab.direct.hit")
+                    .position(labelX, tabY)
+                    .size(tabW, tabH)
+                    .color({0.0f, 0.0f, 0.0f, 0.0f})
+                    .radius(kButtonRadius)
+                    .onClick([] { g_addTab = AddTab::Direct; })
+                    .build();
+                ui.rect("add.tab.torrent.hit")
+                    .position(labelX + tabW + 8.0f, tabY)
+                    .size(tabW, tabH)
+                    .color({0.0f, 0.0f, 0.0f, 0.0f})
+                    .radius(kButtonRadius)
+                    .onClick([] { g_addTab = AddTab::Torrent; })
+                    .build();
+                components::text(ui, "add.tab.direct")
+                    .position(labelX, tabY)
+                    .size(tabW, tabH)
+                    .text(tr("dl.tab.direct"))
+                    .fontSize(kButtonFontSize)
+                    .lineHeight(tabH)
+                    .color(g_addTab == AddTab::Direct ? theme.onSurface
+                                                      : theme.onSurfaceVariant)
+                    .horizontalAlign(core::HorizontalAlign::Center)
+                    .verticalAlign(core::VerticalAlign::Center)
+                    .build();
+                components::text(ui, "add.tab.torrent")
+                    .position(labelX + tabW + 8.0f, tabY)
+                    .size(tabW, tabH)
+                    .text(tr("dl.tab.torrent"))
+                    .fontSize(kButtonFontSize)
+                    .lineHeight(tabH)
+                    .color(g_addTab == AddTab::Torrent ? theme.onSurface
+                                                       : theme.onSurfaceVariant)
+                    .horizontalAlign(core::HorizontalAlign::Center)
+                    .verticalAlign(core::VerticalAlign::Center)
+                    .build();
 
                 if (g_addTab == AddTab::Direct) {
                     // 字段区：scrollView——窗口缩小时出内部滚动条；canvas 一个定高
@@ -1246,8 +1299,8 @@ void drawTorrentSelectionDialog(eui::Ui& ui, const eui::Screen& screen,
                                 sv.rect(rowId + ".hit")
                                     .size(w, 28.0f)
                                     .states(theme.cardBg,
-                                            stateLayer(theme.onSurface, 0.08f),
-                                            stateLayer(theme.onSurface, 0.12f))
+                                            stateLayer(theme.onSurface, 0.06f),
+                                            stateLayer(theme.onSurface, 0.10f))
                                     .radius(kChipRadius)
                                     .onClick([fileIndex] {
                                         if (!g_pendingTorrentSelection) return;
@@ -1470,8 +1523,8 @@ void drawMediaTrackSelectionDialog(eui::Ui& ui, const eui::Screen& screen,
                                     sv.rect(rowId + ".hit")
                                         .size(width, 30.0f)
                                         .states(theme.cardBg,
-                                                stateLayer(theme.onSurface, 0.08f),
-                                                stateLayer(theme.onSurface, 0.12f))
+                                                stateLayer(theme.onSurface, 0.06f),
+                                                stateLayer(theme.onSurface, 0.10f))
                                         .radius(kChipRadius)
                                         .onClick([group, option, setChoice] {
                                             setChoice(group, option);

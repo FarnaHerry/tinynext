@@ -144,9 +144,9 @@ const DslAppConfig& dslAppConfig() {
     static const DslAppConfig config = DslAppConfig{}
         .title("TinyNext 下载器")
         .pageId("tinynext")
-        // 起底色 = 暗主题 surface（GitHub canvas #0d1117）；运行期背景由 compose
-        // 的全屏矩形覆盖，主题切换即时生效，这里只是启动瞬间防白闪。
-        .clearColor({0.051f, 0.067f, 0.090f, 1.0f})
+        // 起底色 = 暗主题 surface（#0A0A0A）；运行期背景由 compose 的全屏矩形覆盖，
+        // 主题切换即时生效，这里只是启动瞬间防白闪。
+        .clearColor({0.039f, 0.039f, 0.039f, 1.0f})
         // 原生全局缩放（eui-neo 0.5.6）：uiScale 按 dpiScale*uiScale 放大整个逻辑
         // 坐标系（布局+字号），所有尺寸按设计逻辑像素书写、不再 S() 自乘。窗口
         // 物理尺寸 = 设计尺寸 * kUI（eui 创建窗口时按物理像素，不会自动乘 uiScale）。

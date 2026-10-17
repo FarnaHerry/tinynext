@@ -177,136 +177,6 @@ export void drawPanel(eui::Ui& ui, const std::string& id, float x, float y,
         .build();
 }
 
-// ----------------------------------------------------- GitHub 盒式分组 --
-// Primer Box：外盒 1px 边框 + 6px 圆角，顶部标题条（panelBg + 1px 底边分隔 +
-// 左标题 / 右 counter 文本），其余为内容区（surface 底，由调用方画内容）。
-// eui 只有整圆角，头部条用「自身 radius 6 + 底部 6px 方角补丁」拼出上圆下方。
-// counter 非空时右侧渲染等宽小字（GitHub counter 徽标的文字部分）。
-export float boxedGroupHeaderHeight() { return kBoxHeaderHeight; }
-export void drawBoxedGroup(eui::Ui& ui, const std::string& id, float x, float y,
-                           float width, float height, const std::string& title,
-                           const std::string& counter, const AppTheme& theme) {
-    ui.stack(id).position(x, y).size(width, height).content([&] {
-        ui.rect(id + ".box")
-            .size(width, height)
-            .color(theme.surface)
-            .radius(kIslandRadius)
-            .border(kHairline, theme.outline)
-            .build();
-        ui.rect(id + ".header")
-            .size(width, kBoxHeaderHeight)
-            .color(theme.panelBg)
-            .radius(kIslandRadius)
-            .build();
-        // 补掉头部条底部的圆角缺口（让底边成直线，圆只留在盒子的上两角）。
-        ui.rect(id + ".header.patch")
-            .position(0, kBoxHeaderHeight - kIslandRadius)
-            .size(width, kIslandRadius)
-            .color(theme.panelBg)
-            .build();
-        ui.rect(id + ".header.divider")
-            .position(0, kBoxHeaderHeight - kHairline)
-            .size(width, kHairline)
-            .color(theme.outline)
-            .build();
-        components::text(ui, id + ".header.title")
-            .position(kOutlinedInset, 0)
-            .size(width - kOutlinedInset * 2.0f - 60.0f, kBoxHeaderHeight)
-            .text(title)
-            .fontSize(12.0f)
-            .color(theme.onSurface)
-            .verticalAlign(core::VerticalAlign::Center)
-            .build();
-        if (!counter.empty()) {
-            ui.text(id + ".header.counter")
-                .position(width - 60.0f - kOutlinedInset, 0)
-                .size(60.0f, kBoxHeaderHeight)
-                .text(counter)
-                .fontSize(11.0f)
-                .fontFamily(kMonoFont)
-                .color(theme.onSurfaceVariant)
-                .horizontalAlign(core::HorizontalAlign::Right)
-                .verticalAlign(core::VerticalAlign::Center)
-                .build();
-        }
-    }).build();
-}
-
-// ----------------------------------------------------- GitHub 下划线标签页 --
-// TabNav：每行底部 1px 通栏线，标签项 = 文本 + 底部指示条；选中 = onSurface
-// 文字 + 2px 主色下划线，未选中 = meta 色。点击回调 onPick(index)。
-// 标签宽度按文字实测 + 左右 12px 内距，放不下自动换行（每行都有自己的底部
-// 通栏线）。返回总高度（行数 × (tabHeight + 1px)），供调用方排布下方内容。
-export float buildUnderlineTabs(eui::Ui& ui, const std::string& id, float x, float y,
-                                float width, float tabHeight, const char* const* labels,
-                                int count, int selected, const AppTheme& theme,
-                                const std::function<void(int)>& onPick,
-                                float fontSize = 12.0f) {
-    constexpr float kTabPad = 12.0f;
-    constexpr float kRowH = 1.0f;  // 每行底部的通栏线高
-    std::vector<float> tabW(static_cast<std::size_t>(count));
-    std::vector<int> rowOf(static_cast<std::size_t>(count));
-    int rows = 1;
-    float cursor = 0.0f;
-    for (int i = 0; i < count; ++i) {
-        tabW[static_cast<std::size_t>(i)] =
-            core::TextPrimitive::measureTextWidth(labels[i], "", fontSize) + 2.0f * kTabPad;
-        if (cursor > 0.0f && cursor + tabW[static_cast<std::size_t>(i)] > width) {
-            ++rows;
-            cursor = 0.0f;
-        }
-        rowOf[static_cast<std::size_t>(i)] = rows - 1;
-        cursor += tabW[static_cast<std::size_t>(i)];
-    }
-    const float rowFull = tabHeight + kRowH;
-    const float totalH = static_cast<float>(rows) * rowFull;
-    ui.stack(id).position(x, y).size(width, totalH).content([&] {
-        std::vector<float> cursors(static_cast<std::size_t>(rows), 0.0f);
-        for (int i = 0; i < count; ++i) {
-            const int r = rowOf[static_cast<std::size_t>(i)];
-            const bool active = i == selected;
-            const float tabW0 = tabW[static_cast<std::size_t>(i)];
-            const float rowY = static_cast<float>(r) * rowFull;
-            const float cx = cursors[static_cast<std::size_t>(r)];
-            const std::string tabId = id + ".tab." + std::to_string(i);
-            ui.rect(tabId + ".hit")
-                .position(cx, rowY)
-                .size(tabW0, tabHeight)
-                .states({0.0f, 0.0f, 0.0f, 0.0f},
-                        stateLayer(theme.onSurface, 0.08f),
-                        stateLayer(theme.onSurface, 0.12f))
-                .onClick([i, onPick] { onPick(i); })
-                .build();
-            components::text(ui, tabId + ".label")
-                .position(cx, rowY)
-                .size(tabW0, tabHeight)
-                .text(labels[i])
-                .fontSize(fontSize)
-                .color(active ? theme.onSurface : theme.onSurfaceVariant)
-                .horizontalAlign(core::HorizontalAlign::Center)
-                .verticalAlign(core::VerticalAlign::Center)
-                .build();
-            if (active) {
-                ui.rect(tabId + ".underline")
-                    .position(cx, rowY + tabHeight - 2.0f)
-                    .size(tabW0, 2.0f)
-                    .color(theme.primary)
-                    .radius(1.0f)
-                    .build();
-            }
-            // 每行行底 1px 通栏线（GitHub TabNav 的 border-bottom）。
-            ui.rect(tabId + ".rail")
-                .position(0, rowY + tabHeight)
-                .size(width, kRowH)
-                .color(theme.outline)
-                .build();
-            cursors[static_cast<std::size_t>(r)] = cx + tabW0;
-        }
-    }).build();
-    return totalH;
-}
-
-
 // 按钮文字/图标色：primary 按钮文字 = onPrimary（反白主色的反色：暗主题黑字 /
 // 亮主题白字）；非 primary 走组件默认（text = onSurface）。
 export core::Color onPrimaryColor(const AppTheme& theme, bool primary = true) {
@@ -491,16 +361,14 @@ export void drawToolbarIconButton(eui::Ui& ui, const std::string& id, float x, f
         return;
     }
 
-    // standard 款：GitHub 默认钮 —— surfaceContainerHigh 底 + 1px 边框 +
-    // 6px 圆角，hover/pressed 变 Highest（亮色变深 / 暗色变浅，同 Primer）。
+    // standard 款：透明底 + onSurface state layer，选中态（调用方改 icon 色）用主色。
     ui.rect(id + ".fill")
         .position(x, y)
         .size(w, h)
-        .states(enabled ? theme.surfaceContainerHigh : transparent,
-                enabled ? theme.surfaceContainerHighest : transparent,
-                enabled ? theme.surfaceContainerHighest : transparent)
+        .states(transparent,
+                enabled ? stateLayer(theme.onSurface, 0.08f) : transparent,
+                enabled ? stateLayer(theme.onSurface, 0.12f) : transparent)
         .radius(radius)
-        .border(enabled ? kHairline : 0.0f, theme.outline)
         .transition(transition)
         .onClick([enabled, action = std::move(onClick)] {
             if (enabled) action();
@@ -530,62 +398,33 @@ export void buildChoiceButtons(eui::Ui& ui, const std::string& id, float height,
                                const AppTheme& theme, const char* const* labels,
                                int count, int selected,
                                const std::function<void(int)>& onPick,
-                               float fontSize = 11.0f,
-                               float x = 0.0f, float y = 0.0f) {
-    // GitHub 分段组：外盒 1px 边框 + 6px 圆角，段间 1px 竖分隔，选中段
-    // surfaceContainerHighest 填充（内缩 1px 露出边框），未选中文字 meta 色。
+                               float fontSize = 11.0f) {
     std::vector<float> widths;
     float totalWidth = 0.0f;
     for (int i = 0; i < count; ++i) {
         widths.push_back(core::TextPrimitive::measureTextWidth(labels[i], "", fontSize) + 20.0f);
-        totalWidth += widths.back();
+        totalWidth += widths.back() + (i > 0 ? 4.0f : 0.0f);
     }
-    ui.stack(id)
-        .position(x, y)
+    ui.row(id)
         .size(totalWidth, height)
+        .gap(4.0f)
         .content([&] {
-            ui.rect(id + ".box")
-                .size(totalWidth, height)
-                .radius(kButtonRadius)
-                .border(kHairline, theme.outline)
-                .build();
-            float cursor = 0.0f;
             for (int i = 0; i < count; ++i) {
                 const bool active = i == selected;
-                const std::string segId = id + ".seg." + std::to_string(i);
-                if (active) {
-                    ui.rect(segId + ".fill")
-                        .position(cursor + kHairline, kHairline)
-                        .size(widths[i] - 2.0f * kHairline, height - 2.0f * kHairline)
-                        .color(theme.surfaceContainerHighest)
-                        .radius(kButtonRadius - 1.0f)
-                        .build();
-                }
-                if (i > 0) {
-                    ui.rect(segId + ".divider")
-                        .position(cursor, 4.0f)
-                        .size(kHairline, height - 8.0f)
-                        .color(theme.outlineVariant)
-                        .build();
-                }
-                ui.rect(segId + ".hit")
-                    .position(cursor, 0)
-                    .size(widths[i], height)
-                    .states({0.0f, 0.0f, 0.0f, 0.0f},
-                            stateLayer(theme.onSurface, 0.08f),
-                            stateLayer(theme.onSurface, 0.12f))
-                    .onClick([i, onPick] { onPick(i); })
-                    .build();
-                ui.text(segId + ".label")
-                    .position(cursor, 0)
+                components::button(ui, id + ".choice." + std::to_string(i))
                     .size(widths[i], height)
                     .text(labels[i])
                     .fontSize(fontSize)
-                    .color(active ? theme.onSurface : theme.onSurfaceVariant)
-                    .horizontalAlign(core::HorizontalAlign::Center)
-                    .verticalAlign(core::VerticalAlign::Center)
+                    .theme(theme.components, false)
+                    .textColor(active ? theme.onSurface : theme.onSurfaceVariant)
+                    .colors(active ? theme.surfaceContainerHighest : core::Color{0, 0, 0, 0},
+                            stateLayer(theme.onSurface, 0.08f), stateLayer(theme.onSurface, 0.12f))
+                    .border(active ? kHairline : 0.0f, theme.outline)
+                    .radius(kButtonRadius)
+                    .shadow(0, 0, 0, {0, 0, 0, 0})
+                    .transition(0.14f, core::Ease::OutCubic)
+                    .onClick([i, onPick] { onPick(i); })
                     .build();
-                cursor += widths[i];
             }
         })
         .build();
@@ -734,7 +573,7 @@ export void buildListPicker(eui::Ui& ui, const std::string& id, float width, flo
                                                      : core::Color{0.0f, 0.0f, 0.0f, 0.0f},
                                         stateLayer(theme.onSurface, 0.08f),
                                         stateLayer(theme.onSurface, 0.12f))
-                                .radius(kChipRadius)
+                                .radius(4.0f)
                                 .onClick([&open, i, onPick] {
                                     open = false;
                                     onPick(i);
@@ -1025,7 +864,7 @@ export void drawCardAction(eui::Ui& ui, const std::string& id, float x, float y,
         .size(kCardActionSize, kCardActionSize)
         .states(transparent, stateLayer(theme.onSurface, 0.08f),
                 stateLayer(theme.onSurface, 0.12f))
-        .radius(kButtonRadius)
+        .radius(5.0f)
         .transition(transition)
         .onClick(std::move(onClick))
         .build();

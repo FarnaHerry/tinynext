@@ -1,10 +1,9 @@
-// ui/theme.cppm — GitHub Primer 风双主题（亮/暗）+ currentTheme()。
+// ui/theme.cppm — 黑白极客风双主题（亮/暗）+ currentTheme()。
 //
-// 色板取 GitHub 中性灰阶（1px 线条风）：暗色 canvas #0d1117 / 面板 #161b22 /
-// 边框 #30363d，亮色 canvas #ffffff / 面板 #f6f8fa / 边框 #d0d7de。主色仍即
-// 「反白」——暗主题 primary=纯白/onPrimary=近黑，亮主题镜像反转；层次靠灰阶梯
-// （surfaceContainerLow..Highest）+ 1px hairline 描边（outline），不靠投影与
-// 彩色。状态色仅保留哑化的绿/红做功能区分，活动态用单色强调。
+// 色板是纯中性灰镜像体系（对标 Codex / Claude Code 页面的 monochrome geek 风）：
+// 主色即「反白」——暗主题 primary=纯白/onPrimary=近黑，亮主题镜像反转；层次靠
+// 灰阶梯（surfaceContainerLow..Highest）+ 1px hairline 描边（outline），不靠
+// 投影与彩色。状态色仅保留哑化的绿/红做功能区分，活动态用单色灰强调。
 // （字段名沿用 M3 角色名只是控制改动面，语义已是单色体系。）
 //
 // eui_neo.h is header-only (no module interface), so it is pulled into the
@@ -99,56 +98,55 @@ export eui::Color stateLayer(eui::Color onColor, float alpha) {
     return components::theme::withAlpha(onColor, alpha);
 }
 
-// 深色主题：GitHub dark 中性色（canvas #0d1117 / 面板 #161b22 / 边框 #30363d），
-// 主色反白。
+// 深色主题：纯中性灰（无蓝调），亮暗两板严格镜像。
 export const AppTheme kDarkTheme = {
     true,
-    {0.902f, 0.929f, 0.953f, 1.0f},   // 标题 = onSurface #e6edf3
-    {0.902f, 0.929f, 0.953f, 1.0f},   // 文件名 = onSurface
-    {0.569f, 0.596f, 0.631f, 1.0f},   // 次要文本 = onSurfaceVariant #9198a1
-    {0.569f, 0.596f, 0.631f, 0.70f},  // 空态提示（α 弱化）
-    {0.569f, 0.596f, 0.631f, 1.0f},   // 状态消息 = onSurfaceVariant
-    {0.902f, 0.929f, 0.953f, 1.0f},   // 下载中 = onSurface 单色强调（活动态不上彩色）
-    {0.431f, 0.463f, 0.506f, 1.0f},   // 暂停 灰 #6e7681
+    {0.961f, 0.961f, 0.961f, 1.0f},   // 标题 = onSurface #F5F5F5
+    {0.961f, 0.961f, 0.961f, 1.0f},   // 文件名 = onSurface
+    {0.612f, 0.612f, 0.612f, 1.0f},   // 次要文本 = onSurfaceVariant #9C9C9C
+    {0.612f, 0.612f, 0.612f, 0.70f},  // 空态提示（α 弱化）
+    {0.612f, 0.612f, 0.612f, 1.0f},   // 状态消息 = onSurfaceVariant
+    {0.860f, 0.860f, 0.860f, 1.0f},   // 下载中 = 近白单色强调（活动态不上彩色）
+    {0.600f, 0.600f, 0.600f, 1.0f},   // 暂停 灰
     {0.550f, 0.820f, 0.600f, 1.0f},   // 完成 哑化绿（仅状态用彩色）
     {0.920f, 0.480f, 0.440f, 1.0f},   // 失败 哑化红
     {0.500f, 0.500f, 0.500f, 1.0f},   // 空闲 灰
     // ---- 灰阶角色 ----
     {1.0f, 1.0f, 1.0f, 1.0f},         // primary        #FFFFFF（反白主色）
-    {0.051f, 0.067f, 0.090f, 1.0f},   // onPrimary      #0d1117
-    {0.161f, 0.188f, 0.239f, 1.0f},   // primaryCont.   = surfContHighst #29303d
-    {0.902f, 0.929f, 0.953f, 1.0f},   // onPrimaryCont. = onSurface
-    {0.129f, 0.149f, 0.176f, 1.0f},   // secondaryCont. = surfContHigh #21262d
-    {0.902f, 0.929f, 0.953f, 1.0f},   // onSecondaryCt. = onSurface
-    {0.129f, 0.149f, 0.176f, 1.0f},   // tertiaryCont.  = surfContHigh
+    {0.039f, 0.039f, 0.039f, 1.0f},   // onPrimary      #0A0A0A
+    {0.141f, 0.141f, 0.141f, 1.0f},   // primaryCont.   = surfContHighst #242424
+    {0.961f, 0.961f, 0.961f, 1.0f},   // onPrimaryCont. = onSurface
+    {0.110f, 0.110f, 0.110f, 1.0f},   // secondaryCont. = surfContHigh #1C1C1C
+    {0.961f, 0.961f, 0.961f, 1.0f},   // onSecondaryCt. = onSurface
+    {0.110f, 0.110f, 0.110f, 1.0f},   // tertiaryCont.  = surfContHigh
     {0.920f, 0.480f, 0.440f, 1.0f},   // error          = failed 哑红
     {0.300f, 0.100f, 0.090f, 1.0f},   // errorContainer 暗红底
     {0.950f, 0.850f, 0.830f, 1.0f},   // onErrorCont.
-    {0.051f, 0.067f, 0.090f, 1.0f},   // surface        #0d1117（GitHub canvas）
-    {0.086f, 0.106f, 0.133f, 1.0f},   // surfContLow    #161b22
-    {0.110f, 0.129f, 0.157f, 1.0f},   // surfCont       #1c2128
-    {0.129f, 0.149f, 0.176f, 1.0f},   // surfContHigh   #21262d
-    {0.161f, 0.188f, 0.239f, 1.0f},   // surfContHighst #29303d
-    {0.902f, 0.929f, 0.953f, 1.0f},   // onSurface      #e6edf3
-    {0.569f, 0.596f, 0.631f, 1.0f},   // onSurfaceVar.  #9198a1
-    {0.188f, 0.212f, 0.239f, 1.0f},   // outline        #30363d（GitHub border）
-    {0.129f, 0.149f, 0.176f, 1.0f},   // outlineVariant #21262d（border.muted）
-    {0.941f, 0.965f, 0.988f, 1.0f},   // inverseSurface #f0f6fc
-    {0.051f, 0.067f, 0.090f, 1.0f},   // onInverseSurf. #0d1117
+    {0.039f, 0.039f, 0.039f, 1.0f},   // surface        #0A0A0A（近纯黑）
+    {0.067f, 0.067f, 0.067f, 1.0f},   // surfContLow    #111111
+    {0.086f, 0.086f, 0.086f, 1.0f},   // surfCont       #161616
+    {0.110f, 0.110f, 0.110f, 1.0f},   // surfContHigh   #1C1C1C
+    {0.141f, 0.141f, 0.141f, 1.0f},   // surfContHighst #242424
+    {0.961f, 0.961f, 0.961f, 1.0f},   // onSurface      #F5F5F5
+    {0.612f, 0.612f, 0.612f, 1.0f},   // onSurfaceVar.  #9C9C9C
+    {0.180f, 0.180f, 0.180f, 1.0f},   // outline        #2E2E2E（hairline）
+    {0.137f, 0.137f, 0.137f, 1.0f},   // outlineVariant #232323
+    {0.961f, 0.961f, 0.961f, 1.0f},   // inverseSurface #F5F5F5
+    {0.067f, 0.067f, 0.067f, 1.0f},   // onInverseSurf. #111111
     {0.0f, 0.0f, 0.0f, 0.50f},        // scrim α50%
-    {0.086f, 0.106f, 0.133f, 1.0f},   // panelBg = surfContLow #161b22
-    {0.110f, 0.129f, 0.157f, 1.0f},   // cardBg  = surfCont    #1c2128
+    {0.067f, 0.067f, 0.067f, 1.0f},   // panelBg = surfContLow #111111
+    {0.086f, 0.086f, 0.086f, 1.0f},   // cardBg  = surfCont    #161616
     [] {
         auto tokens = components::theme::dark();
         // 单色映射：primary=纯白（反白主色，组件填充态的黑字由 onPrimaryColor
-        // 翻转，见 widgets.cppm）；surface*=GitHub 灰阶梯；border=outline。
-        tokens.background = {0.051f, 0.067f, 0.090f, 1.0f};
+        // 翻转，见 widgets.cppm）；surface*=灰阶梯；border=outline（hairline）。
+        tokens.background = {0.039f, 0.039f, 0.039f, 1.0f};
         tokens.primary = {1.0f, 1.0f, 1.0f, 1.0f};
-        tokens.surface = {0.086f, 0.106f, 0.133f, 1.0f};
-        tokens.surfaceHover = {0.110f, 0.129f, 0.157f, 1.0f};
-        tokens.surfaceActive = {0.129f, 0.149f, 0.176f, 1.0f};
-        tokens.text = {0.902f, 0.929f, 0.953f, 1.0f};
-        tokens.border = {0.188f, 0.212f, 0.239f, 1.0f};
+        tokens.surface = {0.067f, 0.067f, 0.067f, 1.0f};
+        tokens.surfaceHover = {0.086f, 0.086f, 0.086f, 1.0f};
+        tokens.surfaceActive = {0.110f, 0.110f, 0.110f, 1.0f};
+        tokens.text = {0.961f, 0.961f, 0.961f, 1.0f};
+        tokens.border = {0.180f, 0.180f, 0.180f, 1.0f};
         // eui input 组件内部默认 `metrics_.typography.input = 17`（未按设计值书写）。
         // uiScale 原生缩放后，app 字号已回到设计值（标签 11-12），这个 17 却仍按
         // 设计值放大 → 输入框文字比标签大 ~60%。统一为设计值 12。
@@ -158,54 +156,53 @@ export const AppTheme kDarkTheme = {
     }(),
 };
 
-// 浅色主题：GitHub light 中性色（canvas #ffffff / 面板 #f6f8fa / 边框 #d0d7de），
-// 主色反转为近黑。
+// 浅色主题：同一套灰阶的亮调镜像（primary 反转为近黑）。
 export const AppTheme kLightTheme = {
     false,
-    {0.122f, 0.137f, 0.157f, 1.0f},   // 标题 = onSurface #1f2328
-    {0.122f, 0.137f, 0.157f, 1.0f},   // 文件名 = onSurface
-    {0.349f, 0.388f, 0.431f, 1.0f},   // 次要文本 = onSurfaceVariant #59636e
-    {0.349f, 0.388f, 0.431f, 0.70f},  // 空态提示（α 弱化）
-    {0.349f, 0.388f, 0.431f, 1.0f},   // 状态消息 = onSurfaceVariant
-    {0.122f, 0.137f, 0.157f, 1.0f},   // 下载中 = onSurface 单色强调
-    {0.431f, 0.463f, 0.506f, 1.0f},   // 暂停 灰 #6e7681
+    {0.067f, 0.067f, 0.067f, 1.0f},   // 标题 = onSurface #111111
+    {0.067f, 0.067f, 0.067f, 1.0f},   // 文件名 = onSurface
+    {0.420f, 0.420f, 0.420f, 1.0f},   // 次要文本 = onSurfaceVariant #6B6B6B
+    {0.420f, 0.420f, 0.420f, 0.70f},  // 空态提示（α 弱化）
+    {0.420f, 0.420f, 0.420f, 1.0f},   // 状态消息 = onSurfaceVariant
+    {0.150f, 0.150f, 0.150f, 1.0f},   // 下载中 = 近黑单色强调
+    {0.550f, 0.550f, 0.550f, 1.0f},   // 暂停 灰
     {0.100f, 0.550f, 0.300f, 1.0f},   // 完成 哑化绿
     {0.800f, 0.250f, 0.200f, 1.0f},   // 失败 哑化红
     {0.500f, 0.500f, 0.500f, 1.0f},   // 空闲 灰
     // ---- 灰阶角色 ----
-    {0.122f, 0.137f, 0.157f, 1.0f},   // primary        #1f2328（反黑主色）
+    {0.067f, 0.067f, 0.067f, 1.0f},   // primary        #111111（反黑主色）
     {1.0f, 1.0f, 1.0f, 1.0f},         // onPrimary      #FFFFFF
-    {0.918f, 0.933f, 0.949f, 1.0f},   // primaryCont.   = surfContHighst #eaeef2
-    {0.122f, 0.137f, 0.157f, 1.0f},   // onPrimaryCont. = onSurface
-    {0.941f, 0.953f, 0.965f, 1.0f},   // secondaryCont. = surfContHigh #f0f3f6
-    {0.122f, 0.137f, 0.157f, 1.0f},   // onSecondaryCt. = onSurface
-    {0.941f, 0.953f, 0.965f, 1.0f},   // tertiaryCont.  = surfContHigh
+    {0.898f, 0.898f, 0.898f, 1.0f},   // primaryCont.   = surfContHighst #E5E5E5
+    {0.067f, 0.067f, 0.067f, 1.0f},   // onPrimaryCont. = onSurface
+    {0.933f, 0.933f, 0.933f, 1.0f},   // secondaryCont. = surfContHigh #EEEEEE
+    {0.067f, 0.067f, 0.067f, 1.0f},   // onSecondaryCt. = onSurface
+    {0.933f, 0.933f, 0.933f, 1.0f},   // tertiaryCont.  = surfContHigh
     {0.800f, 0.250f, 0.200f, 1.0f},   // error          = failed 哑红
     {0.980f, 0.900f, 0.880f, 1.0f},   // errorContainer 浅红底
     {0.500f, 0.100f, 0.080f, 1.0f},   // onErrorCont.
-    {1.0f, 1.0f, 1.0f, 1.0f},         // surface        #FFFFFF（GitHub canvas）
-    {0.965f, 0.973f, 0.980f, 1.0f},   // surfContLow    #f6f8fa
-    {1.0f, 1.0f, 1.0f, 1.0f},         // surfCont       #FFFFFF
-    {0.941f, 0.953f, 0.965f, 1.0f},   // surfContHigh   #f0f3f6
-    {0.918f, 0.933f, 0.949f, 1.0f},   // surfContHighst #eaeef2
-    {0.122f, 0.137f, 0.157f, 1.0f},   // onSurface      #1f2328
-    {0.349f, 0.388f, 0.431f, 1.0f},   // onSurfaceVar.  #59636e
-    {0.816f, 0.843f, 0.871f, 1.0f},   // outline        #d0d7de（GitHub border）
-    {0.847f, 0.871f, 0.894f, 1.0f},   // outlineVariant #d8dee4（border.muted）
-    {0.122f, 0.137f, 0.157f, 1.0f},   // inverseSurface #1f2328
+    {0.980f, 0.980f, 0.980f, 1.0f},   // surface        #FAFAFA
+    {1.0f, 1.0f, 1.0f, 1.0f},         // surfContLow    #FFFFFF
+    {0.961f, 0.961f, 0.961f, 1.0f},   // surfCont       #F5F5F5
+    {0.933f, 0.933f, 0.933f, 1.0f},   // surfContHigh   #EEEEEE
+    {0.898f, 0.898f, 0.898f, 1.0f},   // surfContHighst #E5E5E5
+    {0.067f, 0.067f, 0.067f, 1.0f},   // onSurface      #111111
+    {0.420f, 0.420f, 0.420f, 1.0f},   // onSurfaceVar.  #6B6B6B
+    {0.851f, 0.851f, 0.851f, 1.0f},   // outline        #D9D9D9（hairline）
+    {0.898f, 0.898f, 0.898f, 1.0f},   // outlineVariant #E5E5E5
+    {0.102f, 0.102f, 0.102f, 1.0f},   // inverseSurface #1A1A1A
     {0.961f, 0.961f, 0.961f, 1.0f},   // onInverseSurf. #F5F5F5
     {0.0f, 0.0f, 0.0f, 0.50f},        // scrim α50%
-    {0.965f, 0.973f, 0.980f, 1.0f},   // panelBg = surfContLow #f6f8fa
-    {1.0f, 1.0f, 1.0f, 1.0f},         // cardBg  = surfCont    #FFFFFF
+    {1.0f, 1.0f, 1.0f, 1.0f},         // panelBg = surfContLow #FFFFFF
+    {0.961f, 0.961f, 0.961f, 1.0f},   // cardBg  = surfCont    #F5F5F5
     [] {
         auto tokens = components::theme::light();
-        tokens.background = {1.0f, 1.0f, 1.0f, 1.0f};
-        tokens.primary = {0.122f, 0.137f, 0.157f, 1.0f};
+        tokens.background = {0.980f, 0.980f, 0.980f, 1.0f};
+        tokens.primary = {0.067f, 0.067f, 0.067f, 1.0f};
         tokens.surface = {1.0f, 1.0f, 1.0f, 1.0f};
-        tokens.surfaceHover = {0.965f, 0.973f, 0.980f, 1.0f};
-        tokens.surfaceActive = {0.918f, 0.933f, 0.949f, 1.0f};
-        tokens.text = {0.122f, 0.137f, 0.157f, 1.0f};
-        tokens.border = {0.816f, 0.843f, 0.871f, 1.0f};
+        tokens.surfaceHover = {0.961f, 0.961f, 0.961f, 1.0f};
+        tokens.surfaceActive = {0.933f, 0.933f, 0.933f, 1.0f};
+        tokens.text = {0.067f, 0.067f, 0.067f, 1.0f};
+        tokens.border = {0.851f, 0.851f, 0.851f, 1.0f};
         // 与深色主题一致：input 默认字号统一为设计值 12（见 kDarkTheme 注释）。
         tokens.metrics.typography.input = 12.0f;
         tokens.metrics.radius.popup = 6.0f;

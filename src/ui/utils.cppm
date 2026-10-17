@@ -79,13 +79,12 @@ export constexpr float kCardActionIconSize = 11.0f;
 export constexpr float kStepperButtonSize = 20.0f;
 export constexpr float kStepperIconSize = 9.0f;
 
-// 紧凑 Outlined 输入（GitHub 式外观：6px 圆角、聚焦只变色不加粗）：顶部预留
-// 浮动标签，无投影。
+// 紧凑 MD3 Outlined 输入：顶部预留浮动标签，聚焦描边加粗，无投影。
 export constexpr float kOutlinedFieldHeight = 40.0f;
 export constexpr float kOutlinedLabelHeight = 12.0f;
 export constexpr float kOutlinedInset = 12.0f;
-export constexpr float kOutlinedRadius = 6.0f;
-export constexpr float kOutlinedFocusBorder = 1.0f;
+export constexpr float kOutlinedRadius = 4.0f;
+export constexpr float kOutlinedFocusBorder = 2.0f;
 // 浮动态标签字号（静置用 typography.input）；eui 没有可动画的 fontSize，
 // 标签滑动用 transform.scale = 浮动/静置 模拟字号变化。
 export constexpr float kOutlinedFloatLabelSize = 10.0f;
@@ -102,17 +101,13 @@ export constexpr float kScrollbarGap = 6.0f;
 export constexpr float kIslandGap = 2.0f;
 export constexpr float kIslandVInset = 6.0f;   // 岛卡距窗口上/下的空隙（卡片感）
 export constexpr float kPanelPad = 10.0f;
-export constexpr float kIslandRadius = 6.0f;   // 岛卡圆角（GitHub 统一 6px）
+export constexpr float kIslandRadius = 8.0f;   // 岛卡圆角
 
-// ---- 形状令牌（GitHub 1px 线条风：统一 6px 圆角 + hairline 描边，扁平无投影） ----
+// ---- 形状令牌（黑白极客：小圆角 + hairline 描边，扁平无投影） ----
 export constexpr float kCardRadius = 6.0f;     // 任务卡/统计卡
-export constexpr float kDialogRadius = 6.0f;   // 弹窗
-export constexpr float kChipRadius = 6.0f;     // 状态 chip/小标签
+export constexpr float kDialogRadius = 8.0f;   // 弹窗
+export constexpr float kChipRadius = 4.0f;     // 状态 chip/小标签
 export constexpr float kHairline = 1.0f;       // 统一描边宽（层次主要靠它而非投影）
-
-// GitHub 盒式分组（BoxedGroup）：标题条高度 / 行分隔样式下的默认行高。
-export constexpr float kBoxHeaderHeight = 36.0f;
-export constexpr float kBoxRowHeight = 44.0f;
 
 // 等宽字体点缀（数字/速度/路径/版本号）：assets 下的字体文件名，
 // eui 的 fontFamily 带 '.' 时按项目资产路径加载（text.cpp resolveFontPath）。
