@@ -191,9 +191,10 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
     // 关闭入口移除：左侧导航栏常驻后由侧栏切换页面。
    
 
-    // 分组用一个 Flow 按文字自然换行，中文与英文都保留完整标签。
+    // GitHub 下划线标签页：行底 1px 通栏线 + 选中项 2px 主色下划线，放不下
+    // 自动换行（返回总高度供下方排版）。
     const float headerY = kPageTop;
-    const float tabsWidth = contentW - kToolbarButtonSize - 8.0f;
+    const float tabsWidth = contentW;
     constexpr float kTabH = 28.0f;
     struct TabItem { const char* label; const char* id; SettingsTab tab; };
     // 对齐 MotrixNext 的设置分组（ed2k 由 aria2-next 原生支持）。
@@ -209,53 +210,29 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
         {tr("settings.tab.about"), "about", SettingsTab::About},
     };
     constexpr int kTabCount = static_cast<int>(std::size(kTabs));
-    constexpr float kTabGap = 4.0f;
-    float tabW[kTabCount];
-    float rowWidth = 0.0f;
-    int tabRows = 1;
+    const char* kTabLabels[kTabCount];
+    int selectedTab = 0;
     for (int i = 0; i < kTabCount; ++i) {
-        tabW[i] = core::TextPrimitive::measureTextWidth(kTabs[i].label, "", 12.0f) + 24.0f;
-        if (rowWidth > 0.0f && rowWidth + kTabGap + tabW[i] > tabsWidth) {
-            ++tabRows;
-            rowWidth = 0.0f;
-        }
-        rowWidth += (rowWidth > 0.0f ? kTabGap : 0.0f) + tabW[i];
+        kTabLabels[i] = kTabs[i].label;
+        if (g_settingsTab == kTabs[i].tab) selectedTab = i;
     }
-    const float tabsHeight = tabRows * kTabH + (tabRows - 1) * kTabGap;
-    ui.flow("settings.tabs")
-        .position(contentX, headerY)
-        .size(tabsWidth, tabsHeight)
-        .gap(kTabGap)
-        .lineGap(kTabGap)
-        .content([&] {
-            for (int i = 0; i < kTabCount; ++i) {
-                const bool active = g_settingsTab == kTabs[i].tab;
-                const std::string segId = std::string("settings.tabs.seg.") + kTabs[i].id;
-                components::button(ui, segId)
-                    .size(tabW[i], kTabH)
-                    .text(kTabs[i].label)
-                    .fontSize(12.0f)
-                    .theme(theme.components, false)
-                    .textColor(active ? theme.onSurface : theme.onSurfaceVariant)
-                    .colors(active ? theme.surfaceContainerHighest : core::Color{0, 0, 0, 0},
-                            stateLayer(theme.onSurface, 0.08f), stateLayer(theme.onSurface, 0.12f))
-                    .border(active ? kHairline : 0.0f, theme.outline)
-                    .shadow(0, 0, 0, {0, 0, 0, 0})
-                    .radius(kButtonRadius)
-                    .transition(0.16f, core::Ease::OutCubic)
-                    .onClick([tab = kTabs[i].tab] {
-                        g_settingsTab = tab;
-                        g_engineMonitorTabActive.store(tab == SettingsTab::Engine);
-                        if (tab == SettingsTab::Engine) {
-                            g_tasks.refreshHealth([](const dl::HealthInfo&) {
-                                core::platform::requestUiUpdate();
-                            });
-                        }
-                    })
-                    .build();
+    const float tabsHeight = buildUnderlineTabs(
+        ui, "settings.tabs", contentX, headerY, tabsWidth, kTabH,
+        kTabLabels, kTabCount, selectedTab, theme,
+        [](int i) {
+            static constexpr SettingsTab values[] = {
+                SettingsTab::General, SettingsTab::Download, SettingsTab::BitTorrent,
+                SettingsTab::Ed2k,    SettingsTab::Network,  SettingsTab::Advanced,
+                SettingsTab::Engine,  SettingsTab::About,
+            };
+            g_settingsTab = values[i];
+            g_engineMonitorTabActive.store(values[i] == SettingsTab::Engine);
+            if (values[i] == SettingsTab::Engine) {
+                g_tasks.refreshHealth([](const dl::HealthInfo&) {
+                    core::platform::requestUiUpdate();
+                });
             }
-        })
-        .build();
+        });
 
     constexpr float kLabelW = 120.0f;
     constexpr float kFieldH = 26.0f;
@@ -274,14 +251,20 @@ export void drawSettingsPage(eui::Ui& ui, const eui::Screen& screen, const AppTh
             .build();
     }
 
+    // 表单区整体装进 GitHub 盒式分组：头部条 = 当前分组名，行流在盒内滚动。
+    drawBoxedGroup(ui, "settings.box", infoX, bodyTop, innerW, scrollHeight,
+                   kTabLabels[selectedTab], "", theme);
+    const float innerTop = bodyTop + kBoxHeaderHeight;
+    const float innerHeight = std::max(0.0f, scrollHeight - kBoxHeaderHeight);
+
     // 设置项较多，正文放进 scrollView（主题/路径/aria2 参数）；底部操作行
     // 固定在窗口底部，始终可见。
     if (g_settingsTab == SettingsTab::Engine) {
-        drawEnginePage(ui, theme, infoX, innerW, scrollTop, actionY, scrollHeight);
+        drawEnginePage(ui, theme, infoX, innerW, innerTop, actionY, innerHeight);
     } else {
     components::scrollView(ui, "settings.scroll")
-        .position(infoX, scrollTop)
-        .size(innerW, scrollHeight)
+        .position(infoX, innerTop)
+        .size(innerW, innerHeight)
         .gap(12.0f)
         .scrollbarWidth(kScrollbarWidth)
         .scrollbarGap(kScrollbarGap)
