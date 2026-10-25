@@ -23,7 +23,7 @@
 - Do not bundle Node.js, Deno, Bun, or QuickJS.
 - Do not add `--remote-components`; official yt-dlp executables bundle matching EJS assets.
 - Do not change the aria2-next download architecture, DASH merge behavior, or bilibili cookie behavior.
-- Do not add a `tests/` executable: `compat:eui-neo` with `app-main` creates a conflicting `main()` as documented in `CLAUDE.md`.
+- Do not add a `tests/` executable: `compat:eui-neo` with `app-main` creates a conflicting `main()` as documented in `AGENTS.md`.
 - Preserve the existing behavior of attempting non-YouTube resolution if no JS runtime is installed.
 
 ### Task 1: Normalize Node Runtime Selection

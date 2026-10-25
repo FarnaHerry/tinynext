@@ -4,18 +4,42 @@ TinyNext 是一个 **C++23 模块化 GUI 下载器**：EUI-NEO 前端 + **aria2-
 进程引擎（唯一引擎，TinyHttpsEngine 已移除），单实例，带命令行传参。跨平台
 （Windows / Linux / macOS），用 **mcpp** 构建。
 
-## 构建 / 运行
+> 本文件是全项目**唯一**的 AI 指南，所有约定以这里为准；`CLAUDE.md` 只是对本文档
+> 的引用入口（Claude Code 等经它读到同一份内容）。补充/修改约定请直接改这里。
+
+## 构建 / 运行 / 打包
 
 ```bash
 mcpp build          # 编译（dev）
 mcpp build --release
-mcpp run            # 启动 GUI（Linux 用 run.sh）
+mcpp run            # 启动 GUI（Linux 用 ./run.sh，见下）
+.\make-dist.ps1     # Windows 发行打包 → dist\ + tinynext-v<版本>-win64.zip
+bash make-dist.sh <os> <arch>   # Linux / macOS 打包 → tar.gz
 ```
 
 - 工具链在 `mcpp.toml` 里固定为 `llvm@22.1.8`，不要改。
-- eui-neo 锁在 **0.6.1**（配方加 `-fno-char8_t` 修 C++23 构建 + 补 `-ldwmapi`，见 `docs/roadmap.md`），不要乱升。
-- Windows 发行打包：`.\make-dist.ps1`；Linux/macOS：`bash make-dist.sh <os> <arch>`。
-- CI：`.github/workflows/release.yml`，push `v*` 标签自动三平台构建 + 发布。
+- 依赖版本锁定在 `mcpp.toml` / `mcpp.lock`，不要乱升：eui-neo **0.6.1**（配方加
+  `-fno-char8_t` 修 C++23 构建 + 补 `-ldwmapi`，见 `docs/roadmap.md`）、
+  websocket（IXWebSocket 包装）**12.0.1**、nlohmann::json **3.12.0**。
+- **版本只在 `mcpp.toml` 维护**：应用版本 `[package].version` 与 eui/websocket/json
+  依赖版本由 `scripts/gen-versions.ps1`（或 `.sh`）生成 `src/versions.generated.h`，
+  `config.cppm` 的 `kAppVersion`/`kEuiVersion` 读它。升版本后跑一次生成脚本
+  （`make-dist` 打包前会自动跑），不要手改生成头。
+- **Linux 用 `./run.sh` 启动**而非 `mcpp run`：mcpp 私有 glibc 与系统 Mesa 的
+  GLIBC 版本冲突，run.sh 走系统 ld.so + 系统 Mesa。
+- **没有测试**：eui-neo 的 `app-main` 特性会把 `glfw_app_main.o` 急切链入，与任何
+  定义 `main()` 的测试 TU 冲突（`multiple definition of 'main'`），tests/ 已删除，
+  也不要再加测试可执行文件。
+- 引擎二进制在 `engines/`（已 gitignore，`checksums.sha256` 保留）；缺失时下载
+  不可用，打包脚本会警告但继续。
+- **xlings 解压含 symlink 的 tarball 在 Windows 会中途失败**：若 `mcpp build` 报
+  `install_packages failed` 而下载/校验正常，多半是包解压不完整（如 IXWebSocket 的
+  `Dockerfile` symlink）。手工补装：`curl -L` 拉校验过的 tarball → 用系统 tar 解压
+  （跳过 symlink）到 `~/.mcpp/registry/data/xpkgs/<ns>-x-<name>/<ver>/` +
+  `mcpp_generated/`，再 `mcpp build`。
+- CI：`.github/workflows/release.yml`。push `v*` 标签自动三平台构建 + **直接发布
+  正式 Release**（draft: false，不留草稿）；`workflow_dispatch` 只构建上传
+  artifacts（用于先修跨平台编译错误）。
 
 ## 用 CLI 添加下载（AI 最常用）
 
@@ -67,37 +91,50 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
    强制每帧重绘 → 空闲也 90 FPS 满帧（GPU 占用跳跃的根因）。周期/事件工作放后台线程
    （`cli::startCliIpc` / `housekeep::startHousekeeping` / app.cpp 的一次性引擎
    `warmup()` 预热线程），只在真有事时 `core::platform::requestUiUpdate()` 唤醒
-   UI 一帧。warmup 与 UI 线程的 start/retry 经引擎 `daemonMutex_` 互斥（锁序
+   UI 一帧。空闲时 UI 走 `glfwWaitEvents` 睡眠、零渲染零 CPU，这是必须守住的
+   基线。warmup 与 UI 线程的 start/retry 经引擎 `daemonMutex_` 互斥（锁序
    daemonMutex_ → tasksMutex_）。
 3. **`import std;` 后禁止再 `#include` 标准头**（std 模块已声明）。
-3. **eui_neo.h 是 header-only 无模块接口**：0.5.6 起 `eui_neo.h` 不再包含
+4. **eui_neo.h 是 header-only 无模块接口**：0.5.6 起 `eui_neo.h` 不再包含
    `eui/detail/dsl_app_impl.h`（`app::update/render` 机制挪进 `app-main` 的
    `glfw_app_main.cpp` 内部编译）。`src/app.cpp` 包含完整 `<eui_neo.h>` 只取声明；
    **UI 模块仍用精简头 `src/ui/eui_ui.h`**（0.5.6 已无 mangled name 冲突，历史原因
    保留）。给 UI 模块加 include 时用 `"eui_ui.h"`。
-4. **共享状态（store 分层）**：状态按领域/视图分层——`tinynext.store.tasks`
+5. **共享状态（store 分层）**：状态按领域/视图分层——`tinynext.store.tasks`
    （`TaskStore` + `g_tasks`：引擎、任务命令、`startFromUrl` 返回 `StartResult{ok,
    message}` 不做 UI 提示）是领域 store，不 import 任何 ui.*/eui；`store.ui` /
    `store.dialogs` 是视图 store（状态消息、筛选分页、弹窗草稿）；设置页 pending
    草稿是 `settings_page.cppm` 模块私有；主题全局在 `tinynext.ui.theme`。旧
    `tinynext.ui.state` 已删除，新状态先想清楚属于哪一层。
-5. **每任务选项**：`dl::StartOptions{connections, outputName, dirOverride, limitBps}`，
+6. **每任务选项**：`dl::StartOptions{connections, outputName, dirOverride, limitBps}`，
    `Aria2Engine` 全部生效（connections/limitBps 需 >0）。注意 aria2-next **没有下载级
    priority 选项**（实测 + `--help=#all` 确认），优先级功能已移除，别再加回去。
-6. **磁力**：`g_tasks.startFromUrl` 接受 `magnet:` 前缀；magnet 任务不设 `out`，
+7. **磁力**：`g_tasks.startFromUrl` 接受 `magnet:` 前缀；magnet 任务不设 `out`，
    destPath 由 `refreshStates` 从 `files[0].path` 更新为真实路径。
-7. **重新下载**：Failed/Cancelled 卡片 ↻ 调 `g_tasks.retry(id)`（委托 `DownloadEngine`
+8. **重新下载**：Failed/Cancelled 卡片 ↻ 调 `g_tasks.retry(id)`（委托 `DownloadEngine`
    接口）。aria2-next 复用原 GID + URL + 输出路径，并从 `aria2-state/stream/state.db`
    恢复已提交分片；旧版旁置 `.aria2` 文件不导入。
-8. **会话恢复**：aria2 daemon 启动带 `--save-session`/`--input-file`（
+9. **会话恢复**：aria2 daemon 启动带 `--save-session`/`--input-file`（
    `aria2_engine.cpp::daemonExtraOpts`），`shutdown()` 先 `aria2.saveSession` 再
    forceShutdown；重启后 `recoverSession()` 用 `tellActive/tellWaiting/tellStopped`
    重建任务表。
-9. **缩放**：eui-neo 0.5.6 起 `DslAppConfig::uiScale(kUI)` 原生放大（布局+字号）；
-   尺寸按设计逻辑像素直接写，不再 `S()` 自乘。`kUI` 仍是唯一缩放旋钮。
-10. **aria2 引擎**：进程名 Windows 是 `aria2-next.exe`，unix 是 `aria2-next`；
-    字段名用 `connections`（不是 `numConnections`）。
-11. **黑白极客视觉体系**：界面是纯中性灰 monochrome 风（对标 Codex / Claude Code
+10. **缩放**：eui-neo 0.5.6 起 `DslAppConfig::uiScale(kUI)` 原生放大（布局+字号）；
+    尺寸按设计逻辑像素直接写，不再 `S()` 自乘；窗口物理尺寸 = 设计尺寸 × `kUI`
+    （`kUI=1.4`，`app.cpp` 里 `windowSize(1120*kUI, 720*kUI)`）。`kUI` 仍是唯一
+    缩放旋钮。
+11. **aria2 引擎**（`aria2_engine.cpp`）：进程名 Windows 是 `aria2-next.exe`，unix
+    是 `aria2-next`；字段名用 `connections`（不是 `numConnections`）。RPC 只监听
+    127.0.0.1 + 随机 `--rpc-secret`。**线程模型**：JSON-RPC 请求走 UI 线程
+    （`rpcCall`，HTTP over 本地 socket）；WebSocket 只收 aria2 的 6 个推送事件
+    （onDownloadStart/Pause/Stop/Complete/Error/BtDownloadComplete，无进度事件）
+    驱动状态迁移，进度靠 ~1s 轮询补；WS 回调跑在 IXWebSocket 内部线程，所以
+    `tasks_` 一律经 `tasksMutex_` 访问；WS 掉线自动回退纯轮询。**锁纪律**：持锁
+    方法 snapshot/start/action/recoverSession/handleWsEvent；`ensureDaemon`/
+    `applyTellStatus` 不持锁；start/retry 先 `ensureDaemon` 再取锁（避免非递归
+    互斥量死锁）。**Winsock**：Windows 本地 socket 需 `WSAStartup`，由
+    `LocalSocket::platformInit()`（POSIX no-op）在 `Aria2Engine` 构造/析构里
+    配对，不要漏。动机与验证见 `docs/roadmap.md`。
+12. **黑白极客视觉体系**：界面是纯中性灰 monochrome 风（对标 Codex / Claude Code
     页面）——亮暗双主题严格镜像，**主色 = 反白**（暗主题 primary=白/onPrimary=黑，
     亮主题反转）。层次靠 **1px hairline 描边**（`kHairline` + `theme.outline`）+
     灰阶梯（surfaceContainerLow..Highest）表达，**扁平无投影**——唯一例外是弹窗
@@ -132,11 +169,11 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
     属性恒等（Frame 方案天然满足）；text 不挂 transform（scale/translate 会走
     变换绘制路径），装饰性显隐（留口 notch、占位提示）用随姿态组装/消失的硬切，
     不挂常驻 opacity 过渡；只 `.animate()` 需要的通道，不要全开。
-12. **eui 元素 id 全局唯一且稳定**：Runtime 按解析后的 id 索引元素，同一已组合树里重名会互相覆盖，影响绘制、命中和缓存；Stack 不会自动给子元素加命名空间。新增控件先检查同 frame 已有 id 和 builder 内部生成的后缀（如 `buildListPicker(id)` 会创建 `id.label`），子节点统一用根 id 的子前缀。动态列表项用稳定业务 key（任务 id、aria2 文件 index、媒体 track id），不要用可能随排序/过滤变化的数组位置或随机值；回调也按同一 key 找当前数据项。测量型组件的 `content` 回调必须用参数提供的 `eui::Ui&` 构造子项；`scrollView` 会用临时 `Ui` 测量再对真实树 compose，捕获外层 `ui` 会把控件重复塞入真实树。**`scrollView` 还会给容器加 `.clip()`，而 eui 的命中测试会与元素的 clip 矩形求交**——所以「全屏拦截层 / 溢出容器的弹层」这类需要越界的子元素不能塞进 `scrollView`（会被连同点击一起裁掉，见第 14 条）；只有内容真的可能超出视口时才用 `scrollView`，固定高度弹窗用普通 `ui.stack` 绝对定位。
-13. **非阻塞打开**：`openFile` / `openContainingFolder` / `openUrl` 在 Windows 走
+13. **eui 元素 id 全局唯一且稳定**：Runtime 按解析后的 id 索引元素，同一已组合树里重名会互相覆盖，影响绘制、命中和缓存；Stack 不会自动给子元素加命名空间。新增控件先检查同 frame 已有 id 和 builder 内部生成的后缀（如 `buildListPicker(id)` 会创建 `id.label`），子节点统一用根 id 的子前缀。动态列表项用稳定业务 key（任务 id、aria2 文件 index、媒体 track id），不要用可能随排序/过滤变化的数组位置或随机值；回调也按同一 key 找当前数据项。测量型组件的 `content` 回调必须用参数提供的 `eui::Ui&` 构造子项；`scrollView` 会用临时 `Ui` 测量再对真实树 compose，捕获外层 `ui` 会把控件重复塞入真实树。**`scrollView` 还会给容器加 `.clip()`，而 eui 的命中测试会与元素的 clip 矩形求交**——所以「全屏拦截层 / 溢出容器的弹层」这类需要越界的子元素不能塞进 `scrollView`（会被连同点击一起裁掉，见第 15 条）；只有内容真的可能超出视口时才用 `scrollView`，固定高度弹窗用普通 `ui.stack` 绝对定位。
+14. **非阻塞打开**：`openFile` / `openContainingFolder` / `openUrl` 在 Windows 走
     `ShellExecuteW`（`platform.cppm::shellExecFn()`），立即返回；**不要用
     `std::system("explorer …")`**——explorer 会让调用方同步等窗口关闭，卡 UI 线程。
-14. **下拉点击外部收起**：`buildListPicker` 展开时铺一层全屏透明拦截层（吞掉点击），
+15. **下拉点击外部收起**：`buildListPicker` 展开时铺一层全屏透明拦截层（吞掉点击），
     点击弹层外即收起。弹层宽度可用 `popupWidth` 参数（图标字段的弹层要加宽容纳文字）。
     弹层放不进容器时会被 `scrollView` 的 clip 边界切掉最后一项（连拦截层的命中一起
     被裁，点击外部失效）：放进带裁剪的容器
@@ -145,10 +182,11 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
     最稳的做法是**别把选择器放进 `scrollView`**：字段区要滚动的弹窗（添加下载
     弹窗）就把弹层选择器换成无弹层的分段按钮（`segGroup` 模式，见
     `downloads_page.cppm`），拦截层与弹层问题即不存在。
-15. **提交与发布**：改动在 feature 分支提交；验证通过后由助手直接 merge 到 `main`
-    并 push 代码。**不要因普通代码改动自动递增版本号、创建或推送 `v*` tag、发布
+16. **提交与发布**：改动在 feature 分支提交；验证通过后由助手直接 merge 到 `main`
+    并 push 代码（「用户自行 push、不要代 push」旧惯例已于 2026-09 作废）。
+    **不要因普通代码改动自动递增版本号、创建或推送 `v*` tag、发布
     GitHub Release**；只有用户明确提出发布新版本时，才更新版本号、创建 tag 并发布。
-16. **原生资源一律用 RAII 管理**（全项目强制）：获取资源后立刻交给 move-only
+17. **原生资源一律用 RAII 管理**（全项目强制）：获取资源后立刻交给 move-only
     所有者，不要把裸句柄留到函数末尾再手工清理，也不要给多个 `return` 分支
     分别配平。通用包装在 `src/native_resource.hpp`，按资源使用正确的释放 API：
     - Windows `HANDLE` → `native::UniqueHandle` / `CloseHandle`；模块 →
@@ -173,7 +211,7 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
       `pipe` / `popen` / `spawn` 是否立即进入 owner；每条提前退出、异常路径和
       子进程继承路径是否仍正确释放。文件动作列表等需要显式 `destroy` 的 C API
       也应使用局部 guard。
-17. **线程也是资源**：每个后台线程都要有负责停止和 join 的 owner。优先用
+18. **线程也是资源**：每个后台线程都要有负责停止和 join 的 owner。优先用
     `std::jthread` + `stop_token`；使用 `std::thread` 时由模块/对象保存并 join，
     阻塞线程必须有可关闭的 socket、stop pipe、条件变量或消息队列来唤醒。退出时
     按依赖顺序先停止并 join 访问某对象的 worker，再销毁该对象或它依赖的 DLL/引擎；
@@ -181,3 +219,9 @@ tinynext agent                             # 打印 CLI 使用教学（给 AI �
     局部对象、模块静态对象或仍可能析构的单例。新代码默认禁止 `detach()`；确有
     进程末尾的一次性工作需要例外时，必须先证明所有捕获对象和被调用模块在 join
     前仍存活，并在代码注释说明依据，不能仅以“全局单例”作为生命周期证明。
+
+## 常用文档
+
+- `README.md` — 功能 / 设置项 / 发布流程的完整说明。
+- `docs/roadmap.md` — 决策记录（纯 aria2、WebSocket 方案、eui-neo 版本锁定等）。
+- `docs/cli.md` — CLI 单实例转发细节与排查。

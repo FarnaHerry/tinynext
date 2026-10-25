@@ -288,7 +288,7 @@ runner。）
 10. **xlings 解压含 symlink 的 tarball 会在 Windows 上中途失败**：下载包里若有符号链接
     （如 IXWebSocket 的 `Dockerfile` → `docker/Dockerfile.alpine`），解压器解到该条目即
     中止，源码目录缺失导致 mcpp 报 `install_packages failed`。下载/校验本身没问题；
-    需要手工用系统 tar 完整解压（跳过 symlink）补装 verdir，见仓库根 CLAUDE.md。
+    需要手工用系统 tar 完整解压（跳过 symlink）补装 verdir，见仓库根 AGENTS.md。
 
 ## 许可
 
