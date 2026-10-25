@@ -378,7 +378,7 @@ export void drawDownloadsPage(eui::Ui& ui, const eui::Screen& screen, const AppT
         // 长到「内容贴合高度」为止。字段区放进 components::scrollView，窗口放
         // 不下时出内部滚动条。scrollView 会给根 stack 挂 .clip()——字段区里因此
         // 不能放 buildListPicker（全屏拦截层和弹层会被连点击一起裁掉，AGENTS.md
-        // 约定 14），媒体类型/输出容器改用与顶部 tab 同款的分段按钮（无弹层）。
+        // 约定 15），媒体类型/输出容器改用与顶部 tab 同款的分段按钮（无弹层）。
         const float dlgW = std::clamp(screen.width * 0.38f, 360.0f, 540.0f);
         const float dlgH = g_addTab == AddTab::Direct
             ? std::clamp(screen.height * 0.86f, 340.0f, 484.0f)
