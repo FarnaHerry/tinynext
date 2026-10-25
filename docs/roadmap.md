@@ -347,7 +347,11 @@ SourceForge 的间歇故障。
 见各条目内）：1）`.agents/` 已入库；2）两个选择弹窗的快照失效检查已实现；3）
 `quit` 托盘待机时 marshal 超时后自动硬退出（见上「已拍板」条目）。
 
-### 1. `.agents/skills/tinynext-eui-ui/SKILL.md` 还不受版本控制
+### 1. 项目 UI skill 纳入版本管理（已完成）
+
+2026-10-26 指南瘦身后，当前入口为
+[project-skills/tinynext-eui-ui/SKILL.md](../project-skills/tinynext-eui-ui/SKILL.md)，
+长细节放在该技能的 `references/`。以下保留当时 `.agents/` 入库问题的背景。
 
 仓库里 `AGENTS.md` / `CLAUDE.md` 都是跟踪的，但给 AI 用的 UI 技能目录
 `.agents/` 仍是 `git status` 里的唯一 `??`。内容是项目自己的 EUI 纪律
