@@ -24,7 +24,7 @@ mcpp run            # 启动 GUI 窗口
   下载列表。可一次传多个。可下载源：`http(s)://` / `sftp://` / `ed2k://|file|` 链接、
   `magnet:` 磁力、或以 `.torrent` 结尾的本地文件路径。**详细用法见 `docs/cli.md`**。
 - 转发走临时目录的 `tinynext.inbox` 文件，主实例每 ~0.5s 轮询取走任务。
-- 给 AI 助手的项目指南见 `AGENTS.md`（含构建 / CLI 用法 / 模块约定）。
+- 给 AI 助手的统一入口见 [AGENTS.md](AGENTS.md)，按任务读取 `project-skills/` 技能与专题文档。
 
 ## 界面
 
@@ -288,7 +288,7 @@ runner。）
 10. **xlings 解压含 symlink 的 tarball 会在 Windows 上中途失败**：下载包里若有符号链接
     （如 IXWebSocket 的 `Dockerfile` → `docker/Dockerfile.alpine`），解压器解到该条目即
     中止，源码目录缺失导致 mcpp 报 `install_packages failed`。下载/校验本身没问题；
-    需要手工用系统 tar 完整解压（跳过 symlink）补装 verdir，见仓库根 AGENTS.md。
+    需要手工用系统 tar 完整解压（跳过 symlink）补装 verdir，见 [构建故障说明](docs/build-release.md)。
 
 ## 许可
 

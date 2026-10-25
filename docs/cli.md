@@ -35,6 +35,13 @@ tinynext agent
 `magnet:`；另接受以 `.torrent` 结尾的本地文件路径。其他参数会被忽略；第一个参数若是
 `agent` / `--agent` / `help` / `--help` / `-h`，则打印上面的教学文本并退出。
 
+## 命令行解析约束
+
+**命令行解析只有一份**：`utils::commandLineArgs()`（`src/utils.cppm`，CLI 与
+`--headless` 共用）。Linux 下经 `ld.so` 直接启动（`run.sh`）时程序路径不在
+argv[0]，解析要先剥加载器选项再跳过程序路径——别在别处再写一份只看 argv[0] 的版本
+（那会让 `agent` / `status` / `--headless` 这类按首参数分派的入口全部失效）。
+
 ## 单实例规则
 
 - 同一用户同一会话**同时只运行一个 TinyNext**。重复启动不会开第二个窗口。
