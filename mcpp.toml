@@ -1,6 +1,6 @@
 [package]
 name        = "tinynext"
-version     = "0.7.14"
+version     = "0.7.15"
 description = "A GUI downloader: EUI-NEO frontend + aria2-next download engine"
 license     = "MIT"
 
@@ -49,20 +49,26 @@ description       = "TinyNext 下载器"
 original-filename = "tinynext.exe"
 internal-name     = "tinynext"
 
-# eui-neo 0.6.1：窗口生命周期 + 组件修复——DslAppConfig 新增 transparent 透明帧
-# 缓冲与 onStart()/appId()，beginWindowMove/beginWindowResize 程序化移动/缩放
-# （Linux 走 EWMH _NET_WM_MOVERESIZE 委托，libX11 运行时 dlopen，无链接期依赖）；
-# 下拉/滑块 z-order、OpenGL pixel-unpack 修复。CORE_SOURCES 与 0.6.0 逐字节一致，
-# 配方 flags/deps 原样沿用（包级 -fno-char8_t 仍在，上游未修）。0.6.0 曾新增
-# core::audio::Player 流式音频（miniaudio：MP3/WAV/FLAC/OGG）与 GpuImage 零拷贝
-# 外部纹理；DslAppConfig 窗口配置（resizable/decorated/alwaysOnTop/maximized/
-# highDpi）与 onShutdown 退出回调；多行 Input 加 .scrollbar() 与 IME preedit。
-# 0.5.9 渲染缓存加固、0.5.8 eui_app_run() 库模式入口沿用；compat 配方补 -ldwmapi
-# （glfw win32 深色标题栏）。0.5.6 起 eui_neo.h 不再包含
-# eui/detail/dsl_app_impl.h（入口机制挪进 app-main 的 glfw_app_main.cpp 内部），
-# app.cpp 只需提供 app::dslAppConfig() + app::compose()。版本决策见 docs/roadmap.md。
+# eui-neo 0.6.2：触摸输入 + 长内容 + 文本渲染性能——SDL2 后端单指触摸转
+# pointer 事件（PointerEvent::touch 区分触摸来源；GLFW 后端仍走 OS 触摸→鼠标映射，
+# 本项目用 GLFW 无行为变化）；ScrollEvent 新增 pixelX/pixelY（x/y 调用不受影响，
+# 滚动容器按 DPI 换算触摸位移）；Markdown 仅构建视口附近内容（大文档构建/滚动更省）；
+# 固定字号字体面缓存 glyph advance；字形图集按需分配、仅上传已使用区域
+# （首渲内存约 -8 MB）。lib 源清单与 0.6.1 一致（文本/mardown 改动均在既有 TU 内），
+# 配方 flags/deps 原样沿用（包级 -fno-char8_t 仍在，上游未修）。0.6.1 窗口生命周期 +
+# 组件修复——DslAppConfig 新增 transparent 透明帧缓冲与 onStart()/appId()，
+# beginWindowMove/beginWindowResize 程序化移动/缩放（Linux 走 EWMH _NET_WM_MOVERESIZE
+# 委托，libX11 运行时 dlopen，无链接期依赖）；下拉/滑块 z-order、OpenGL pixel-unpack
+# 修复。CORE_SOURCES 与 0.6.0 逐字节一致，0.6.0 曾新增 core::audio::Player 流式音频
+# （miniaudio：MP3/WAV/FLAC/OGG）与 GpuImage 零拷贝外部纹理；DslAppConfig 窗口配置
+# （resizable/decorated/alwaysOnTop/maximized/highDpi）与 onShutdown 退出回调；
+# 多行 Input 加 .scrollbar() 与 IME preedit。0.5.9 渲染缓存加固、0.5.8 eui_app_run()
+# 库模式入口沿用；compat 配方补 -ldwmapi（glfw win32 深色标题栏）。0.5.6 起
+# eui_neo.h 不再包含 eui/detail/dsl_app_impl.h（入口机制挪进 app-main 的
+# glfw_app_main.cpp 内部），app.cpp 只需提供 app::dslAppConfig() + app::compose()。
+# 版本决策见 docs/roadmap.md。
 [dependencies.compat]
-eui-neo = { version = "0.6.1", features = ["app-main"] }
+eui-neo = { version = "0.6.2", features = ["app-main"] }
 # 包装 IXWebSocket（client-only、零依赖）：aria2 RPC 的 WebSocket 事件推送
 # （onDownloadStart/Complete/Error/...），让状态迁移/完成通知即时，进度轮询降到 1s。
 websocket = "12.0.1"

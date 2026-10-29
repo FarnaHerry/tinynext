@@ -40,7 +40,7 @@ mcpp run                   # Windows / macOS 启动 GUI
 ```
 
 - 工具链固定 `llvm@22.1.8`；依赖锁定在 `mcpp.toml` / `mcpp.lock`，不要随意升级。
-  当前为 eui-neo **0.6.1**、websocket **12.0.1**、nlohmann::json **3.12.0**。
+  当前为 eui-neo **0.6.2**、websocket **12.0.1**、nlohmann::json **3.12.0**。
 - 版本只在 `mcpp.toml` 维护；变更后运行 `scripts/gen-versions.sh` 或 `.ps1`。
   `src/versions.generated.h` 是生成文件，禁止手改。
 - Linux 必须通过 `./run.sh` 走系统 ld.so 与 Mesa，规避 mcpp 私有 glibc 冲突。
