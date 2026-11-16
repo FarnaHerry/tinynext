@@ -18,7 +18,7 @@
 EUI input 的编辑能力与独立外壳：浮动标签 / 顶部描边留口 / 聚焦 2px 描边 / 4px 圆角 /
 无投影，沿用黑白主题。常规字段采用 40 逻辑像素的紧凑高度，多行字段加高；标签留在
 编辑器 clip 外，留口底色匹配页面或弹窗。设置页、添加下载和镜像地址统一使用；数字
-步进框共用外壳。该样式由应用封装，EUI-NEO 保持锁定 0.6.2。
+步进框共用外壳。该样式由应用封装，EUI-NEO 保持锁定 0.6.3。
 
 **浮动标签滑动动画（2026-10-15）。** 聚焦/输入时标签从框内滑到顶部留口、失焦且
 清空后滑回，0.16 秒 OutCubic（`kOutlinedAnimSeconds`），聚焦变色（主色）与描边
@@ -175,6 +175,31 @@ aria2），让 mcpp / xlings 等其他包管理器「直接复用 TinyNext 作�
   `app_runner.h` 只加了统计字段。全量构建 + GUI/daemon/托盘冒烟通过。
 -  backdrop 捕获作废修复对我们相关：设置页/弹窗用 `glassFill` 背景模糊，0.5.8
   及之前在清屏帧可能复用过期模糊底。
+
+### eui-neo 升 0.6.3（2026-11，已实现）
+
+- 上游 0.6.3 是**键盘/无障碍 + 数据组件 + 系统对话框**：控件默认参与 Tab/Shift+Tab
+  导航（Enter/Space 激活、方向键切换、模态焦点恢复）、新增与后端无关的控件语义快照；
+  `dataTable` 行高虚拟化/共享数据源/稳定排序；新增系统保存对话框与目录选择；
+  输入框撤销/重做字节预算（默认 8 MiB）；`lineChart` 实时采样与降采样。另修异步任务
+  取消后的旧回调、串口句柄生命周期、SDL2 异步唤醒时序。
+- 构建面影响为 0：`CORE_SOURCES` 与 `VULKAN_SOURCES` 和 0.6.2 **逐字节一致**，
+  `glfw_app_main.cpp` 不变；索引配方 0.6.3 在 Windows 链接补 `-luuid`（平台目录
+  对话框的 IID/CLSID，ole32/comdlg32 原已存在），新增可选 `serial` 模块/feature
+  （本项目未启用）。升级 = `mcpp.toml` 改版本 + `mcpp update` + 全量构建。
+- **唯一可见行为变化：焦点框**。`.onClick()` 现在会自动把元素设为 focusable，
+  鼠标点击输入框/按钮、或 Tab 聚焦时，eui 在元素上叠加 2px 焦点框；颜色硬编码在
+  `core/dsl.h` 为蓝 `{0.25,0.6,1}`，上游没有主题化接口，与项目黑白主题冲突。
+  **当前决策：接受该差异**（键盘可达性优先，且不改上游源码）。不改应用代码；
+  未使用 `preserveFocusOnPress` / `focusScope` / `focusGroup`——Tab 顺序即声明顺序，
+  弹窗不困住焦点，后续接入键盘导航时再按控件语义补 focus scope/group。
+- 后续收敛条件：eui 提供焦点框颜色/开关，或本机与 Windows CI 的 mcpp 都升到支持
+  依赖 `patches` 的版本（`patches` 需 mcpp 2026.11+；当前本机 2026.10.31.3、
+  Windows CI 钉 2026.8.16.1），届时用 mcpp `patches` 把颜色改成中性灰（#8C8C8C 一档），
+  避免 vendoring。
+- 验证：`mcpp update compat.eui-neo` 锁到 0.6.3，`gen-versions.sh` 重生成，dev 全量
+  构建通过；GUI 冒烟（启动、侧栏点击、添加下载弹窗、点击 URL 输入框、Tab、输入）
+  正常，确认焦点框为蓝色且鼠标点击即可触发。
 
 ### eui-neo 升 0.6.2（2026-10，已实现）
 
