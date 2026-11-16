@@ -211,7 +211,7 @@ runner。）
 | 组件 | 包 | 版本 |
 |------|-----|------|
 | 工具链 | LLVM/Clang（`mcpp.toml` 的 `[toolchain]` 固定） | 22.1.8 |
-| UI 框架 | `compat:eui-neo` | 0.5.9（feature: `app-main`；Linux 支持 SNI 系统托盘；配方加 `-fno-char8_t` 修 C++23 构建） |
+| UI 框架 | `compat:eui-neo` | 0.6.3（feature: `app-main`；Linux 支持 SNI 系统托盘；配方加 `-fno-char8_t` 修 C++23 构建） |
 | 下载引擎 | `aria2-next`（外部进程） | 2.8.3 |
 | 配置 JSON | `nlohmann:json` | 3.12.0 |
 

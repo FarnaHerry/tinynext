@@ -11,8 +11,8 @@ bash make-dist.sh <os> <arch>   # Linux / macOS 打包 → tar.gz
 ```
 
 - 工具链在 `mcpp.toml` 里固定为 `llvm@22.1.8`，不要改。
-- 依赖版本锁定在 `mcpp.toml` / `mcpp.lock`，不要乱升：eui-neo **0.6.1**（配方加
-  `-fno-char8_t` 修 C++23 构建 + 补 `-ldwmapi`，见 [roadmap](roadmap.md)）、
+- 依赖版本锁定在 `mcpp.toml` / `mcpp.lock`，不要乱升：eui-neo **0.6.3**（配方加
+  `-fno-char8_t` 修 C++23 构建；Windows 补 `-ldwmapi` / `-luuid`，见 [roadmap](roadmap.md)）、
   websocket（IXWebSocket 包装）**12.0.1**、nlohmann::json **3.12.0**。
 - **版本只在 `mcpp.toml` 维护**：应用版本 `[package].version` 与 eui/websocket/json
   依赖版本由 `scripts/gen-versions.ps1`（或 `.sh`）生成 `src/versions.generated.h`，
