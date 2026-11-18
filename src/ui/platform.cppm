@@ -7,6 +7,7 @@ module;
 struct GLFWwindow;
 extern "C" GLFWwindow* glfwGetCurrentContext();
 extern "C" const char* glfwGetClipboardString(GLFWwindow* window);
+extern "C" void glfwSetClipboardString(GLFWwindow* window, const char* string);
 extern "C" void glfwGetWindowSize(GLFWwindow* window, int* width, int* height);
 extern "C" void glfwSetWindowSize(GLFWwindow* window, int width, int height);
 extern "C" void glfwSetWindowSizeLimits(GLFWwindow* window, int minWidth, int minHeight,
@@ -770,6 +771,14 @@ export std::string getClipboardText() {
         }
     }
     return {};
+}
+
+export bool setClipboardText(const std::string& text) {
+    if (GLFWwindow* ctx = glfwGetCurrentContext()) {
+        glfwSetClipboardString(ctx, text.c_str());
+        return true;
+    }
+    return false;
 }
 
 // 让系统原生标题栏跟随深浅主题（Windows 沉浸式深色模式；其他平台 no-op）。

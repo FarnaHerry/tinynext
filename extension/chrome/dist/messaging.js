@@ -1,6 +1,7 @@
 // Native Messaging 客户端：按需 connectNative → postMessage → 收回包 → 断开。
-// Chrome 会为每个端口拉起一次宿主进程，断开后进程退出。
-import { HOST_NAME, isForwardable, } from './protocol.js';
+// 浏览器会为每个端口拉起一次宿主进程，断开后进程退出。
+import { HOST_NAME, isForwardable, normalizeDownloadUrl, } from './protocol.js';
+let badgeTimer;
 export function sendToHost(message) {
     return new Promise((resolve) => {
         let port;
@@ -38,28 +39,44 @@ export function sendToHost(message) {
                 ok: false,
                 error: err && err.message
                     ? err.message
-                    : '宿主已断开（请确认 TinyNext 启动过一次、扩展 ID 与注册清单一致）',
+                    : '宿主已断开（请确认已启动过一次 TinyNext，且扩展 ID 与注册清单一致）',
             });
         });
         port.postMessage(message);
     });
 }
-// 角标反馈（绿 ✓ / 红 !），2.5s 后自动清除。
+// 角标反馈（绿 ✓ / 红 !），2.5s 后自动清除（防抖覆盖前一次计时器）。
 export function showBadge(ok, text) {
+    if (badgeTimer !== undefined) {
+        clearTimeout(badgeTimer);
+        badgeTimer = undefined;
+    }
     chrome.action
         .setBadgeBackgroundColor({ color: ok ? '#1a7f37' : '#8b1d1d' })
         .then(() => chrome.action.setBadgeText({ text }))
-        .then(() => setTimeout(() => chrome.action.setBadgeText({ text: '' }), 2500))
+        .then(() => {
+        badgeTimer = setTimeout(() => {
+            badgeTimer = undefined;
+            void chrome.action.setBadgeText({ text: '' }).catch(() => { });
+        }, 2500);
+    })
         .catch(() => { });
 }
 // 转发一条 URL 给 TinyNext，按需用角标反馈结果。
-export async function forward(url, { silent } = {}) {
-    if (!isForwardable(url)) {
+export async function forward(url, { silent, mirrors } = {}) {
+    const normalized = normalizeDownloadUrl(url);
+    if (!isForwardable(normalized)) {
         if (!silent)
             showBadge(false, '!');
-        return { ok: false, error: '不支持的链接' };
+        return {
+            ok: false,
+            error: '不支持的链接（支持 http/https/sftp/magnet/ed2k://|file|）',
+        };
     }
-    const reply = await sendToHost({ type: 'download', url });
+    const req = mirrors && mirrors.length > 0
+        ? { type: 'download', url: normalized, mirrors }
+        : { type: 'download', url: normalized };
+    const reply = await sendToHost(req);
     if (!silent)
         showBadge(reply.ok, reply.ok ? '✓' : '!');
     return reply;

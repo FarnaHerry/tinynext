@@ -232,10 +232,20 @@ std::filesystem::path writeHostManifest() {
 }
 
 #ifdef _WIN32
-// HKCU\Software\Google\Chrome\NativeMessagingHosts\<name> 默认值 = 清单绝对路径。
-bool registerManifestInChrome(const std::filesystem::path& manifest) {
+bool keyExistsInHkcu(const wchar_t* subKey) {
+    HKEY raw = nullptr;
+    if (::RegOpenKeyExW(HKEY_CURRENT_USER, subKey, 0, KEY_QUERY_VALUE, &raw) !=
+        ERROR_SUCCESS) {
+        return false;
+    }
+    tinynext::native::UniqueHkey key(raw);
+    return static_cast<bool>(key);
+}
+
+bool writeHostRegistryKey(const wchar_t* browserPrefix,
+                          const std::filesystem::path& manifest) {
     const std::wstring subKey =
-        std::wstring(L"Software\\Google\\Chrome\\NativeMessagingHosts\\") +
+        std::wstring(browserPrefix) + L"\\NativeMessagingHosts\\" +
         std::wstring(kHostName, kHostName + std::char_traits<char>::length(kHostName));
     HKEY raw = nullptr;
     const LONG rc = ::RegCreateKeyExW(HKEY_CURRENT_USER, subKey.c_str(), 0,
@@ -249,31 +259,97 @@ bool registerManifestInChrome(const std::filesystem::path& manifest) {
                             static_cast<DWORD>((value.size() + 1) *
                                                sizeof(wchar_t))) == ERROR_SUCCESS;
 }
+
+bool readHostRegistryKeyMatches(const wchar_t* browserPrefix,
+                                const std::filesystem::path& manifest) {
+    const std::wstring subKey =
+        std::wstring(browserPrefix) + L"\\NativeMessagingHosts\\" +
+        std::wstring(kHostName, kHostName + std::char_traits<char>::length(kHostName));
+    HKEY raw = nullptr;
+    if (::RegOpenKeyExW(HKEY_CURRENT_USER, subKey.c_str(), 0, KEY_QUERY_VALUE,
+                        &raw) != ERROR_SUCCESS) {
+        return false;
+    }
+    tinynext::native::UniqueHkey key(raw);
+    DWORD type = 0, bytes = 0;
+    if (::RegQueryValueExW(key.get(), nullptr, nullptr, &type, nullptr,
+                           &bytes) != ERROR_SUCCESS ||
+        type != REG_SZ || bytes < sizeof(wchar_t)) {
+        return false;
+    }
+    std::wstring value((bytes + sizeof(wchar_t) - 1) / sizeof(wchar_t), L'\0');
+    if (::RegQueryValueExW(key.get(), nullptr, nullptr, nullptr,
+                           reinterpret_cast<BYTE*>(value.data()), &bytes) !=
+        ERROR_SUCCESS) {
+        return false;
+    }
+    while (!value.empty() && value.back() == L'\0') value.pop_back();
+    if (value.empty()) return false;
+    std::error_code ec;
+    const std::filesystem::path registered(value);
+    return std::filesystem::exists(registered, ec) &&
+           std::filesystem::equivalent(registered, manifest, ec);
+}
+
+// Chromium 系共用同一份 MV3 扩展与固定 origin：Chrome 与 Edge 默认登记，
+// Brave / Chromium 仅当本机用户配置已存在时顺带登记，避免污染无关注册表项。
+bool registerManifestInChrome(const std::filesystem::path& manifest) {
+    const bool chromeOk = writeHostRegistryKey(L"Software\\Google\\Chrome", manifest);
+    const bool edgeOk = writeHostRegistryKey(L"Software\\Microsoft\\Edge", manifest);
+    if (keyExistsInHkcu(L"Software\\BraveSoftware\\Brave-Browser")) {
+        (void)writeHostRegistryKey(L"Software\\BraveSoftware\\Brave-Browser", manifest);
+    }
+    if (keyExistsInHkcu(L"Software\\Chromium")) {
+        (void)writeHostRegistryKey(L"Software\\Chromium", manifest);
+    }
+    return chromeOk || edgeOk;
+}
 #else
-// Linux/macOS：把清单复制进 Chrome 用户目录（Chrome 只认这两个固定位置）。
+// Linux/macOS：Chrome 默认写入，Edge / Chromium / Brave 在用户浏览器目录已存在时同步复制。
 bool registerManifestInChrome(const std::filesystem::path& manifest) {
     const char* home = std::getenv("HOME");
     if (!home || !*home) return false;
-    std::filesystem::path dir;
+    const std::filesystem::path homePath(home);
 #ifdef __APPLE__
-    dir = std::filesystem::path(home) / "Library" / "Application Support" /
-          "Google" / "Chrome" / "NativeMessagingHosts";
+    const std::filesystem::path base = homePath / "Library" / "Application Support";
+    const std::filesystem::path chromeRoot = base / "Google" / "Chrome";
+    const std::filesystem::path extras[] = {
+        base / "Microsoft Edge",
+        base / "Chromium",
+        base / "BraveSoftware" / "Brave-Browser",
+    };
 #else
-    dir = std::filesystem::path(home) / ".config" / "google-chrome" /
-          "NativeMessagingHosts";
+    const std::filesystem::path base = homePath / ".config";
+    const std::filesystem::path chromeRoot = base / "google-chrome";
+    const std::filesystem::path extras[] = {
+        base / "microsoft-edge",
+        base / "chromium",
+        base / "BraveSoftware" / "Brave-Browser",
+    };
 #endif
-    std::error_code ec;
-    std::filesystem::create_directories(dir, ec);
-    std::filesystem::copy_file(manifest, dir / manifest.filename(),
-                               std::filesystem::copy_options::overwrite_existing,
-                               ec);
-    return !ec;
+    auto copyTo = [&](const std::filesystem::path& browserRoot) -> bool {
+        std::error_code ec;
+        const std::filesystem::path dir = browserRoot / "NativeMessagingHosts";
+        std::filesystem::create_directories(dir, ec);
+        std::filesystem::copy_file(manifest, dir / manifest.filename(),
+                                   std::filesystem::copy_options::overwrite_existing,
+                                   ec);
+        return !ec;
+    };
+    bool anyOk = copyTo(chromeRoot);
+    for (const auto& browserRoot : extras) {
+        std::error_code ec;
+        if (std::filesystem::exists(browserRoot, ec)) {
+            anyOk = copyTo(browserRoot) || anyOk;
+        }
+    }
+    return anyOk;
 }
 #endif
 
 } // namespace
 
-// 命令行是否为浏览器宿主模式：Chrome 以扩展 origin 作首参拉起宿主，或显式
+// 命令行是否为浏览器宿主模式：Chrome/Edge 以扩展 origin 作首参拉起宿主，或显式
 // --native-host（调试用，协议一致）。
 export bool nativeHostRequested() {
     static const bool cached = [] {
@@ -286,7 +362,7 @@ export bool nativeHostRequested() {
     return cached;
 }
 
-// 宿主主循环：stdin 收 Chrome 的长度前缀 JSON，逐条处理并回包；stdin EOF
+// 宿主主循环：stdin 收浏览器的长度前缀 JSON，逐条处理并回包；stdin EOF
 // （扩展断开 / 浏览器退出）即正常返回。URL 一律先经 forwardUrls（TCP 直连主
 // 实例，失败落 inbox）；返回 false 表示主实例不在——此时拉起一次 GUI 消费。
 // forwardUrls 由 cli 注入（宿主模块不 import cli，避免模块循环依赖）。
@@ -327,18 +403,44 @@ export int runNativeHost(
                     reply["app"] = "TinyNext";
                     reply["version"] = TINY_APP_VERSION;
                 } else if (type == "download") {
-                    const std::string url = msg.value("url", "");
+                    const std::string url = trimText(msg.value("url", ""));
                     if (url.empty() || !isDownloadableSource(url)) {
                         reply["ok"] = false;
                         reply["error"] = "unsupported url";
-                    } else if (forwardUrls &&
-                               forwardUrls(std::vector<std::string>{url})) {
-                        reply["ok"] = true;  // 已交给运行中的主实例
                     } else {
-                        // 主实例不在：URL 已由回调落 inbox，拉起 GUI 消费。
-                        reply["ok"] = true;
-                        reply["queued"] = true;
-                        spawnHint = true;
+                        std::string encoded = url;
+                        if (msg.contains("mirrors") && msg["mirrors"].is_array() &&
+                            isMirrorableSource(url) &&
+                            url.find_first_of(" \t\r\n") == std::string::npos) {
+                            std::string mirrorLine = "mirror:" + url;
+                            bool validMirrors = true;
+                            int count = 0;
+                            for (const auto& item : msg["mirrors"]) {
+                                if (!item.is_string()) continue;
+                                const std::string m = trimText(item.get<std::string>());
+                                if (m.empty()) continue;
+                                if (!isMirrorableSource(m) ||
+                                    m.find_first_of(" \t\r\n") != std::string::npos) {
+                                    validMirrors = false;
+                                    break;
+                                }
+                                mirrorLine += ' ';
+                                mirrorLine += m;
+                                ++count;
+                            }
+                            if (validMirrors && count > 0) {
+                                encoded = std::move(mirrorLine);
+                            }
+                        }
+                        if (forwardUrls &&
+                            forwardUrls(std::vector<std::string>{encoded})) {
+                            reply["ok"] = true;  // 已交给运行中的主实例
+                        } else {
+                            // 主实例不在：URL 已由回调落 inbox，拉起 GUI 消费。
+                            reply["ok"] = true;
+                            reply["queued"] = true;
+                            spawnHint = true;
+                        }
                     }
                 } else {
                     reply["ok"] = false;
@@ -358,12 +460,18 @@ export int runNativeHost(
     }
 }
 
-// GUI 启动时调用（幂等 best-effort）：写宿主清单 + 登记 Chrome。失败静默——
-// Chrome 未装/目录只读都是正常场景，不打扰用户；扩展连不上时 popup 会提示。
+// GUI 启动时调用（幂等 best-effort）：写宿主清单 + 登记 Chrome / Edge 等 Chromium 系。
 export void registerChromeNativeHost() {
     const std::filesystem::path manifest = writeHostManifest();
     if (manifest.empty()) return;
     (void)registerManifestInChrome(manifest);
+}
+
+// 外部客户端（MCP / Native Messaging）启动本程序的真实路径（UTF-8；Linux 优先 run.sh）。
+export std::string hostLauncherPathUtf8() {
+    const std::filesystem::path launcher = hostExecutableForManifest();
+    return launcher.empty() ? std::string("/path/to/tinynext")
+                            : utf8FromPath(launcher);
 }
 
 // 扩展固定 origin（extension/chrome/manifest.json 的 key 派生；扩展页展示用）。
@@ -371,50 +479,35 @@ export std::string chromeExtensionOrigin() {
     return kExtensionOrigin;
 }
 
-// 宿主注册状态：清单落盘且 Chrome 侧登记到位（POSIX 检查 Chrome 用户目录的
-// 副本；Windows 检查 HKCU 注册表默认值非空）。扩展页状态行 + 重新注册按钮用。
+// 宿主注册状态：清单落盘且浏览器侧登记路径指向当前有效清单。
 export bool chromeHostRegistered() {
     const std::filesystem::path manifest =
         cfg::configDir() / "browser-host" / (std::string(kHostName) + ".json");
     std::error_code ec;
     if (!std::filesystem::exists(manifest, ec)) return false;
 #ifdef _WIN32
-    const std::wstring subKey =
-        std::wstring(L"Software\\Google\\Chrome\\NativeMessagingHosts\\") +
-        std::wstring(kHostName, kHostName + std::char_traits<char>::length(kHostName));
-    HKEY raw = nullptr;
-    if (::RegOpenKeyExW(HKEY_CURRENT_USER, subKey.c_str(), 0, KEY_QUERY_VALUE,
-                        &raw) != ERROR_SUCCESS) {
-        return false;
-    }
-    tinynext::native::UniqueHkey key(raw);
-    DWORD type = 0, bytes = 0;
-    if (::RegQueryValueExW(key.get(), nullptr, nullptr, &type, nullptr,
-                           &bytes) != ERROR_SUCCESS ||
-        type != REG_SZ || bytes <= sizeof(wchar_t)) {
-        return false;
-    }
-    std::wstring value(bytes / sizeof(wchar_t), L'\0');
-    if (::RegQueryValueExW(key.get(), nullptr, nullptr, nullptr,
-                           reinterpret_cast<BYTE*>(value.data()), &bytes) !=
-        ERROR_SUCCESS) {
-        return false;
-    }
-    value.resize(bytes / sizeof(wchar_t) - 1);
-    return !value.empty();
+    return readHostRegistryKeyMatches(L"Software\\Google\\Chrome", manifest) ||
+           readHostRegistryKeyMatches(L"Software\\Microsoft\\Edge", manifest);
 #else
     const char* home = std::getenv("HOME");
     if (!home || !*home) return false;
 #ifdef __APPLE__
-    const std::filesystem::path registered =
+    const std::filesystem::path chromeReg =
         std::filesystem::path(home) / "Library" / "Application Support" /
         "Google" / "Chrome" / "NativeMessagingHosts" / manifest.filename();
+    const std::filesystem::path edgeReg =
+        std::filesystem::path(home) / "Library" / "Application Support" /
+        "Microsoft Edge" / "NativeMessagingHosts" / manifest.filename();
 #else
-    const std::filesystem::path registered =
+    const std::filesystem::path chromeReg =
         std::filesystem::path(home) / ".config" / "google-chrome" /
         "NativeMessagingHosts" / manifest.filename();
+    const std::filesystem::path edgeReg =
+        std::filesystem::path(home) / ".config" / "microsoft-edge" /
+        "NativeMessagingHosts" / manifest.filename();
 #endif
-    return std::filesystem::exists(registered, ec);
+    return std::filesystem::exists(chromeReg, ec) ||
+           std::filesystem::exists(edgeReg, ec);
 #endif
 }
 

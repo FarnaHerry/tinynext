@@ -12,7 +12,7 @@
 //    会话恢复）留在主实例；本进程只是协议适配器。
 //  * 参考实现取舍：Aria2 Agent（Python，8 工具，防幻影文件安全规则）与
 //    aria2-mcp-rs（Rust，17 工具 + HTTP/SSE + RSS/调度）都直连 aria2 RPC，需要
-//    自行补应用层语义；本 server 面向 TinyNext 任务模型，v1 收敛 7 个工具，
+//    自行补应用层语义；本 server 面向 TinyNext 任务模型，提供 10 个核心工具，
 //    HTTP 传输 / MCP resources / 实时通知列 V2。
 //  * 主实例未运行：只读工具返回明确提示；add_download 走转发路径（落 inbox +
 //    拉起 GUI 进托盘），与 `tinynext <url>` 语义一致。
@@ -123,14 +123,21 @@ const nlohmann::json& toolDefs() {
         nlohmann::json{
             {"name", "add_download"},
             {"description",
-             "提交一个下载到 TinyNext（http/https/ftp/sftp/magnet/ed2k 链接）"
-             "。应用未运行时会自动启动它（直接进系统托盘，不弹窗）；提交后用 "
-             "list_downloads 轮询进度。每个任务的重命名/目录等高级选项请在 "
-             "TinyNext 界面里改。"},
+             "提交一个下载到 TinyNext（http/https/sftp/magnet/ed2k://|file| 链接，或本"
+             "地 .torrent 文件路径）。可选传 mirrors 把同一文件的多个 http(s)/sftp 镜像"
+             "合并为一个多源任务。应用未运行时会自动启动（直接进系统托盘，不弹窗）；提"
+             "交后用 list_downloads 或 wait_until_idle 跟踪进度。"},
             {"inputSchema",
              {{"type", "object"},
               {"properties",
-               {{"url", {{"type", "string"}, {"description", "下载链接"}}}}},
+               {{"url",
+                 {{"type", "string"},
+                  {"description", "主下载链接或本地 .torrent 文件路径"}}},
+                {"mirrors",
+                 {{"type", "array"},
+                  {"items", {{"type", "string"}}},
+                  {"description",
+                   "可选：同一文件的镜像源 URL 列表（仅 http/https/sftp）"}}}}},
               {"required", nlohmann::json::array({"url"})}}}},
         nlohmann::json{
             {"name", "pause"},
@@ -188,6 +195,11 @@ const nlohmann::json& toolDefs() {
                  {{"type", "array"}, {"items", {{"type", "integer"}}},
                   {"description", "任务 id 列表"}}}}},
               {"required", nlohmann::json::array({"ids"})}}}},
+        nlohmann::json{
+            {"name", "clear_completed"},
+            {"description", "清除全部已完成（Done）的任务记录（不删除磁盘文件）。"},
+            {"inputSchema",
+             {{"type", "object"}, {"properties", nlohmann::json::object()}}}},
         nlohmann::json{
             {"name", "wait_until_idle"},
             {"description",
@@ -315,44 +327,114 @@ nlohmann::json toolList(CtlFn& ctl, const nlohmann::json& args) {
 
 // add_download：本地白名单校验 → 转发路径（TCP/inbox + 必要时拉起 GUI）。
 nlohmann::json toolAdd(ForwardFn& forwardUrls, const nlohmann::json& args) {
-    const std::string url = args.value("url", "");
-    if (url.empty() || !isDownloadableSource(url)) {
-        return toolResult(
-            "unsupported url: TinyNext accepts http(s)://, ftp://, sftp://, "
-            "ed2k://|file|, magnet: links and local .torrent paths", true);
+    std::string url = trimText(args.value("url", ""));
+    if (url.empty()) {
+        return toolResult("missing url", true);
     }
-    const bool delivered = forwardUrls(std::vector<std::string>{url});
+    bool isTorrentFile = false;
+    if (!isDownloadableSource(url)) {
+        if (url.ends_with(".torrent")) {
+            std::error_code ec;
+            const std::filesystem::path torrentPath = pathFromUtf8(url);
+            if (!torrentPath.empty() && std::filesystem::exists(torrentPath, ec)) {
+                const std::filesystem::path absPath =
+                    std::filesystem::absolute(torrentPath, ec);
+                url = utf8FromPath(ec ? torrentPath : absPath);
+                isTorrentFile = true;
+            }
+        }
+        if (!isTorrentFile) {
+            return toolResult(
+                "unsupported url: TinyNext accepts http(s)://, sftp://, "
+                "ed2k://|file|, magnet: links and existing local .torrent paths",
+                true);
+        }
+    }
+
+    std::string payloadLine = url;
+    if (args.contains("mirrors") && args["mirrors"].is_array() &&
+        !args["mirrors"].empty()) {
+        if (isTorrentFile || !isMirrorableSource(url) ||
+            url.find_first_of(" \t\r\n") != std::string::npos) {
+            return toolResult(
+                "mirrors are only supported for plain http(s):// and sftp:// URLs",
+                true);
+        }
+        std::string mirrorLine = "mirror:" + url;
+        int mirrorCount = 0;
+        for (const auto& item : args["mirrors"]) {
+            if (!item.is_string()) {
+                return toolResult("invalid mirror entry (expected string URL)", true);
+            }
+            const std::string m = trimText(item.get<std::string>());
+            if (m.empty()) continue;
+            if (!isMirrorableSource(m) ||
+                m.find_first_of(" \t\r\n") != std::string::npos) {
+                return toolResult(
+                    "unsupported mirror url '" + m +
+                        "' (only http://, https://, sftp:// without spaces)",
+                    true);
+            }
+            mirrorLine += ' ';
+            mirrorLine += m;
+            ++mirrorCount;
+        }
+        if (mirrorCount > 0) {
+            payloadLine = std::move(mirrorLine);
+        }
+    }
+
+    const bool delivered = forwardUrls(std::vector<std::string>{payloadLine});
     if (delivered) {
         return toolResult("submitted to the running TinyNext instance. Use "
-                          "list_downloads to watch progress.", false);
+                          "list_downloads or wait_until_idle to watch progress.",
+                          false);
     }
     // 主实例不在：URL 已落 inbox，拉起 GUI（首帧后进托盘并消费 inbox）。
     browser_host::spawnAppDetached();
     return toolResult(
         "TinyNext was not running: the URL is queued and the app has been "
         "launched into the tray. It will pick the download up on startup; "
-        "use list_downloads in a moment.", false);
+        "use wait_until_idle or list_downloads to track it.", false);
 }
 
-// wait_until_idle：轮询 status --json 直到 queued+downloading==0 或超时。
+bool hasPendingInboxItems() {
+    std::error_code ec;
+    const std::filesystem::path inbox =
+        std::filesystem::temp_directory_path(ec) / "tinynext.inbox";
+    if (ec || !std::filesystem::exists(inbox, ec)) return false;
+    const auto sz = std::filesystem::file_size(inbox, ec);
+    return !ec && sz > 0;
+}
+
+// wait_until_idle：轮询 status --json 直到 queued+downloading==0（且无未消费 inbox）或超时。
 nlohmann::json toolWait(CtlFn& ctl, const nlohmann::json& args) {
     long long timeout = args.value("timeout_seconds", 60LL);
     timeout = std::clamp<long long>(timeout, 1, 3600);
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::seconds(timeout);
+    const auto now0 = std::chrono::steady_clock::now();
+    const auto deadline = now0 + std::chrono::seconds(timeout);
+    // 紧跟 add_download 冷启动拉起 GUI 时，IPC 端口可能需数百毫秒就绪：给最多 5s 启动缓冲。
+    const auto bootGrace =
+        std::min(deadline, now0 + std::chrono::seconds(5));
+    bool everConnected = false;
     std::string last;
     for (;;) {
         std::string response;
         if (!ctl("status --json", response)) {
+            if (!everConnected && std::chrono::steady_clock::now() < bootGrace) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                continue;
+            }
             return notRunning();
         }
+        everConnected = true;
         last = response;
         try {
             const nlohmann::json parsed = nlohmann::json::parse(response);
             const auto& tasks = parsed.at("tasks");
             const long long busy = tasks.value("queued", 0LL) +
                                    tasks.value("downloading", 0LL);
-            if (busy == 0) {
+            if (busy == 0 && !hasPendingInboxItems()) {
                 nlohmann::json out = parsed;
                 out["idle"] = true;
                 return toolResult(out.dump(2), false);
@@ -371,7 +453,7 @@ nlohmann::json toolWait(CtlFn& ctl, const nlohmann::json& args) {
             out["waited_seconds"] = timeout;
             return toolResult(out.dump(2), false);
         }
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 }
 
@@ -391,6 +473,11 @@ nlohmann::json callTool(CtlFn& ctl, ForwardFn& forwardUrls,
     }
     if (name == "list_downloads") return toolList(ctl, args);
     if (name == "add_download") return toolAdd(forwardUrls, args);
+    if (name == "clear_completed") {
+        std::string response;
+        if (!ctl("clear --json done", response)) return notRunning();
+        return ctlToResult(response);
+    }
     if (name == "wait_until_idle") return toolWait(ctl, args);
 
     // 变更类：pause/resume/cancel/retry/remove → ctl "<verb> --json <args>"
@@ -457,8 +544,19 @@ export int runMcpServer(
             }
             continue;
         }
-        if (!msg.is_object() || !msg.contains("method") ||
-            !msg["method"].is_string()) {
+        if (!msg.is_object()) {
+            if (!mcp::writeMessage(
+                    mcp::makeError(nullptr, -32600, "Invalid Request"))) {
+                return 1;
+            }
+            continue;
+        }
+        if (!msg.contains("method") || !msg["method"].is_string()) {
+            if (msg.contains("id") &&
+                !mcp::writeMessage(
+                    mcp::makeError(msg["id"], -32600, "Invalid Request"))) {
+                return 1;
+            }
             continue;
         }
         // 通知（无 id）不回包；请求（有 id）必须应答。
@@ -475,8 +573,9 @@ export int runMcpServer(
             std::string requested = msg.value("params", nlohmann::json::object())
                                         .value("protocolVersion", "");
             // 已知版本回显，否则回到我们支持的最新版。
-            static const std::array<std::string_view, 4> kKnown = {
-                "2024-11-05", "2025-03-26", "2025-06-18", "2026-07-28"};
+            static const std::array<std::string_view, 5> kKnown = {
+                "2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25",
+                "2026-07-28"};
             std::string version = mcp::kProtocolVersion;
             if (std::find(kKnown.begin(), kKnown.end(), requested) !=
                 kKnown.end()) {

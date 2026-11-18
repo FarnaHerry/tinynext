@@ -26,18 +26,19 @@
 Linux 免安装包用仓库根 `run.sh` 作 command（工具链 glibc 兼容性，见 run.sh 注释）：
 `{"command": "/path/to/run.sh", "args": ["--mcp"]}`。Windows/macOS 直接指向主程序。
 
-## 工具（v1，9 个）
+## 工具（10 个）
 
 | 工具 | 说明 |
 |---|---|
 | `get_status` | 引擎健康（daemon/RPC/WebSocket）、任务计数、速度、下载目录 |
 | `list_downloads(state?, query?)` | 列任务（id/状态/进度/速度/名称/URL/错误）；`state` ∈ all/active/done/failed；`query` 按名称/URL 子串过滤 |
-| `add_download(url)` | 提交下载（http/https/ftp/sftp/magnet/ed2k）。应用未运行时**自动启动并进托盘**；每个任务的重命名/目录等高级选项请在界面里改 |
+| `add_download(url, mirrors?)` | 提交下载（`http/https/sftp/magnet/ed2k://\|file\|` 链接，或本地 `.torrent` 文件路径）；可选 `mirrors` 合并同一文件的多源镜像。应用未运行时**自动启动并进托盘** |
 | `pause(ids \| all)` / `resume(ids \| all)` | 暂停/恢复；等待种子文件或媒体轨道选择的任务会被拒绝（去界面选） |
 | `cancel(ids)` | 取消进行中/排队任务（保留部分文件，可 retry 续传） |
 | `retry(ids)` | 重试失败/已取消任务（复用原 GID 与断点数据） |
 | `remove(ids)` | 删除任务记录（不动磁盘文件） |
-| `wait_until_idle(timeout_seconds?)` | 阻塞等待无排队/进行中任务（默认 60s 上限 3600），配合 add_download 等"下载完成" |
+| `clear_completed` | 清空全部已完成（Done）任务记录（不动磁盘文件） |
+| `wait_until_idle(timeout_seconds?)` | 阻塞等待无排队/进行中任务（默认 60s 上限 3600；冷启动刚拉起实例时自动留出握手缓冲，并等待 inbox 清空），配合 `add_download` 等“下载完成” |
 
 不提供 `quit`（AI 不应随手关闭应用）。
 

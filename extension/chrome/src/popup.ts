@@ -1,7 +1,9 @@
-// popup：接管开关（chrome.storage.sync，与 background 共享）+ 宿主连接检测。
-import { sendToHost } from './messaging.js';
+// popup：接管开关 + 手动投递链接 + 宿主连接检测。
+import { forward, sendToHost } from './messaging.js';
 
 const toggle = document.getElementById('takeover') as HTMLInputElement;
+const urlInput = document.getElementById('manual-url') as HTMLInputElement;
+const sendBtn = document.getElementById('send') as HTMLButtonElement;
 const status = document.getElementById('status') as HTMLElement;
 const testBtn = document.getElementById('test') as HTMLButtonElement;
 
@@ -18,14 +20,57 @@ function setStatus(kind: '' | 'ok' | 'bad', text: string): void {
   status.textContent = text;
 }
 
+async function submitManualUrl(): Promise<void> {
+  const raw = urlInput.value.trim();
+  if (!raw) {
+    setStatus('bad', '请输入下载链接（http/https/sftp/magnet/ed2k）');
+    urlInput.focus();
+    return;
+  }
+  sendBtn.disabled = true;
+  setStatus('', '发送中…');
+  try {
+    const reply = await forward(raw);
+    if (reply.ok) {
+      urlInput.value = '';
+      setStatus(
+        'ok',
+        reply.queued
+          ? '已入队并后台拉起 TinyNext ✓'
+          : '已转发给 TinyNext ✓',
+      );
+    } else {
+      setStatus('bad', `发送失败：${reply.error ?? '未知错误'}`);
+    }
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+sendBtn.addEventListener('click', () => {
+  void submitManualUrl();
+});
+
+urlInput.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter') {
+    ev.preventDefault();
+    void submitManualUrl();
+  }
+});
+
 testBtn.addEventListener('click', () => {
+  testBtn.disabled = true;
   setStatus('', '检测中…');
   void (async () => {
-    const reply = await sendToHost({ type: 'ping' });
-    if (reply.ok) {
-      setStatus('ok', `已连接 TinyNext ${reply.version ?? ''} ✓`);
-    } else {
-      setStatus('bad', `未连接：${reply.error ?? '未知错误'}`);
+    try {
+      const reply = await sendToHost({ type: 'ping' });
+      if (reply.ok) {
+        setStatus('ok', `已连接 TinyNext ${reply.version ?? ''} ✓`);
+      } else {
+        setStatus('bad', `未连接：${reply.error ?? '未知错误'}`);
+      }
+    } finally {
+      testBtn.disabled = false;
     }
   })();
 });

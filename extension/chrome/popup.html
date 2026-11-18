@@ -5,7 +5,7 @@
 <style>
   :root { color-scheme: dark; }
   body {
-    width: 260px;
+    width: 280px;
     margin: 0;
     padding: 12px 14px 14px;
     background: #0a0a0a;
@@ -42,7 +42,30 @@
     padding: 4px 10px;
     cursor: pointer;
   }
-  button:hover { background: #2a2a2a; }
+  button:hover:not(:disabled) { background: #2a2a2a; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .add-row {
+    display: flex;
+    gap: 6px;
+    margin: 8px 0 4px;
+  }
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    background: #141414;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: #e6e6e6;
+    font: inherit;
+    padding: 4px 8px;
+    outline: none;
+  }
+  input[type="text"]:focus { border-color: #e6e6e6; }
+  .divider {
+    height: 1px;
+    background: #222;
+    margin: 8px 0;
+  }
   /* 单色开关 */
   .switch { position: relative; width: 36px; height: 20px; flex: none; }
   .switch input { display: none; }
@@ -73,9 +96,14 @@
       <span class="thumb"></span>
     </label>
   </div>
-  <p class="hint">开启后，浏览器开始下载文件时自动取消并改用 TinyNext 下载（blob:/data: 除外）。任意链接也可右键 →「用 TinyNext 下载此链接」。</p>
+  <p class="hint">开启后自动接管新建下载（宿主不可达时自动回退浏览器继续下载）。网页链接或选中的纯文本磁力/ED2K 链接也可右键直发。</p>
+  <div class="divider"></div>
+  <div class="add-row">
+    <input type="text" id="manual-url" placeholder="粘贴 http(s)/magnet/ed2k 链接…" spellcheck="false">
+    <button id="send">发送</button>
+  </div>
   <div class="row">
-    <span>连接状态</span>
+    <span>宿主状态</span>
     <button id="test">检测</button>
   </div>
   <div id="status"></div>

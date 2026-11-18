@@ -27,6 +27,17 @@ constexpr float kExtPanelPad = 14.0f;
 constexpr float kLabelW = 110.0f;
 constexpr float kRowH = 30.0f;
 
+std::string escapeJsonString(std::string_view raw) {
+    std::string out;
+    out.reserve(raw.size() + 8);
+    for (const char ch : raw) {
+        if (ch == '\\') out += "\\\\";
+        else if (ch == '"') out += "\\\"";
+        else out.push_back(ch);
+    }
+    return out;
+}
+
 // 面板内「标签 + 值」一行。值列从 labelW 起给满宽度；颜色/等宽由调用方显式给。
 void drawRow(eui::Ui& sv, const std::string& id, float x, float y, float w,
              const char* label, const std::string& value, const AppTheme& theme,
@@ -87,9 +98,8 @@ export void drawExtensionsPage(eui::Ui& ui, const eui::Screen& screen,
     // 面板 A：pad12 + 状态30 + 4 + ID30 + 6 + 步骤3×22 + 6 + 按钮28 + pad12
     const float panelA = 12.0f + 30.0f + 4.0f + 30.0f + 6.0f + 3 * 22.0f + 6.0f +
                          28.0f + 12.0f;
-    // 面板 B：pad12 + 说明36 + 4 + 标签22 + 2 + mono 5×18 + 6 + 提示34 + pad12
-    //（各段之间的空隙也算在内，少算会让 hint 文本溢出面板底边）。
-    const float panelB = 12.0f + 36.0f + 4.0f + 22.0f + 2.0f + 5 * 18.0f + 6.0f +
+    // 面板 B：pad12 + 说明36 + 6 + 标题/复制按钮行28 + 4 + mono 7×18 + 6 + 提示34 + pad12
+    const float panelB = 12.0f + 36.0f + 6.0f + 28.0f + 4.0f + 7 * 18.0f + 6.0f +
                          34.0f + 12.0f;
     constexpr float secTitleH = 20.0f;
     constexpr float secGap = 18.0f;
@@ -217,27 +227,64 @@ export void drawExtensionsPage(eui::Ui& ui, const eui::Screen& screen,
                             .wrap(true)
                             .color(theme.metaText)
                             .build();
-                        components::text(sv, "ext.mcp.cfg.label")
-                            .position(x + kExtPanelPad, py + 40.0f)
-                            .size(w - kExtPanelPad * 2.0f, 22.0f)
-                            .text(tr("ext.mcp_config_label"))
-                            .fontSize(12.0f)
-                            .lineHeight(22.0f)
-                            .color(theme.onSurface)
-                            .build();
-                        const char* cfgLines[] = {
+                        const std::string escapedCmd =
+                            escapeJsonString(browser_host::hostLauncherPathUtf8());
+                        const std::string cfgLines[] = {
                             "{",
                             "  \"mcpServers\": {",
-                            "    \"tinynext\": { \"command\": \"/path/to/tinynext\", \"args\": [\"--mcp\"] }",
-                            "  }",
-                            "}",
+                            "    \"tinynext\": {",
+                            "      \"command\": \"" + escapedCmd + "\",",
+                            "      \"args\": [\"--mcp\"]",
+                            "    }",
+                            "  }\n}",
                         };
-                        float cy = py + 64.0f;
-                        for (int i = 0; i < 5; ++i) {
+                        // 拆成严格 7 行用于逐行绘制，同时拼完整 JSON 供一键复制。
+                        const std::string displayLines[] = {
+                            "{",
+                            "  \"mcpServers\": {",
+                            "    \"tinynext\": {",
+                            "      \"command\": \"" + escapedCmd + "\",",
+                            "      \"args\": [\"--mcp\"]",
+                            "    }",
+                            "  }",
+                        };
+                        std::string fullJson;
+                        for (const auto& l : cfgLines) {
+                            fullJson += l;
+                            fullJson += '\n';
+                        }
+
+                        components::text(sv, "ext.mcp.cfg.label")
+                            .position(x + kExtPanelPad, py + 42.0f)
+                            .size(w - kExtPanelPad * 2.0f - 96.0f, kButtonHeight)
+                            .text(tr("ext.mcp_config_label"))
+                            .fontSize(12.0f)
+                            .lineHeight(kButtonHeight)
+                            .color(theme.onSurface)
+                            .build();
+                        components::button(sv, "ext.mcp.copy")
+                            .position(x + w - kExtPanelPad - 88.0f, py + 42.0f)
+                            .size(88.0f, kButtonHeight)
+                            .text(tr("ext.mcp_copy"))
+                            .fontSize(kButtonFontSize)
+                            .theme(theme.components, false)
+                            .radius(kButtonRadius)
+                            .shadow(0.0f, 0.0f, 0.0f, core::Color{0, 0, 0, 0})
+                            .onClick([fullJson] {
+                                if (setClipboardText(fullJson)) {
+                                    showStatus(tr("ext.mcp_copied"));
+                                }
+                            })
+                            .build();
+
+                        float cy = py + 74.0f;
+                        for (int i = 0; i < 7; ++i) {
+                            const std::string lineText =
+                                (i == 6) ? std::string("  } }") : displayLines[i];
                             components::text(sv, "ext.mcp.cfg.l" + std::to_string(i))
                                 .position(x + kExtPanelPad, cy)
                                 .size(w - kExtPanelPad * 2.0f, 18.0f)
-                                .text(cfgLines[i])
+                                .text(lineText)
                                 .fontSize(11.0f)
                                 .lineHeight(18.0f)
                                 .fontFamily(kMonoFont)

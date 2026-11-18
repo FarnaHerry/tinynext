@@ -90,16 +90,16 @@ tinynext status --json              # tasks.awaitingSelection
 tinynext resume 2                   # error: #2 is waiting for torrent file selection (…)
 ```
 
-## 浏览器扩展（Chrome）
+## 浏览器扩展（Chrome / Edge 等 Chromium 系）
 
-仓库 `extension/chrome/` 提供 Chrome 扩展（MV3）：链接右键菜单转发 + 可选的
-浏览器下载接管。它不直连 TinyNext，而是走 Chrome 官方 Native Messaging：
-Chrome 以 `chrome-extension://<id>/` 参数拉起本主程序进入宿主模式
-（`src/browser_host.cppm`，stdio 上的长度前缀 JSON 协议），宿主再经本文件描述的
-单实例 TCP / inbox 通道转发给运行中的实例；主实例不在时落 inbox 并自动拉起 GUI。
+仓库 `extension/chrome/` 提供 MV3 浏览器扩展：链接/选中文本右键转发、手动链接投递
++ 可选的浏览器下载接管（先暂停确认宿主受理后再取消擦除，宿主不可达自动恢复浏览器下载）。
+它走标准 Native Messaging：浏览器以 `chrome-extension://<id>/` 参数拉起本主程序进入
+宿主模式（`src/browser_host.cppm`，stdio 上的长度前缀 JSON 协议），宿主再经单实例
+TCP / inbox 通道转发给运行中的实例；主实例不在时落 inbox 并自动拉起 GUI。
 
-- 宿主清单：GUI 启动时自动写到 `<configDir>/browser-host/com.tinynext.host.json`
-  并登记 Chrome（Windows HKCU 注册表；Linux/macOS 用户配置目录），幂等。
+- 宿主清单：GUI 启动时自动写到 `<configDir>/browser-host/com.tinynext.host.json`，
+  并登记 Chrome 与 Edge（及本机已存在的 Brave / Chromium 用户目录），幂等。
 - 扩展固定 ID：`chrome-extension://ebhblmhndabomflakjjljpipfolmajia/`
   （manifest `key` 派生；宿主白名单写死此 origin）。
 - 调试：`tinynext --native-host` 直接进宿主循环，可手动喂消息。
