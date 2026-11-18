@@ -82,6 +82,12 @@ struct Aria2Engine::Process {
         return !handle || WaitForSingleObject(handle.get(), 0) == WAIT_OBJECT_0;
     }
 
+    bool waitForExit(int timeoutMs) const noexcept {
+        return !handle ||
+               WaitForSingleObject(handle.get(), static_cast<DWORD>(std::max(0, timeoutMs))) ==
+                   WAIT_OBJECT_0;
+    }
+
     void terminate() noexcept {
         if (!handle) return;
         if (WaitForSingleObject(handle.get(), 0) != WAIT_OBJECT_0) {
@@ -111,6 +117,17 @@ struct Aria2Engine::Process {
             return true;
         }
         return false;
+    }
+
+    bool waitForExit(int timeoutMs) noexcept {
+        if (exited()) return true;
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::milliseconds(std::max(0, timeoutMs));
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (exited()) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        return exited();
     }
 
     void terminate() noexcept {
@@ -403,25 +420,53 @@ std::string randomHex(std::size_t n) {
 
 int pickFreePort() {
     std::mt19937 rng(std::random_device{}());
-    // 高段范围随机探测空闲端口（避开常见服务区）。connect 探测：无人监听会立即
-    // ECONNREFUSED → 判定可用；被占则跳过。绝不写死固定口——全部被占（极罕见）
-    // 就再给一个随机口，aria2 若仍绑定失败会在启动时快速失败，不长期占一个端口。
+    // 高段范围随机探测可绑定端口（避开常见服务区）。用本地 bind 试探而非 connect：
+    // 零网络包、不触碰其他本地服务、无防火墙超时阻塞，且能排除 TIME_WAIT/仅绑定未监听口。
     std::uniform_int_distribution<int> dist(20000, 60000);
     for (int attempt = 0; attempt < 32; ++attempt) {
         const int candidate = dist(rng);
-        LocalSocket probe;
-        if (!probe.connect("127.0.0.1", candidate, 300)) {
-            return candidate;  // nothing listening → free
+        struct ScopedSock {
+            LocalFd fd = kInvalidFd;
+            explicit ScopedSock(LocalFd v) noexcept : fd(v) {}
+            ~ScopedSock() {
+                if (fd != kInvalidFd) {
+#ifdef _WIN32
+                    ::closesocket(fd);
+#else
+                    ::close(fd);
+#endif
+                }
+            }
+            ScopedSock(const ScopedSock&) = delete;
+            ScopedSock& operator=(const ScopedSock&) = delete;
+        } probe(::socket(AF_INET, SOCK_STREAM, 0));
+        if (probe.fd == kInvalidFd) continue;
+#ifdef _WIN32
+        const BOOL exclusive = TRUE;
+        ::setsockopt(probe.fd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+                     reinterpret_cast<const char*>(&exclusive), sizeof(exclusive));
+#else
+        const int fdFlags = ::fcntl(probe.fd, F_GETFD);
+        if (fdFlags >= 0) ::fcntl(probe.fd, F_SETFD, fdFlags | FD_CLOEXEC);
+#endif
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(static_cast<std::uint16_t>(candidate));
+        ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        if (::bind(probe.fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) == 0) {
+            return candidate;
         }
     }
     return dist(rng);
 }
 
 // daemon 级参数（除分片/连接数外的全部 --xxx 选项）：仅非空/非默认才传，
-// 避免多余 flag。会话恢复（--save-session / --input-file）与磁力 BT 相关
-// flag 也在这里统一生成。
+// 避免多余 flag。Persistent 模式启用会话恢复（--save-session / --input-file）；
+// Isolated 模式（--headless）使用独立临时 state-dir，不读写主会话文件、不占用固定监听端口。
 std::vector<std::pair<std::string, std::string>> daemonExtraOpts(
-    const cfg::Aria2Config& a2) {
+    const cfg::Aria2Config& a2, SessionMode mode,
+    const std::filesystem::path& isolatedStateDir) {
+    const bool persistent = mode == SessionMode::Persistent;
     std::vector<std::pair<std::string, std::string>> opts;
     auto add = [&](const char* name, const std::string& value) {
         opts.emplace_back(name, value);
@@ -441,7 +486,7 @@ std::vector<std::pair<std::string, std::string>> daemonExtraOpts(
     if (a2.seedTime > 0) add("seed-time", std::to_string(a2.seedTime));
     if (a2.seedRatio > 0.0) add("seed-ratio", std::to_string(a2.seedRatio));
     if (a2.btMaxPeers > 0) add("bt-max-peers", std::to_string(a2.btMaxPeers));
-    if (!a2.listenPort.empty()) add("listen-port", a2.listenPort);
+    if (persistent && !a2.listenPort.empty()) add("listen-port", a2.listenPort);
     if (a2.btEnableLpd) add("bt-enable-lpd", "true");
     // --bt-tracker：额外 tracker 列表（换行/逗号分隔 → 逗号连接）。全局对所有
     // 磁力/BT 任务生效（aria2 是「额外」tracker，不覆盖种子自带）。
@@ -480,7 +525,7 @@ std::vector<std::pair<std::string, std::string>> daemonExtraOpts(
         }
     }
     if (!a2.loadCookies.empty()) add("load-cookies", a2.loadCookies);
-    if (!a2.saveCookies.empty()) add("save-cookies", a2.saveCookies);
+    if (persistent && !a2.saveCookies.empty()) add("save-cookies", a2.saveCookies);
     // ---- 下载行为 ----
     if (a2.maxOverallDownloadLimit > 0) {
         add("max-overall-download-limit", std::to_string(a2.maxOverallDownloadLimit));
@@ -494,27 +539,33 @@ std::vector<std::pair<std::string, std::string>> daemonExtraOpts(
     if (!a2.checksum.empty()) add("checksum", a2.checksum);
     // ---- ED2K（aria2-next 原生支持电驴：ed2k:// 链接 / 服务器发现）----
     if (!a2.ed2kServers.empty()) add("ed2k-server", a2.ed2kServers);
-    if (!a2.ed2kListenPort.empty()) add("ed2k-listen-port", a2.ed2kListenPort);
-    if (!a2.ed2kUdpListenPort.empty()) add("ed2k-udp-listen-port", a2.ed2kUdpListenPort);
+    if (persistent && !a2.ed2kListenPort.empty()) add("ed2k-listen-port", a2.ed2kListenPort);
+    if (persistent && !a2.ed2kUdpListenPort.empty()) add("ed2k-udp-listen-port", a2.ed2kUdpListenPort);
     if (a2.ed2kUploadSlots > 0) {
         add("ed2k-upload-slots", std::to_string(a2.ed2kUploadSlots));
     }
-    // aria2-next 的 HTTP/BT/ED2K/media 恢复数据必须落在稳定的 state-dir；
-    // 绝不能放临时/cache 目录。下载目录不再生成旁置 .aria2 控制文件。
-    const std::filesystem::path stateDir = cfg::configDir() / "aria2-state";
-    std::error_code stateEc;
-    std::filesystem::create_directories(stateDir, stateEc);
-    add("state-dir", utf8FromPath(stateDir));
-    // 会话恢复：shutdown 前用 aria2.saveSession 持久化未完成任务，下次启动用
-    // --input-file 载入续传。首次运行会话文件不存在，跳过 --input-file。
-    // 会话文件放 per-user 配置目录：安装版经快捷方式启动时 cwd 可能是 System32
-    // （不可写），不能依赖 cwd。
-    const std::filesystem::path sessionPath = cfg::configDir() / "tinynext.session";
-    std::error_code ec;
-    std::filesystem::create_directories(sessionPath.parent_path(), ec);
-    add("save-session", utf8FromPath(sessionPath));
-    if (std::filesystem::exists(sessionPath, ec)) {
-        add("input-file", utf8FromPath(sessionPath));
+    if (persistent) {
+        // aria2-next 的 HTTP/BT/ED2K/media 恢复数据必须落在稳定的 state-dir；
+        // 绝不能放临时/cache 目录。下载目录不再生成旁置 .aria2 控制文件。
+        const std::filesystem::path stateDir = cfg::configDir() / "aria2-state";
+        std::error_code stateEc;
+        std::filesystem::create_directories(stateDir, stateEc);
+        add("state-dir", utf8FromPath(stateDir));
+        // 会话恢复：shutdown 前用 aria2.saveSession 持久化未完成任务，下次启动用
+        // --input-file 载入续传。首次运行会话文件不存在，跳过 --input-file。
+        // 会话文件放 per-user 配置目录：安装版经快捷方式启动时 cwd 可能是 System32
+        // （不可写），不能依赖 cwd。
+        const std::filesystem::path sessionPath = cfg::configDir() / "tinynext.session";
+        std::error_code ec;
+        std::filesystem::create_directories(sessionPath.parent_path(), ec);
+        add("save-session", utf8FromPath(sessionPath));
+        if (std::filesystem::exists(sessionPath, ec)) {
+            add("input-file", utf8FromPath(sessionPath));
+        }
+    } else if (!isolatedStateDir.empty()) {
+        std::error_code stateEc;
+        std::filesystem::create_directories(isolatedStateDir, stateEc);
+        add("state-dir", utf8FromPath(isolatedStateDir));
     }
     // 异常退出兜底（对齐 Motrix）：主进程崩溃/被强杀时 atexit 链不会执行，没人
     // terminate daemon。让 aria2 轮询主进程 PID，父进程消失即按正常流程自杀
@@ -582,6 +633,14 @@ std::string engineExePath() {
         std::error_code ec;
         if (std::filesystem::exists(candidate, ec)) return candidate.string();
     }
+#ifndef _WIN32
+    // 与 component_updater 保持一致：POSIX 回退常见系统安装目录。
+    for (const char* dir : {"/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"}) {
+        const std::filesystem::path candidate = std::filesystem::path(dir) / name;
+        std::error_code ec;
+        if (std::filesystem::exists(candidate, ec)) return candidate.string();
+    }
+#endif
     return {};
 }
 
@@ -675,7 +734,23 @@ struct Aria2Engine::Task {
     std::vector<TorrentFileView> torrentFiles;
 };
 
-Aria2Engine::Aria2Engine() {
+struct Aria2Engine::RpcEndpoint {
+    bool active = false;
+    int port = 0;
+    std::string secret;
+};
+
+Aria2Engine::Aria2Engine(SessionMode mode)
+    : sessionMode_(mode), restoreFailedOnRecover_(cfg::autoRetryFailed()) {
+    if (sessionMode_ == SessionMode::Isolated) {
+#ifdef _WIN32
+        const auto pid = static_cast<unsigned long long>(::GetCurrentProcessId());
+#else
+        const auto pid = static_cast<unsigned long long>(::getpid());
+#endif
+        isolatedStateDir_ = std::filesystem::temp_directory_path() /
+                            ("tinynext-headless-" + std::to_string(pid) + "-" + randomHex(8));
+    }
     // Winsock for the local RPC socket (Windows only; POSIX no-op).
     LocalSocket::platformInit();
     // The session pairs IXWebSocket's network initialization and cleanup; it is
@@ -688,9 +763,17 @@ Aria2Engine::~Aria2Engine() {
     networkSession_.reset();
 }
 
+Aria2Engine::RpcEndpoint Aria2Engine::currentEndpoint() const {
+    std::lock_guard<std::mutex> lock(daemonMutex_);
+    if (!daemonSpawned_ || port_ == 0 || !process_ || process_->exited()) {
+        return {};
+    }
+    return {true, port_, secret_};
+}
+
 bool Aria2Engine::engineActive() const {
     std::lock_guard<std::mutex> lock(daemonMutex_);
-    return daemonSpawned_;
+    return daemonSpawned_ && port_ != 0 && process_ && !process_->exited();
 }
 
 std::string Aria2Engine::lastError() const {
@@ -699,11 +782,11 @@ std::string Aria2Engine::lastError() const {
 }
 
 void Aria2Engine::warmup(bool restoreFailed) {
-    // 启动时后台拉起 daemon + 恢复上次会话历史任务（ensureDaemon 首次 spawn 时
-    // 内部调 recoverSession + 启动 WS 监听）。与 UI 线程的 start()/retry() 经
-    // daemonMutex_ 互斥，先到者完成 spawn，后到者直接复用。
+    // 启动时后台拉起 daemon + 恢复上次会话历史任务（ensureDaemonLocked 首次 spawn
+    // 时内部调 recoverSession + 启动 WS 监听）。全程持 daemonMutex_ 与 UI 线程互斥。
+    std::lock_guard<std::mutex> lock(daemonMutex_);
     restoreFailedOnRecover_ = restoreFailed;
-    ensureDaemon();
+    ensureDaemonLocked();
 }
 
 void Aria2Engine::downloadFile(const std::string& url,
@@ -733,22 +816,12 @@ void Aria2Engine::downloadFile(const std::string& url,
             return;
         }
         if (!ensureDaemon()) {
-            std::string err;
-            {
-                std::lock_guard lock(daemonMutex_);
-                err = lastError_;
-            }
+            const std::string err = lastError();
             fail(err.empty() ? tr("err.engine_unavailable") : err);
             return;
         }
-        int port = 0;
-        std::string secret;
-        {
-            std::lock_guard lock(daemonMutex_);
-            port = port_;
-            secret = secret_;
-        }
-        if (port == 0 || stop.stop_requested()) {
+        const RpcEndpoint ep = currentEndpoint();
+        if (!ep.active || stop.stop_requested()) {
             fail(tr("err.engine_unavailable"));
             return;
         }
@@ -763,7 +836,7 @@ void Aria2Engine::downloadFile(const std::string& url,
         optionsJ["connect-timeout"] = "15";
         std::string gid;
         try {
-            gid = rpcCall(port, secret, "aria2.addUri",
+            gid = rpcCall(ep.port, ep.secret, "aria2.addUri",
                           nlohmann::json::array({nlohmann::json::array({url}),
                                                  optionsJ}))
                       .get<std::string>();
@@ -771,19 +844,46 @@ void Aria2Engine::downloadFile(const std::string& url,
             fail(e.what());
             return;
         }
+        // 退出守卫：无论成功、报错还是被 shutdown()/新请求提前终止，都必须把内部
+        // 静默任务从 daemon 中彻底移除，避免被随后的 saveSession 写进用户会话文件。
+        struct SilentTaskCleanup {
+            const Aria2Engine* self;
+            const std::string* gid;
+            ~SilentTaskCleanup() {
+                if (!gid || gid->empty()) return;
+                const RpcEndpoint cur = self->currentEndpoint();
+                if (!cur.active) return;
+                try {
+                    rpcCall(cur.port, cur.secret, "aria2.forceRemove",
+                            nlohmann::json::array({*gid}));
+                } catch (...) {}
+                try {
+                    rpcCall(cur.port, cur.secret, "aria2.removeDownloadResult",
+                            nlohmann::json::array({*gid}));
+                } catch (...) {}
+            }
+        } cleanup{this, &gid};
+
         for (;;) {
+            for (int tick = 0; tick < 10; ++tick) {
+                if (stop.stop_requested()) {
+                    fail(tr("err.engine_unavailable"));
+                    return;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(25));
+            }
             if (stop.stop_requested()) {
                 fail(tr("err.engine_unavailable"));
                 return;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(250));
-            if (stop.stop_requested()) {
+            const RpcEndpoint pollEp = currentEndpoint();
+            if (!pollEp.active) {
                 fail(tr("err.engine_unavailable"));
                 return;
             }
             nlohmann::json st;
             try {
-                st = rpcCall(port, secret, "aria2.tellStatus",
+                st = rpcCall(pollEp.port, pollEp.secret, "aria2.tellStatus",
                              nlohmann::json::array({gid}));
             } catch (const std::exception& e) {
                 fail(e.what());
@@ -799,20 +899,12 @@ void Aria2Engine::downloadFile(const std::string& url,
             }
             const std::string status = st.value("status", "");
             if (status == "complete") {
-                try {
-                    rpcCall(port, secret, "aria2.removeDownloadResult",
-                            nlohmann::json::array({gid}));
-                } catch (...) {}
                 if (onProgress) onProgress(100);
                 if (onDone) onDone(true, {});
                 return;
             }
             if (status == "error" || status == "removed") {
                 const std::string err = st.value("errorMessage", "download error");
-                try {
-                    rpcCall(port, secret, "aria2.removeDownloadResult",
-                            nlohmann::json::array({gid}));
-                } catch (...) {}
                 fail(err);
                 return;
             }
@@ -821,11 +913,55 @@ void Aria2Engine::downloadFile(const std::string& url,
     workerLock.unlock();
 }
 
+void Aria2Engine::stopDaemonLocked(bool saveSession) const {
+    const bool running = daemonSpawned_ && port_ != 0 && process_ && !process_->exited();
+    if (running) {
+        if (saveSession && sessionMode_ == SessionMode::Persistent) {
+            purgeFailedBeforeSessionSave(port_, secret_);
+            try {
+                rpcCall(port_, secret_, "aria2.saveSession", nlohmann::json::array());
+            } catch (...) {}
+        }
+        bool shutdownRequested = false;
+        try {
+            rpcCall(port_, secret_, "aria2.forceShutdown", nlohmann::json::array());
+            shutdownRequested = true;
+        } catch (...) {}
+        // 给 aria2-next 留优雅退出窗口刷写 state.db 检查点、disk-cache 与 cookies，
+        // 避免 Windows 上 0ms 立即 TerminateProcess 截断落盘。
+        if (shutdownRequested && process_) {
+            process_->waitForExit(1500);
+        }
+    }
+    if (process_) {
+        process_->terminate();
+        process_.reset();
+    }
+    daemonSpawned_ = false;
+    port_ = 0;
+    secret_.clear();
+    // WS 回调只取 tasksMutex_（遵守 daemonMutex_ → tasksMutex_ 锁序），在
+    // daemonMutex_ 内安全 stop + join。
+    if (ws_) {
+        ws_->stop();
+        ws_.reset();
+    }
+}
+
 bool Aria2Engine::ensureDaemon() const {
-    // daemon 生命周期与 UI 线程并发（warmup 在后台线程调本方法），全程持
-    // daemonMutex_ 串行化 spawn / RPC 就绪等待 / recoverSession / WS 启动。
     std::lock_guard<std::mutex> daemonLock(daemonMutex_);
-    if (daemonSpawned_) return port_ != 0;
+    return ensureDaemonLocked();
+}
+
+bool Aria2Engine::ensureDaemonLocked() const {
+    if (daemonSpawned_) {
+        if (port_ != 0 && process_ && !process_->exited()) {
+            return true;
+        }
+        // 先前拉起的 daemon 意外退出（崩溃/被外部强杀）：清理旧进程句柄与 WS 线程，
+        // 继续向下重新拉起内核。
+        stopDaemonLocked(/*saveSession=*/false);
+    }
 
     const std::string exe = engineExePath();
     if (exe.empty()) {
@@ -833,216 +969,244 @@ bool Aria2Engine::ensureDaemon() const {
         return false;
     }
 
-    const int port = pickFreePort();
-    const std::string secret = randomHex(16);
-
     const cfg::Aria2Config a2 = cfg::aria2Config();
-    const auto extra = daemonExtraOpts(a2);
+    const auto extra = daemonExtraOpts(a2, sessionMode_, isolatedStateDir_);
+    const std::filesystem::path logPath =
+        cfg::configDir() / (sessionMode_ == SessionMode::Persistent
+                                ? "tinynext-aria2.log"
+                                : "tinynext-aria2-headless.log");
+
+    bool exitedImmediately = false;
+    for (int spawnAttempt = 0; spawnAttempt < 2; ++spawnAttempt) {
+        exitedImmediately = false;
+        const int port = pickFreePort();
+        const std::string secret = randomHex(16);
 
 #ifdef _WIN32
-    process_ = std::make_unique<Process>();
-    const std::wstring wExe = std::filesystem::path(exe).wstring();
-    // daemon 参数值按 UTF-8 解码成 Windows UTF-16；状态/会话目录通常位于
-    // 用户目录下，可能包含非 ASCII 字符。值含空格时再按 MSVCRT 规则加引号。
-    const auto utf8ToWide = [](std::string_view value) -> std::wstring {
-        if (value.empty()) return {};
-        const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-                                               value.data(),
-                                               static_cast<int>(value.size()),
-                                               nullptr, 0);
-        if (count <= 0) return {};
-        std::wstring wide(static_cast<std::size_t>(count), L'\0');
-        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
-                                static_cast<int>(value.size()), wide.data(), count) <= 0) {
-            return {};
+        process_ = std::make_unique<Process>();
+        const std::wstring wExe = std::filesystem::path(exe).wstring();
+        const auto utf8ToWide = [](std::string_view value) -> std::wstring {
+            if (value.empty()) return {};
+            const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                                  value.data(),
+                                                  static_cast<int>(value.size()),
+                                                  nullptr, 0);
+            if (count <= 0) return {};
+            std::wstring wide(static_cast<std::size_t>(count), L'\0');
+            if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                    static_cast<int>(value.size()), wide.data(), count) <= 0) {
+                return {};
+            }
+            return wide;
+        };
+        // 按 Windows MSVCRT / CommandLineToArgvW 规则转义参数：含空格/Tab/双引号时
+        // 外包双引号，且内部双引号与闭合引号前的连续反斜杠严格倍增转义（保证带双引号的
+        // HTTP Header / UA 及带反斜杠结尾的路径不破坏命令行解析）。
+        const auto winValue = [&](const std::string& v) -> std::wstring {
+            const std::wstring w = utf8ToWide(v);
+            if (w.find_first_of(L" \t\"") == std::wstring::npos) {
+                return w;
+            }
+            std::wstring out = L"\"";
+            std::size_t backslashes = 0;
+            for (const wchar_t ch : w) {
+                if (ch == L'\\') {
+                    ++backslashes;
+                } else if (ch == L'"') {
+                    out.append(backslashes * 2 + 1, L'\\');
+                    out.push_back(L'"');
+                    backslashes = 0;
+                } else {
+                    out.append(backslashes, L'\\');
+                    out.push_back(ch);
+                    backslashes = 0;
+                }
+            }
+            out.append(backslashes * 2, L'\\');
+            out.push_back(L'"');
+            return out;
+        };
+        std::wstring cmdLine = winValue(utf8FromPath(std::filesystem::path(exe))) +
+                               L" --enable-rpc --rpc-listen-all=false "
+                               L"--rpc-listen-port=" + std::to_wstring(port) + L" "
+                               L"--rpc-secret=" + winValue(secret) + L" "
+                               L"--max-connection-per-server=" +
+                                   std::to_wstring(a2.maxConnectionPerServer) + L" "
+                               L"--split=" + std::to_wstring(a2.split) + L" "
+                               L"--min-split-size=" + winValue(a2.minSplitSize) + L" "
+                               L"--console-log-level=warn";
+        for (const auto& [name, value] : extra) {
+            cmdLine += L" --" + utf8ToWide(name) + L"=" + winValue(value);
         }
-        return wide;
-    };
-    const auto winValue = [&](const std::string& v) -> std::wstring {
-        std::wstring w = utf8ToWide(v);
-        if (v.find_first_of(" \t") != std::string::npos) {
-            return L"\"" + w + L"\"";
+
+        std::error_code lsec;
+        std::filesystem::create_directories(logPath.parent_path(), lsec);
+        SECURITY_ATTRIBUTES inheritAttrs{};
+        inheritAttrs.nLength = sizeof(inheritAttrs);
+        inheritAttrs.bInheritHandle = TRUE;
+        tinynext::native::UniqueHandle logFile(CreateFileW(
+            logPath.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+            &inheritAttrs, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+        tinynext::native::UniqueHandle childInput;
+        if (logFile) {
+            childInput.reset(CreateFileW(L"NUL", GENERIC_READ,
+                                         FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                         &inheritAttrs, OPEN_EXISTING,
+                                         FILE_ATTRIBUTE_NORMAL, nullptr));
         }
-        return w;
-    };
-    std::wstring cmdLine = L"\"" + wExe + L"\" --enable-rpc --rpc-listen-all=false "
-                           L"--rpc-listen-port=" + std::to_wstring(port) + L" "
-                           L"--rpc-secret=" + winValue(secret) + L" "
-                           L"--max-connection-per-server=" +
-                               std::to_wstring(a2.maxConnectionPerServer) + L" "
-                           L"--split=" + std::to_wstring(a2.split) + L" "
-                           L"--min-split-size=" + winValue(a2.minSplitSize) + L" "
-                           L"--console-log-level=warn";
-    for (const auto& [name, value] : extra) {
-        cmdLine += L" --" + utf8ToWide(name) + L"=" + winValue(value);
-    }
 
-    // 重定向 daemon 的 stdout/stderr 到日志文件，避免 aria2 的进度摘要 / 错误刷进
-    // 应用终端（headless 下尤其吵，GUI 下 nohup 也会被污染）。日志与 session 同级。
-    const std::filesystem::path logPath = cfg::configDir() / "tinynext-aria2.log";
-    std::error_code lsec;
-    std::filesystem::create_directories(logPath.parent_path(), lsec);
-    SECURITY_ATTRIBUTES inheritAttrs{};
-    inheritAttrs.nLength = sizeof(inheritAttrs);
-    inheritAttrs.bInheritHandle = TRUE;
-    tinynext::native::UniqueHandle logFile(CreateFileW(
-        logPath.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
-        &inheritAttrs, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
-    tinynext::native::UniqueHandle childInput;
-    if (logFile) {
-        childInput.reset(CreateFileW(L"NUL", GENERIC_READ,
-                                     FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                     &inheritAttrs, OPEN_EXISTING,
-                                     FILE_ATTRIBUTE_NORMAL, nullptr));
-    }
-
-    STARTUPINFOEXW startup{};
-    STARTUPINFOW& si = startup.StartupInfo;
-    if (logFile) {
-        si.dwFlags = STARTF_USESTDHANDLES;
-        si.hStdInput = childInput.get();
-        si.hStdOutput = logFile.get();
-        si.hStdError = logFile.get();
-    }
-    std::vector<HANDLE> inheritedHandles;
-    if (logFile) inheritedHandles.push_back(logFile.get());
-    if (childInput) inheritedHandles.push_back(childInput.get());
-    tinynext::native::UniqueProcThreadAttributeList attributes;
-    const bool inheritHandles = !inheritedHandles.empty() &&
-        attributes.initialize(inheritedHandles.data(),
-                              static_cast<DWORD>(inheritedHandles.size()));
-    DWORD creationFlags = CREATE_NO_WINDOW;
-    if (inheritHandles) {
-        startup.lpAttributeList = attributes.get();
-        si.cb = sizeof(startup);
-        creationFlags |= EXTENDED_STARTUPINFO_PRESENT;
-    } else {
-        si.dwFlags = 0;
-        si.cb = sizeof(STARTUPINFOW);
-        logFile.reset();
-        childInput.reset();
-    }
-    PROCESS_INFORMATION pi{};
-    // The explicit handle list prevents unrelated inheritable app handles from
-    // keeping sockets, pipes, or locks alive in the aria2 child process.
-    if (!CreateProcessW(wExe.c_str(), &cmdLine[0], nullptr, nullptr, inheritHandles,
-                        creationFlags, nullptr, nullptr, &si, &pi)) {
-        process_.reset();
-        lastError_ = tr("err.engine_process_failed");
-        return false;
-    }
-    process_->adopt(pi.hProcess);
-    tinynext::native::UniqueHandle thread(pi.hThread);
-    logFile.reset();
-    childInput.reset();
-#else
-    process_ = std::make_unique<Process>();
-    std::vector<std::string> args = {
-        exe, "--enable-rpc", "--rpc-listen-all=false",
-        "--rpc-listen-port=" + std::to_string(port),
-        "--rpc-secret=" + secret,
-        "--max-connection-per-server=" + std::to_string(a2.maxConnectionPerServer),
-        "--split=" + std::to_string(a2.split),
-        "--min-split-size=" + a2.minSplitSize,
-        "--console-log-level=warn"};
-    for (const auto& [name, value] : extra) {
-        args.push_back("--" + name + "=" + value);
-    }
-    std::vector<char*> argv;
-    argv.reserve(args.size() + 1);
-    for (auto& a : args) argv.push_back(a.data());
-    argv.push_back(nullptr);
-
-    // 同 Windows 分支：daemon 输出重定向到 configDir/tinynext-aria2.log。
-    const std::filesystem::path logPath = cfg::configDir() / "tinynext-aria2.log";
-    std::error_code lsec;
-    std::filesystem::create_directories(logPath.parent_path(), lsec);
-    tinynext::native::UniqueFd logFd(
-        ::open(logPath.c_str(), O_CREAT | O_WRONLY | O_APPEND | O_CLOEXEC, 0644));
-
-    pid_t pid = -1;
-    int spawnResult = 0;
-    {
-        posix_spawn_file_actions_t fa;
-        if (posix_spawn_file_actions_init(&fa) != 0) {
+        STARTUPINFOEXW startup{};
+        STARTUPINFOW& si = startup.StartupInfo;
+        if (logFile) {
+            si.dwFlags = STARTF_USESTDHANDLES;
+            si.hStdInput = childInput.get();
+            si.hStdOutput = logFile.get();
+            si.hStdError = logFile.get();
+        }
+        std::vector<HANDLE> inheritedHandles;
+        if (logFile) inheritedHandles.push_back(logFile.get());
+        if (childInput) inheritedHandles.push_back(childInput.get());
+        tinynext::native::UniqueProcThreadAttributeList attributes;
+        const bool inheritHandles = !inheritedHandles.empty() &&
+            attributes.initialize(inheritedHandles.data(),
+                                  static_cast<DWORD>(inheritedHandles.size()));
+        DWORD creationFlags = CREATE_NO_WINDOW;
+        if (inheritHandles) {
+            startup.lpAttributeList = attributes.get();
+            si.cb = sizeof(startup);
+            creationFlags |= EXTENDED_STARTUPINFO_PRESENT;
+        } else {
+            si.dwFlags = 0;
+            si.cb = sizeof(STARTUPINFOW);
+            logFile.reset();
+            childInput.reset();
+        }
+        PROCESS_INFORMATION pi{};
+        // The explicit handle list prevents unrelated inheritable app handles from
+        // keeping sockets, pipes, or locks alive in the aria2 child process.
+        if (!CreateProcessW(wExe.c_str(), &cmdLine[0], nullptr, nullptr, inheritHandles,
+                            creationFlags, nullptr, nullptr, &si, &pi)) {
             process_.reset();
             lastError_ = tr("err.engine_process_failed");
             return false;
         }
-        struct ActionsGuard {
-            posix_spawn_file_actions_t* actions;
-            ~ActionsGuard() { posix_spawn_file_actions_destroy(actions); }
-        } actionsGuard{&fa};
-        if (logFd) {
-            // adddup2 到 stdout/stderr 会清掉 CLOEXEC，子进程正确继承。
-            posix_spawn_file_actions_adddup2(&fa, logFd.get(), STDOUT_FILENO);
-            posix_spawn_file_actions_adddup2(&fa, logFd.get(), STDERR_FILENO);
+        process_->adopt(pi.hProcess);
+        tinynext::native::UniqueHandle thread(pi.hThread);
+        logFile.reset();
+        childInput.reset();
+#else
+        process_ = std::make_unique<Process>();
+        std::vector<std::string> args = {
+            exe, "--enable-rpc", "--rpc-listen-all=false",
+            "--rpc-listen-port=" + std::to_string(port),
+            "--rpc-secret=" + secret,
+            "--max-connection-per-server=" + std::to_string(a2.maxConnectionPerServer),
+            "--split=" + std::to_string(a2.split),
+            "--min-split-size=" + a2.minSplitSize,
+            "--console-log-level=warn"};
+        for (const auto& [name, value] : extra) {
+            args.push_back("--" + name + "=" + value);
         }
-        spawnResult = ::posix_spawn(&pid, exe.c_str(), &fa, nullptr, argv.data(), environ);
-    }
-    if (spawnResult != 0) {
-        process_.reset();
-        lastError_ = tr("err.engine_process_failed");
-        return false;
-    }
-    process_->adopt(pid);
-    logFd.reset();
+        std::vector<char*> argv;
+        argv.reserve(args.size() + 1);
+        for (auto& a : args) argv.push_back(a.data());
+        argv.push_back(nullptr);
+
+        std::error_code lsec;
+        std::filesystem::create_directories(logPath.parent_path(), lsec);
+        tinynext::native::UniqueFd logFd(
+            ::open(logPath.c_str(), O_CREAT | O_WRONLY | O_APPEND | O_CLOEXEC, 0644));
+
+        pid_t pid = -1;
+        int spawnResult = 0;
+        {
+            posix_spawn_file_actions_t fa;
+            if (posix_spawn_file_actions_init(&fa) != 0) {
+                process_.reset();
+                lastError_ = tr("err.engine_process_failed");
+                return false;
+            }
+            struct ActionsGuard {
+                posix_spawn_file_actions_t* actions;
+                ~ActionsGuard() { posix_spawn_file_actions_destroy(actions); }
+            } actionsGuard{&fa};
+            if (logFd) {
+                posix_spawn_file_actions_adddup2(&fa, logFd.get(), STDOUT_FILENO);
+                posix_spawn_file_actions_adddup2(&fa, logFd.get(), STDERR_FILENO);
+            }
+            spawnResult = ::posix_spawn(&pid, exe.c_str(), &fa, nullptr, argv.data(), environ);
+        }
+        if (spawnResult != 0) {
+            process_.reset();
+            lastError_ = tr("err.engine_process_failed");
+            return false;
+        }
+        process_->adopt(pid);
+        logFd.reset();
 #endif
 
-    // Wait until the RPC endpoint answers (up to ~3 s). If the spawned process
-    // exits immediately (e.g. invalid args), fail fast instead of hanging the
-    // UI thread on the full deadline.
-    port_ = port;
-    secret_ = secret;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-    while (std::chrono::steady_clock::now() < deadline) {
-        if (process_ && process_->exited()) {
-            break;  // daemon died right after spawn (e.g. invalid args)
-        }
-        try {
-            const nlohmann::json v =
-                rpcCall(port_, secret_, "aria2.getVersion", nlohmann::json::array());
-            daemonSpawned_ = true;
-            // 顺手记下真实引擎版本（关于页展示用，不再硬编码）。
-            if (v.is_object()) {
-                const std::string ver = v.value("version", "");
-                std::lock_guard<std::mutex> hlock(healthMutex_);
-                healthInfo_.version = ver;
-                healthInfo_.supportsMediaTrackSelection = hasMediaTrackSelectionSupport(v);
-                healthInfo_.rpcReachable = true;
-                healthInfo_.checked = true;
+        port_ = port;
+        secret_ = secret;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (process_ && process_->exited()) {
+                exitedImmediately = true;
+                break;  // daemon died right after spawn (e.g. invalid args / rare port race)
             }
-            core::platform::requestUiUpdate();
-            lastError_.clear();  // 成功拉起即清掉历史启动错误（监控页不再显示旧错误）
-            // 首次拉起 daemon 后，重建上次会话（--save-session）里的未完成任务。
-            recoverSession();
-            // 启动 WebSocket 事件监听（仅收推送，请求仍走 HTTP）。连接失败不影响
-            // 功能——refreshStates 轮询兜底（状态迁移延迟 ≤1s）。
-            ws_ = std::make_unique<WsNotifier>(port_, [this](const std::string& method,
-                                                             const std::string& gid) {
-                handleWsEvent(method, gid);
-            });
-            ws_->start();
-            return true;
-        } catch (...) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            try {
+                const nlohmann::json v =
+                    rpcCall(port_, secret_, "aria2.getVersion", nlohmann::json::array());
+                daemonSpawned_ = true;
+                if (v.is_object()) {
+                    const std::string ver = v.value("version", "");
+                    std::lock_guard<std::mutex> hlock(healthMutex_);
+                    healthInfo_.binaryFound = true;
+                    healthInfo_.daemonSpawned = true;
+                    healthInfo_.daemonAlive = true;
+                    healthInfo_.version = ver;
+                    healthInfo_.supportsMediaTrackSelection = hasMediaTrackSelectionSupport(v);
+                    healthInfo_.rpcReachable = true;
+                    healthInfo_.rpcPort = port_;
+                    healthInfo_.error.clear();
+                    healthInfo_.checked = true;
+                }
+                lastError_.clear();
+                if (sessionMode_ == SessionMode::Persistent) {
+                    recoverSession(port_, secret_);
+                    core::platform::requestUiUpdate();
+                }
+                ws_ = std::make_unique<WsNotifier>(port_, [this](const std::string& method,
+                                                                 const std::string& gid) {
+                    handleWsEvent(method, gid);
+                });
+                ws_->start();
+                return true;
+            } catch (...) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
         }
+
+        if (process_) process_->terminate();
+        process_.reset();
+        port_ = 0;
+        secret_.clear();
+        // 若进程并未退出而是超时未响应，不必再换端口重来。
+        if (!exitedImmediately) break;
     }
 
-    if (process_) process_->terminate();
-    process_.reset();
-    port_ = 0;
-    secret_.clear();
-    lastError_ = tr("err.engine_startup_timeout");
+    lastError_ = exitedImmediately ? tr("err.engine_process_failed")
+                                   : tr("err.engine_startup_timeout");
     return false;
 }
 
 std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::path& destPath,
                                  const StartOptions& options) {
     if (!ensureDaemon()) return 0;
+    const RpcEndpoint ep = currentEndpoint();
+    if (!ep.active) return 0;
 
     auto task = std::make_shared<Task>();
-    task->id = nextId_++;
+    task->id = nextId_.fetch_add(1, std::memory_order_relaxed);
     task->url = url;
     task->opts = options;
 
@@ -1080,22 +1244,10 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
         optionsJ["max-download-limit"] = std::to_string(a2.maxDownloadLimit);
     }
 
-    // 磁力/BT：内容名由种子决定，只设 dir 不设 out；destPath 用占位，等
-    // refreshStates() 从 files[0].path 更新为真实路径。
-    // 普通 HTTP(S) 且未显式重命名：同样不设 out，让 aria2 从响应头
-    // Content-Disposition 解析真实文件名——强制 out 会用 URL 末尾段命名，CDN/网盘
-    // 链接末尾是 uuid/随机串时文件就被命名成 uuid（实测：带 out 用 url 名、不带
-    // out 用 Content-Disposition 名）。重名由 daemon 的 --auto-file-renaming=true
-    // 处理（RealName.txt → RealName.1.txt）。destPath 先用 URL 文件名占位，等
-    // headers 后 applyTellStatus 从 files[0].path 更新为真实路径。
-    // 仅当用户显式重命名时才强制 out，并走 makeUniqueDest 避免撞上已存在文件
-    // （aria2 有 --allow-overwrite=false，撞上会直接失败）——自动加 " (1)"。
     nlohmann::json params;
     std::string method = "aria2.addUri";
 
     if (!options.torrentPath.empty()) {
-        // 本地 .torrent 文件：读文件 → base64 → aria2.addTorrent。内容名由种子决定，
-        // 只设 dir 不设 out；destPath 用占位，等 refreshStates() 更新为真实路径。
         task->destPath = dir / ("torrent-" + std::to_string(task->id));
         std::ifstream in(options.torrentPath, std::ios::binary);
         const std::string bytes((std::istreambuf_iterator<char>(in)),
@@ -1110,7 +1262,7 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
         }
         params = nlohmann::json::array();
         params.push_back(macaron::Base64::Encode(bytes));
-        params.push_back(nlohmann::json::array());  // urls：附加源/tracker，留空
+        params.push_back(nlohmann::json::array());
         params.push_back(optionsJ);
         method = "aria2.addTorrent";
     } else {
@@ -1118,8 +1270,6 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
         if (magnet) {
             task->destPath = dir / ("magnet-" + std::to_string(task->id));
         } else if (!options.outputName.empty()) {
-            // outputName 是 UTF-8（UI 输入），拼 path 经 pathFromUtf8；
-            // out 回 JSON 经 utf8FromPath。
             const std::filesystem::path uniqueDest =
                 makeUniqueDest(dir / pathFromUtf8(options.outputName));
             optionsJ["out"] = utf8FromPath(uniqueDest.filename());
@@ -1127,9 +1277,6 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
         } else {
             task->destPath = dir / destPath.filename();
         }
-        // 镜像多源：首 URL + mirrors 一起作为 addUri 的 URIs 数组（aria2 多源并发、
-        // 源挂自动切换）。有镜像时不设 out（除非显式重命名），文件名以首个响应的
-        // 源为准，applyTellStatus 从 files[0].path 更新。
         nlohmann::json uriArray = nlohmann::json::array();
         uriArray.push_back(url);
         for (const auto& m : options.mirrors) uriArray.push_back(m);
@@ -1139,10 +1286,9 @@ std::uint64_t Aria2Engine::start(const std::string& url, const std::filesystem::
     }
 
     try {
-        const nlohmann::json result = rpcCall(port_, secret_, method, params);
+        const nlohmann::json result = rpcCall(ep.port, ep.secret, method, params);
         task->gid = result.get<std::string>();
     } catch (const std::exception& e) {
-        // task 尚未进入 tasks_，WS 线程看不到它，只需在 push 时持锁。
         std::lock_guard<std::mutex> lock(tasksMutex_);
         task->state = State::Failed;
         task->error = e.what();
@@ -1167,6 +1313,7 @@ std::shared_ptr<Aria2Engine::Task> Aria2Engine::findTask(std::uint64_t id) const
 void Aria2Engine::enqueue(std::function<void()> fn) {
     {
         std::lock_guard<std::mutex> lock(cmdMutex_);
+        if (cmdShutdown_) return;
         if (!cmdThread_.joinable()) {
             // 懒创建：首个命令提交时才起 worker（第二实例 boot 不会白开线程）。
             cmdThread_ = std::thread([this] { commandLoop(); });
@@ -1193,29 +1340,32 @@ void Aria2Engine::commandLoop() {
 }
 
 void Aria2Engine::cancel(std::uint64_t id) {
+    const bool active = engineActive();
     std::string gid;
     {
         std::lock_guard<std::mutex> lock(tasksMutex_);
         auto task = findTask(id);
-        if (!task || !daemonSpawned_) return;
+        if (!task || !active) return;
         gid = task->gid;
-        // 乐观更新：UI 立即反馈已取消；rpc 失败（daemon 无响应）由 poll/WS 收敛回真实态。
         task->state = State::Cancelled;
         task->speedBps = 0.0;
     }
     if (gid.empty()) return;
     enqueue([this, gid] {
+        const RpcEndpoint ep = currentEndpoint();
+        if (!ep.active) return;
         try {
-            rpcCall(port_, secret_, "aria2.remove", nlohmann::json::array({gid}));
+            rpcCall(ep.port, ep.secret, "aria2.remove", nlohmann::json::array({gid}));
         } catch (...) {
             try {
-                rpcCall(port_, secret_, "aria2.forceRemove", nlohmann::json::array({gid}));
+                rpcCall(ep.port, ep.secret, "aria2.forceRemove", nlohmann::json::array({gid}));
             } catch (...) {}
         }
     });
 }
 
 void Aria2Engine::remove(std::uint64_t id) {
+    const bool active = engineActive();
     std::string gid;
     bool needsDaemon = false;
     {
@@ -1223,60 +1373,59 @@ void Aria2Engine::remove(std::uint64_t id) {
         auto task = findTask(id);
         if (!task) return;
         gid = task->gid;
-        needsDaemon = daemonSpawned_ && !gid.empty();
-        // 立即从本地列表移除（UI 即时消失）；daemon 清理在后台线程做。
+        needsDaemon = active && !gid.empty();
         std::erase_if(tasks_, [&](const std::shared_ptr<Task>& t) { return t->id == id; });
     }
     if (!needsDaemon) return;
     enqueue([this, gid] {
-        // 活动/等待/暂停任务：forceRemove 停掉并移出队列（已完成等已停止任务会失败，
-        // 由下面的 removeDownloadResult 兜底清除）。
+        const RpcEndpoint ep = currentEndpoint();
+        if (!ep.active) return;
         try {
-            rpcCall(port_, secret_, "aria2.forceRemove", nlohmann::json::array({gid}));
+            rpcCall(ep.port, ep.secret, "aria2.forceRemove", nlohmann::json::array({gid}));
         } catch (...) {}
-        // 清掉 daemon stopped 列表里残留的 download result（完成/失败/removed），
-        // 否则会留在结果里被再次枚举到。
         try {
-            rpcCall(port_, secret_, "aria2.removeDownloadResult",
+            rpcCall(ep.port, ep.secret, "aria2.removeDownloadResult",
                     nlohmann::json::array({gid}));
         } catch (...) {}
-        // 立即重写会话文件：已删任务不再出现在 --input-file，下次启动不会复活。
-        // （只删面板不动会话是"随便下载一个就拉起历史任务"的根因。）写前同样
-        // 过闸门：开关关闭时失败记录也不该被这次重写顺带写进会话。
-        purgeFailedBeforeSessionSave();
-        try {
-            rpcCall(port_, secret_, "aria2.saveSession", nlohmann::json::array());
-        } catch (...) {}
+        if (sessionMode_ == SessionMode::Persistent) {
+            purgeFailedBeforeSessionSave(ep.port, ep.secret);
+            try {
+                rpcCall(ep.port, ep.secret, "aria2.saveSession", nlohmann::json::array());
+            } catch (...) {}
+        }
     });
 }
 
 void Aria2Engine::pause(std::uint64_t id) {
+    const bool active = engineActive();
     std::string gid;
     {
         std::lock_guard<std::mutex> lock(tasksMutex_);
         auto task = findTask(id);
-        if (!task || !daemonSpawned_) return;
+        if (!task || !active) return;
         if (task->state != State::Queued && task->state != State::Downloading) return;
         gid = task->gid;
-        // 乐观更新
         task->state = State::Paused;
         task->speedBps = 0.0;
     }
     if (gid.empty()) return;
     enqueue([this, gid] {
+        const RpcEndpoint ep = currentEndpoint();
+        if (!ep.active) return;
         try {
-            rpcCall(port_, secret_, "aria2.pause", nlohmann::json::array({gid}));
+            rpcCall(ep.port, ep.secret, "aria2.pause", nlohmann::json::array({gid}));
         } catch (...) {}
     });
 }
 
 void Aria2Engine::resume(std::uint64_t id) {
+    const bool active = engineActive();
     const bool mediaTrackSelectionSupported = health().supportsMediaTrackSelection;
     std::string gid;
     {
         std::lock_guard<std::mutex> lock(tasksMutex_);
         auto task = findTask(id);
-        if (!task || !daemonSpawned_) return;
+        if (!task || !active) return;
         if (task->state != State::Paused) return;
         const bool hasMediaChoices = std::ranges::any_of(
             task->mediaTracks, [](const MediaTrackView& track) {
@@ -1286,25 +1435,24 @@ void Aria2Engine::resume(std::uint64_t id) {
         if (task->awaitingTorrentFileSelection ||
             (task->awaitingMediaTrackSelection && mediaTrackSelectionSupported &&
              hasMediaChoices)) return;
-        // 没有 GID 就没法 unpause：不要乐观置成 Downloading 后直接 return。
         if (task->gid.empty()) return;
         gid = task->gid;
-        task->state = State::Downloading;  // 乐观更新
+        task->state = State::Downloading;
     }
     if (gid.empty()) return;
     enqueue([this, gid] {
+        const RpcEndpoint ep = currentEndpoint();
+        if (!ep.active) return;
         try {
-            rpcCall(port_, secret_, "aria2.unpause", nlohmann::json::array({gid}));
+            rpcCall(ep.port, ep.secret, "aria2.unpause", nlohmann::json::array({gid}));
         } catch (...) {}
     });
 }
 
 void Aria2Engine::pauseAll() {
+    if (!engineActive()) return;
     {
         std::lock_guard<std::mutex> lock(tasksMutex_);
-        if (!daemonSpawned_) return;
-        // 全部挂起：乐观置 paused（daemon 的 pauseAll 把所有活动/等待任务置为
-        // paused；已有 paused 的调用后仍为 paused，本地判断不变）。
         for (const auto& task : tasks_) {
             if (task->state == State::Queued || task->state == State::Downloading) {
                 task->state = State::Paused;
@@ -1313,22 +1461,22 @@ void Aria2Engine::pauseAll() {
         }
     }
     enqueue([this] {
+        const RpcEndpoint ep = currentEndpoint();
+        if (!ep.active) return;
         try {
-            rpcCall(port_, secret_, "aria2.pauseAll", nlohmann::json::array());
+            rpcCall(ep.port, ep.secret, "aria2.pauseAll", nlohmann::json::array());
         } catch (...) {}
     });
 }
 
 void Aria2Engine::resumeAll() {
+    if (!engineActive()) return;
     const bool mediaTrackSelectionSupported = health().supportsMediaTrackSelection;
     std::vector<std::string> gids;
     {
         std::lock_guard<std::mutex> lock(tasksMutex_);
-        if (!daemonSpawned_) return;
         for (const auto& task : tasks_) {
             if (task->state == State::Paused) {
-                // 没有 GID 的任务（还没成功提交给 daemon）无从 unpause：不能乐观置成
-                // Downloading 然后什么都不发（见函数末尾 gids.empty() 的早退）。
                 if (task->gid.empty()) continue;
                 const bool hasMediaChoices = std::ranges::any_of(
                     task->mediaTracks, [](const MediaTrackView& track) {
@@ -1338,23 +1486,24 @@ void Aria2Engine::resumeAll() {
                 if (task->awaitingTorrentFileSelection ||
                     (task->awaitingMediaTrackSelection && mediaTrackSelectionSupported &&
                      hasMediaChoices)) continue;
-                task->state = State::Downloading;  // 乐观更新
+                task->state = State::Downloading;
                 gids.push_back(task->gid);
             }
         }
     }
     if (gids.empty()) return;
     enqueue([this, gids = std::move(gids)] {
+        const RpcEndpoint ep = currentEndpoint();
+        if (!ep.active) return;
         for (const auto& gid : gids) {
             try {
-                rpcCall(port_, secret_, "aria2.unpause", nlohmann::json::array({gid}));
+                rpcCall(ep.port, ep.secret, "aria2.unpause", nlohmann::json::array({gid}));
             } catch (...) {}
         }
     });
 }
 
 void Aria2Engine::retry(std::uint64_t id) {
-    // 状态检查在锁内（WS 线程可能改状态），只拦截非 Failed/Cancelled。
     bool allowed = false;
     {
         std::lock_guard<std::mutex> lock(tasksMutex_);
@@ -1363,21 +1512,26 @@ void Aria2Engine::retry(std::uint64_t id) {
                   (task->state == State::Failed || task->state == State::Cancelled);
     }
     if (!allowed) return;
-    // 整个重下流程（ensureDaemon + 重建选项 + addUri/addTorrent）挪到后台命令线程，
-    // UI 线程只做状态检查立即返回。锁纪律不变：ensureDaemon 先于取 tasksMutex_
-    // （非递归互斥量死锁约束，见 retryOnWorker），worker 内串行执行。
     enqueue([this, id] { retryOnWorker(id); });
 }
 
 void Aria2Engine::retryOnWorker(std::uint64_t id) {
-    // 与 dispatch 的注释一致：ensureDaemon() 内部会调 recoverSession()（那里取
-    // tasksMutex_），所以必须先调 ensureDaemon 再取锁，避免非递归互斥量死锁。
     if (!ensureDaemon()) {
+        const std::string err = lastError();
         std::lock_guard<std::mutex> lock(tasksMutex_);
         const auto task = findTask(id);
         if (task) {
             task->state = State::Failed;
-            task->error = lastError_.empty() ? tr("err.engine_unavailable") : lastError_;
+            task->error = err.empty() ? tr("err.engine_unavailable") : err;
+        }
+        return;
+    }
+    const RpcEndpoint ep = currentEndpoint();
+    if (!ep.active) {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        if (const auto task = findTask(id)) {
+            task->state = State::Failed;
+            task->error = tr("err.engine_unavailable");
         }
         return;
     }
@@ -1386,8 +1540,6 @@ void Aria2Engine::retryOnWorker(std::uint64_t id) {
     const auto task = findTask(id);
     if (!task) return;
 
-    // 复用原 GID、URL 与最终输出路径。aria2-next 2.8.x 的断点数据放在 state-dir
-    // SQLite 数据库中；新 GID 或仅凭同名文件重下都会丢失任务隔离与进度。
     const cfg::Aria2Config a2 = cfg::aria2Config();
     const int connections = task->opts.connections > 0
         ? std::clamp(task->opts.connections, 1, 64)
@@ -1403,14 +1555,12 @@ void Aria2Engine::retryOnWorker(std::uint64_t id) {
     }
     if (task->opts.mediaMode != "auto") optionsJ["media"] = task->opts.mediaMode;
     if (task->opts.mediaFormat == "mkv") optionsJ["media-format"] = "mkv";
-    // 每任务限速已移除（无意义），统一用配置的 maxDownloadLimit。
     if (a2.maxDownloadLimit > 0) {
         optionsJ["max-download-limit"] = std::to_string(a2.maxDownloadLimit);
     }
-    // 媒体有专用 retryMedia：普通 add/remove 过程会丢弃媒体恢复数据。
     if (task->isMedia && !task->gid.empty()) {
         try {
-            rpcCall(port_, secret_, "aria2.retryMedia",
+            rpcCall(ep.port, ep.secret, "aria2.retryMedia",
                     nlohmann::json::array({task->gid}));
             task->state = State::Queued;
             task->error.clear();
@@ -1424,10 +1574,8 @@ void Aria2Engine::retryOnWorker(std::uint64_t id) {
 
     const std::string originalGid = task->gid;
     if (!originalGid.empty()) {
-        // stopped 结果占据原 GID。移除结果记录后，用显式 GID 重建请求组；stream
-        // 和 BitTorrent 的恢复数据仍由 state-dir 按这个 GID 取回。
         try {
-            rpcCall(port_, secret_, "aria2.removeDownloadResult",
+            rpcCall(ep.port, ep.secret, "aria2.removeDownloadResult",
                     nlohmann::json::array({originalGid}));
         } catch (...) {}
         optionsJ["gid"] = originalGid;
@@ -1437,8 +1585,6 @@ void Aria2Engine::retryOnWorker(std::uint64_t id) {
     std::string method = "aria2.addUri";
 
     if (!task->opts.torrentPath.empty()) {
-        // 本地 .torrent 重下：同 start()，读文件 → addTorrent。destPath 是
-        // refreshStates 更新后的真实路径，dir 取它父目录即可。
         std::ifstream in(task->opts.torrentPath, std::ios::binary);
         const std::string bytes((std::istreambuf_iterator<char>(in)),
                                 std::istreambuf_iterator<char>());
@@ -1450,16 +1596,13 @@ void Aria2Engine::retryOnWorker(std::uint64_t id) {
         }
         params = nlohmann::json::array();
         params.push_back(macaron::Base64::Encode(bytes));
-        params.push_back(nlohmann::json::array());  // urls：附加源/tracker，留空
+        params.push_back(nlohmann::json::array());
         params.push_back(optionsJ);
         method = "aria2.addTorrent";
     } else {
         if (!task->url.starts_with("magnet:")) {
-            // 固定服务端已经解析出的文件名（可能来自 Content-Disposition），
-            // 让 v2.8.3 用相同的 GID/URL/路径匹配恢复记录。
             optionsJ["out"] = utf8FromPath(task->destPath.filename());
         }
-        // 重下同样带上镜像源（opts.mirrors 从原任务复用）。
         nlohmann::json uriArray = nlohmann::json::array();
         uriArray.push_back(task->url);
         for (const auto& m : task->opts.mirrors) uriArray.push_back(m);
@@ -1468,7 +1611,7 @@ void Aria2Engine::retryOnWorker(std::uint64_t id) {
         params.push_back(optionsJ);
     }
     try {
-        const nlohmann::json result = rpcCall(port_, secret_, method, params);
+        const nlohmann::json result = rpcCall(ep.port, ep.secret, method, params);
         task->gid = result.get<std::string>();
         task->state = State::Queued;
         task->error.clear();
@@ -1479,18 +1622,14 @@ void Aria2Engine::retryOnWorker(std::uint64_t id) {
     }
 }
 
-// 镜像源管理：aria2.changeUri 只对活动任务（active/waiting/paused）有效。注意
-// aria2-next 的 changeUri 签名与标准 aria2 不同：params = [gid, fileIndex, delUris,
-// addUris, pos?]（token 由 rpcCall 前置）。fileIndex 恒为 1（单文件任务）。
-// 状态校验在 UI 线程（持锁快速检查），changeUri RPC 在后台命令线程执行，结果经
-// onDone 回传（后台线程调用，UI 层自行 marshal）。
 void Aria2Engine::addMirror(std::uint64_t id, const std::string& url,
                             std::function<void(bool)> onDone) {
+    const bool active = engineActive();
     std::string gid;
     {
         std::lock_guard<std::mutex> lock(tasksMutex_);
         auto task = findTask(id);
-        if (!task || !daemonSpawned_ || task->gid.empty()) {
+        if (!task || !active || task->gid.empty()) {
             if (onDone) onDone(false);
             return;
         }
@@ -1502,16 +1641,20 @@ void Aria2Engine::addMirror(std::uint64_t id, const std::string& url,
         gid = task->gid;
     }
     enqueue([this, id, gid, url, onDone] {
+        const RpcEndpoint ep = currentEndpoint();
+        if (!ep.active) {
+            if (onDone) onDone(false);
+            return;
+        }
         try {
             const nlohmann::json res = rpcCall(
-                port_, secret_, "aria2.changeUri",
+                ep.port, ep.secret, "aria2.changeUri",
                 nlohmann::json::array({gid, 1, nlohmann::json::array(),
                                        nlohmann::json::array({url})}));
-            // 返回 [deletedCount, addedCount]。
             if (res.is_array() && res.size() == 2 && res[1].get<int>() > 0) {
                 std::lock_guard<std::mutex> lock(tasksMutex_);
                 if (const auto task = findTask(id)) {
-                    task->opts.mirrors.push_back(url);  // 记录到配置镜像（retry 复用）
+                    task->opts.mirrors.push_back(url);
                 }
                 if (onDone) onDone(true);
                 return;
@@ -1523,11 +1666,12 @@ void Aria2Engine::addMirror(std::uint64_t id, const std::string& url,
 
 void Aria2Engine::removeMirror(std::uint64_t id, const std::string& url,
                                std::function<void(bool)> onDone) {
+    const bool active = engineActive();
     std::string gid;
     {
         std::lock_guard<std::mutex> lock(tasksMutex_);
         auto task = findTask(id);
-        if (!task || !daemonSpawned_ || task->gid.empty()) {
+        if (!task || !active || task->gid.empty()) {
             if (onDone) onDone(false);
             return;
         }
@@ -1539,15 +1683,20 @@ void Aria2Engine::removeMirror(std::uint64_t id, const std::string& url,
         gid = task->gid;
     }
     enqueue([this, id, gid, url, onDone] {
+        const RpcEndpoint ep = currentEndpoint();
+        if (!ep.active) {
+            if (onDone) onDone(false);
+            return;
+        }
         try {
             const nlohmann::json res = rpcCall(
-                port_, secret_, "aria2.changeUri",
+                ep.port, ep.secret, "aria2.changeUri",
                 nlohmann::json::array({gid, 1, nlohmann::json::array({url}),
                                        nlohmann::json::array()}));
             if (res.is_array() && res.size() == 2 && res[0].get<int>() > 0) {
                 std::lock_guard<std::mutex> lock(tasksMutex_);
                 if (const auto task = findTask(id)) {
-                    std::erase(task->opts.mirrors, url);  // 同步配置镜像
+                    std::erase(task->opts.mirrors, url);
                 }
                 if (onDone) onDone(true);
                 return;
@@ -1589,10 +1738,15 @@ void Aria2Engine::selectTorrentFiles(
     }
     enqueue([this, id, gid = std::move(gid), selection = std::move(selection),
              selected = std::move(selected), onDone = std::move(onDone)] {
+        const RpcEndpoint ep = currentEndpoint();
+        if (!ep.active) {
+            if (onDone) onDone(false, tr("err.engine_unavailable"));
+            return;
+        }
         try {
-            rpcCall(port_, secret_, "aria2.changeOption",
+            rpcCall(ep.port, ep.secret, "aria2.changeOption",
                     nlohmann::json::array({gid, {{"select-file", selection}}}));
-            rpcCall(port_, secret_, "aria2.unpause", nlohmann::json::array({gid}));
+            rpcCall(ep.port, ep.secret, "aria2.unpause", nlohmann::json::array({gid}));
             {
                 std::lock_guard<std::mutex> lock(tasksMutex_);
                 if (const auto task = findTask(id)) {
@@ -1625,8 +1779,13 @@ void Aria2Engine::finishMedia(
         gid = task->gid;
     }
     enqueue([this, id, gid = std::move(gid), onDone = std::move(onDone)] {
+        const RpcEndpoint ep = currentEndpoint();
+        if (!ep.active) {
+            if (onDone) onDone(false, tr("err.engine_unavailable"));
+            return;
+        }
         try {
-            rpcCall(port_, secret_, "aria2.finishMedia", nlohmann::json::array({gid}));
+            rpcCall(ep.port, ep.secret, "aria2.finishMedia", nlohmann::json::array({gid}));
             if (onDone) onDone(true, {});
         } catch (const std::exception& e) {
             if (onDone) onDone(false, e.what());
@@ -1658,15 +1817,20 @@ void Aria2Engine::selectMediaTracks(
     }
     enqueue([this, id, gid = std::move(gid), video, audio, subtitles,
              onDone = std::move(onDone)] {
+        const RpcEndpoint ep = currentEndpoint();
+        if (!ep.active) {
+            if (onDone) onDone(false, tr("err.engine_unavailable"));
+            return;
+        }
         try {
-            rpcCall(port_, secret_, "aria2.changeOption",
+            rpcCall(ep.port, ep.secret, "aria2.changeOption",
                     nlohmann::json::array({gid, {
                         {"media-video", video},
                         {"media-audio", audio},
                         {"media-subtitles", subtitles},
                         {"media-pause-after-probe", "false"}
                     }}));
-            rpcCall(port_, secret_, "aria2.unpause", nlohmann::json::array({gid}));
+            rpcCall(ep.port, ep.secret, "aria2.unpause", nlohmann::json::array({gid}));
             {
                 std::lock_guard<std::mutex> lock(tasksMutex_);
                 if (const auto task = findTask(id)) {
@@ -1686,39 +1850,33 @@ void Aria2Engine::selectMediaTracks(
     });
 }
 
-// 重启后重建任务表：daemon 用 --input-file 载入了 --save-session 的未完成任务，
-// 这里通过 tellActive/tellWaiting/tellStopped 把它们同步成本地 Task。
-void Aria2Engine::recoverSession() const {
-    if (!daemonSpawned_) return;
-    // 本方法只从 ensureDaemon() 调用（那里未持锁），所以在开头取锁。
+// 重启或崩溃自愈后同步任务表：daemon 用 --input-file 载入了 --save-session 的未完成
+// 任务，这里通过 tellActive/tellWaiting/tellStopped 把它们对齐成本地 Task。
+// 调用方须持 daemonMutex_（锁序 daemonMutex_ → tasksMutex_）。
+void Aria2Engine::recoverSession(int port, const std::string& secret) const {
+    if (!daemonSpawned_ || port == 0) return;
     std::lock_guard<std::mutex> lock(tasksMutex_);
     std::vector<std::shared_ptr<Task>> recovered;
+    std::unordered_set<std::string> seenGids;
 
-    const auto strI64 = [](const nlohmann::json& st, const char* key) -> std::int64_t {
-        const std::string v = st.value(key, "0");
-        try { return std::stoll(v); } catch (...) { return 0; }
-    };
-    const auto strDbl = [](const nlohmann::json& st, const char* key) -> double {
-        try { return std::stod(st.value(key, "0")); } catch (...) { return 0.0; }
-    };
-    const auto strConn = [](const nlohmann::json& st) -> int {
-        const std::string v = st.value("connections", st.value("numConnections", "1"));
-        try { return std::max(1, std::stoi(v)); } catch (...) { return 1; }
+    const auto findByGid = [&](const std::string& gid) -> std::shared_ptr<Task> {
+        if (gid.empty()) return nullptr;
+        for (const auto& t : tasks_) {
+            if (t->gid == gid) return t;
+        }
+        return nullptr;
     };
 
-    const auto addFrom = [&](const nlohmann::json& st) {
-        if (!st.is_object()) return;
-        auto task = std::make_shared<Task>();
-        task->id = nextId_++;
-        task->gid = st.value("gid", "");
+    const auto populateMeta = [&](const std::shared_ptr<Task>& task,
+                                  const nlohmann::json& st) {
         if (st.contains("files") && st["files"].is_array() && !st["files"].empty()) {
             const auto& file = st["files"][0];
-            task->destPath = pathFromUtf8(file.value("path", ""));  // aria2 JSON 是 UTF-8
+            const std::string p = file.value("path", "");
+            if (!p.empty()) task->destPath = pathFromUtf8(p);
             if (file.contains("uris") && file["uris"].is_array() && !file["uris"].empty()) {
-                task->url = file["uris"][0].value("uri", "");
-                // 镜像源随会话恢复：files[0].uris 是 aria2 去重后的全部源（实测顺序
-                // 不稳定，首条不一定是原主 URL），除主 URL 外的唯一源还给
-                // opts.mirrors——重下（retry）复用 opts 时多源不丢，卡片也能显示镜像数。
+                if (task->url.empty()) {
+                    task->url = file["uris"][0].value("uri", "");
+                }
                 for (std::size_t i = 1; i < file["uris"].size(); ++i) {
                     const std::string u = file["uris"][i].value("uri", "");
                     if (!u.empty() && u != task->url &&
@@ -1729,83 +1887,80 @@ void Aria2Engine::recoverSession() const {
                 }
             }
         }
-        // 磁力任务没有可用 uri 时用 infoHash 拼回显。
         if (task->url.empty() && st.contains("bittorrent") && st["bittorrent"].is_object()) {
             const std::string ih = st["bittorrent"].value("infoHash", "");
             if (!ih.empty()) task->url = "magnet:?xt=urn:btih:" + ih;
         }
-        // BT/磁力：拿到元数据后记下种子真实名，供显示（避免展示 GID 占位名）。
         if (st.contains("bittorrent") && st["bittorrent"].is_object() &&
             st["bittorrent"].contains("info") && st["bittorrent"]["info"].is_object()) {
             task->displayName = st["bittorrent"]["info"].value("name", "");
         }
-        task->totalBytes = strI64(st, "totalLength");
-        task->downloadedBytes = strI64(st, "completedLength");
-        task->speedBps = strDbl(st, "downloadSpeed");
-        task->connections = strConn(st);
-        const std::string status = st.value("status", "");
-        if (status == "active") {
-            task->state = State::Downloading;
-        } else if (status == "waiting") {
-            task->state = State::Queued;
-        } else if (status == "paused") {
-            task->state = State::Paused;
-        } else if (status == "complete") {
-            task->state = State::Done;
-        } else if (status == "error") {
-            task->state = State::Failed;
-            task->error = st.value("errorMessage", "download error");
-        } else {
-            task->state = State::Cancelled;
-        }
-        // Recovery snapshots carry the same media phase and BitTorrent file
-        // selection state as live progress snapshots.
         applyTellStatus(task, st);
+    };
+
+    const auto addFrom = [&](const nlohmann::json& st) {
+        if (!st.is_object()) return;
+        const std::string gid = st.value("gid", "");
+        if (!gid.empty()) seenGids.insert(gid);
+        // 崩溃重拉起场景下 tasks_ 可能已有同 GID 卡片：原地更新，避免生成重复卡片。
+        if (const auto existing = findByGid(gid)) {
+            populateMeta(existing, st);
+            return;
+        }
+        auto task = std::make_shared<Task>();
+        task->id = nextId_.fetch_add(1, std::memory_order_relaxed);
+        task->gid = gid;
+        populateMeta(task, st);
         task->fromSession = true;   // 会话恢复的历史任务：不再发完成/失败通知
         recovered.push_back(std::move(task));
     };
 
     try {
-        for (const auto& st : rpcCall(port_, secret_, "aria2.tellActive",
+        for (const auto& st : rpcCall(port, secret, "aria2.tellActive",
                                       nlohmann::json::array())) {
             addFrom(st);
         }
-        for (const auto& st : rpcCall(port_, secret_, "aria2.tellWaiting",
+        for (const auto& st : rpcCall(port, secret, "aria2.tellWaiting",
                                       nlohmann::json::array({0, 1000}))) {
             addFrom(st);
         }
-        for (const auto& st : rpcCall(port_, secret_, "aria2.tellStopped",
+        for (const auto& st : rpcCall(port, secret, "aria2.tellStopped",
                                       nlohmann::json::array({0, 1000}))) {
             if (!st.is_object()) continue;
             const std::string status = st.value("status", "");
             if (status == "error" && restoreFailedOnRecover_) {
-                // 「启动时自动重试失败任务」开启：失败记录恢复为 Failed 任务
-                // （fromSession 不通知），上层随后按原 GID 和 state-dir 数据续传。
-                // daemon stopped 结果先清理，避免会话文件重复载入该记录。
                 addFrom(st);
-                // Media recovery belongs to the stopped result; retryMedia needs
-                // that result and its GID-owned checkpoints intact.
                 const bool mediaTask = st.contains("media") && st["media"].is_object();
                 if (!mediaTask) {
                     try {
-                        rpcCall(port_, secret_, "aria2.removeDownloadResult",
+                        rpcCall(port, secret, "aria2.removeDownloadResult",
                                 nlohmann::json::array({st.value("gid", "")}));
                     } catch (...) {}
                 }
             } else if (status == "error" || status == "removed") {
-                // 失败/已移除的任务不再重挂，从 daemon 清掉避免下次会话又载入。
-                // 注意必须是 removeDownloadResult：aria2.remove 只接受活动/等待/
-                // 暂停中的 gid，对 stopped 结果会抛错（曾在此被静默吞掉，导致
-                // "清掉"从未生效，失败记录一直在会话文件里累积）。
                 try {
-                    rpcCall(port_, secret_, "aria2.removeDownloadResult",
+                    rpcCall(port, secret, "aria2.removeDownloadResult",
                             nlohmann::json::array({st.value("gid", "")}));
                 } catch (...) {}
             }
-            // complete 的任务不重建（已完成无需展示/续传）。
         }
     } catch (...) {
         // 会话枚举失败不致命：本地任务仍可用，下次再试。
+    }
+
+    // 崩溃重拉起后，凡未出现在新 daemon 会话里的残留活动任务统一置 Failed（用户可点重试按原 GID 续传）。
+    for (const auto& existing : tasks_) {
+        if ((existing->state == State::Queued ||
+             existing->state == State::Downloading ||
+             existing->state == State::Paused) &&
+            (existing->gid.empty() || seenGids.count(existing->gid) == 0)) {
+            existing->state = State::Failed;
+            existing->speedBps = 0.0;
+            existing->needsFinalize = false;
+            if (existing->error.empty()) {
+                existing->error = tr("err.engine_process_failed");
+            }
+        }
     }
 
     if (!recovered.empty()) {
@@ -1978,7 +2133,41 @@ void Aria2Engine::applyTellStatus(const std::shared_ptr<Task>& task,
 // 注意：rpcCall 可能阻塞 ~500ms，所以先收集目标后释放锁，RPC 完毕再取锁写结果；
 // 避免堵塞 UI 线程的 snapshot（它也要取 tasksMutex_），导致「连接信息时有时无」。
 void Aria2Engine::refreshStates() const {
-    if (!daemonSpawned_) return;
+    RpcEndpoint ep;
+    bool daemonExitedUnexpectedly = false;
+    {
+        std::lock_guard<std::mutex> lock(daemonMutex_);
+        if (!daemonSpawned_) return;
+        if (port_ != 0 && process_ && !process_->exited()) {
+            ep = {true, port_, secret_};
+        } else {
+            daemonExitedUnexpectedly = true;
+        }
+    }
+    if (daemonExitedUnexpectedly) {
+        bool changed = false;
+        {
+            std::lock_guard<std::mutex> lock(tasksMutex_);
+            for (const auto& task : tasks_) {
+                if (task->state == State::Queued ||
+                    task->state == State::Downloading ||
+                    task->state == State::Paused) {
+                    task->state = State::Failed;
+                    task->speedBps = 0.0;
+                    task->needsFinalize = false;
+                    if (task->error.empty()) {
+                        task->error = tr("err.engine_process_failed");
+                    }
+                    changed = true;
+                }
+            }
+        }
+        if (changed && sessionMode_ == SessionMode::Persistent) {
+            core::platform::requestUiUpdate();
+        }
+        return;
+    }
+
     // 阶段 1：持锁收集目标 gid，极短。
     std::vector<std::pair<std::uint64_t, std::string>> targets;
     {
@@ -1997,7 +2186,7 @@ void Aria2Engine::refreshStates() const {
         if (gid.empty()) continue;
         nlohmann::json st;
         try {
-            st = rpcCall(port_, secret_, "aria2.tellStatus", nlohmann::json::array({gid}));
+            st = rpcCall(ep.port, ep.secret, "aria2.tellStatus", nlohmann::json::array({gid}));
         } catch (...) {
             continue; // Transient RPC failure — leave state as-is, retry next poll.
         }
@@ -2042,10 +2231,12 @@ void Aria2Engine::refreshHealth(std::function<void(const HealthInfo&)> onDone) {
             std::lock_guard<std::mutex> lock(daemonMutex_);
             info.daemonSpawned = daemonSpawned_;
             info.daemonAlive = daemonSpawned_ && process_ && !process_->exited();
-            info.wsConnected = ws_ != nullptr && ws_->isConnected();
+            info.wsConnected = info.daemonAlive && ws_ != nullptr && ws_->isConnected();
             info.error = lastError_;
-            port = port_;
-            secret = secret_;
+            if (info.daemonAlive) {
+                port = port_;
+                secret = secret_;
+            }
         }
         if (port != 0) {
             try {
@@ -2085,49 +2276,27 @@ void Aria2Engine::refreshHealth(std::function<void(const HealthInfo&)> onDone) {
     });
 }
 
-// 后台命令线程执行：保存会话 → forceShutdown → 停旧 WS → 清任务表（恢复时会
-// 从 --input-file 重建，不清会重复）→ ensureDaemon 重新拉起（内部 recoverSession
-// + 新 WS）。进行中的下载经原生 state-dir 数据续传，不丢。锁纪律与 retryOnWorker
-// 一致：ensureDaemon 在释放 daemonMutex_ 后调用（避免非递归互斥量死锁）。
+// 后台命令线程执行：全程持 daemonMutex_ 完成「保存会话 → 优雅停机 → 停旧 WS →
+// 清任务表 → beforeRespawn 替换二进制 → ensureDaemonLocked 重新拉起」，杜绝中途
+// 其他线程抢先拉起旧二进制或并发读写 ws_/tasks_。
 void Aria2Engine::restartEngine(std::function<void(bool)> onDone,
                                 std::function<bool()> beforeRespawn) {
     enqueue([this, onDone, beforeRespawn = std::move(beforeRespawn)]() mutable {
+        bool ok = false;
         {
             std::lock_guard<std::mutex> lock(daemonMutex_);
-            if (daemonSpawned_) {
-                purgeFailedBeforeSessionSave();
-                try {
-                    rpcCall(port_, secret_, "aria2.saveSession", nlohmann::json::array());
-                } catch (...) {}
-                try {
-                    rpcCall(port_, secret_, "aria2.forceShutdown", nlohmann::json::array());
-                } catch (...) {}
+            stopDaemonLocked(/*saveSession=*/true);
+            {
+                std::lock_guard<std::mutex> taskLock(tasksMutex_);
+                tasks_.clear();
             }
-            // Also release a child left from an incomplete startup attempt.
-            if (process_) process_->terminate();
-            process_.reset();
-            daemonSpawned_ = false;
-            port_ = 0;
-            secret_.clear();
+            if (beforeRespawn && !beforeRespawn()) {
+                lastError_ = tr("comp.error.replace");
+                ok = false;
+            } else {
+                ok = ensureDaemonLocked();
+            }
         }
-        // 先停掉旧 WS（stop 会 join IXWebSocket 线程，此后不再有回调），再清任务，
-        // 保证没有任何回调访问已清空的任务（顺序同 shutdown()，不可颠倒）。
-        if (ws_) {
-            ws_->stop();
-            ws_.reset();
-        }
-        {
-            std::lock_guard<std::mutex> lock(tasksMutex_);
-            tasks_.clear();
-        }
-        // daemon 已停、尚未重拉起：组件更新在此窗口替换引擎二进制（Windows 上
-        // 运行中的 exe 被文件锁占用，只有此刻能换）。失败则中止重启。
-        if (beforeRespawn && !beforeRespawn()) {
-            if (onDone) onDone(false);
-            core::platform::requestUiUpdate();
-            return;
-        }
-        const bool ok = ensureDaemon();
         if (onDone) onDone(ok);
         core::platform::requestUiUpdate();
     });
@@ -2231,8 +2400,9 @@ void Aria2Engine::handleWsEvent(const std::string& method, const std::string& gi
 // 便不再把它们写进会话文件；下次启动 --input-file 无从重载重开。开启时直接返回，
 // 保留失败记录让 aria2 重载自动续传（= 自动重试）。tasks_ 快照在锁内取、RPC 在
 // 锁外发（与 recoverSession 持锁发 RPC 的用法一致，锁序 daemon → tasks 不变）。
-void Aria2Engine::purgeFailedBeforeSessionSave() const {
-    if (cfg::autoRetryFailed()) return;
+void Aria2Engine::purgeFailedBeforeSessionSave(int port,
+                                               const std::string& secret) const {
+    if (port == 0 || cfg::autoRetryFailed()) return;
     std::vector<std::string> gids;
     {
         std::lock_guard<std::mutex> lock(tasksMutex_);
@@ -2245,7 +2415,7 @@ void Aria2Engine::purgeFailedBeforeSessionSave() const {
     }
     for (const auto& gid : gids) {
         try {
-            rpcCall(port_, secret_, "aria2.removeDownloadResult",
+            rpcCall(port, secret, "aria2.removeDownloadResult",
                     nlohmann::json::array({gid}));
         } catch (...) {}
     }
@@ -2253,7 +2423,9 @@ void Aria2Engine::purgeFailedBeforeSessionSave() const {
 
 void Aria2Engine::shutdown() {
     // Finish the engine-owned silent download worker before stopping the daemon.
-    // It may be waiting in ensureDaemon(), so do not hold daemonMutex_ here.
+    // It may be waiting in ensureDaemon(), so do not hold daemonMutex_ here;
+    // stopping it while the daemon is still up also lets its cleanup guard remove
+    // the temporary silent download before saveSession runs below.
     {
         std::lock_guard lock(downloadThreadMutex_);
         downloadShutdown_ = true;
@@ -2273,41 +2445,28 @@ void Aria2Engine::shutdown() {
     cmdCv_.notify_all();
     if (cmdThread_.joinable()) cmdThread_.join();
 
-    // 与可能仍在跑的 warmup 后台线程互斥（它正在 ensureDaemon 里等 RPC 就绪）。
-    std::lock_guard<std::mutex> daemonLock(daemonMutex_);
-    if (daemonSpawned_) {
-        // 闸门：开关关闭时先把失败记录清出 daemon，再持久化未完成任务
-        //（--save-session）；forceShutdown 会跳过会话保存。
-        purgeFailedBeforeSessionSave();
-        try {
-            rpcCall(port_, secret_, "aria2.saveSession", nlohmann::json::array());
-        } catch (...) {}
-        try {
-            rpcCall(port_, secret_, "aria2.forceShutdown", nlohmann::json::array());
-        } catch (...) {}
-        daemonSpawned_ = false;
-        port_ = 0;
-        secret_.clear();
+    // 与可能仍在跑的 warmup 后台线程互斥，优雅停止 daemon + join WS 线程。
+    {
+        std::lock_guard<std::mutex> daemonLock(daemonMutex_);
+        stopDaemonLocked(/*saveSession=*/true);
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        tasks_.clear();
     }
-    // Startup can fail before daemonSpawned_ is set; the process owner still
-    // terminates/reaps any child and closes its Windows process handle here.
-    if (process_) process_->terminate();
-    process_.reset();
-    // 先停掉 WS 监听（stop 会 join IXWebSocket 的线程，此后不再有回调），再清任务，
-    // 保证没有任何回调访问已清空的任务。顺序不可颠倒。
-    if (ws_) {
-        ws_->stop();
-        ws_.reset();
+
+    if (sessionMode_ == SessionMode::Isolated && !isolatedStateDir_.empty()) {
+        std::error_code ec;
+        std::filesystem::remove_all(isolatedStateDir_, ec);
     }
-    std::lock_guard<std::mutex> lock(tasksMutex_);
-    tasks_.clear();
 }
 
 std::filesystem::path Aria2Engine::makeUniqueDest(const std::filesystem::path& dest) const {
     std::vector<std::filesystem::path> reserved;
-    reserved.reserve(tasks_.size());
-    for (const auto& task : tasks_) {
-        reserved.push_back(task->destPath);
+    {
+        std::lock_guard<std::mutex> lock(tasksMutex_);
+        reserved.reserve(tasks_.size());
+        for (const auto& task : tasks_) {
+            reserved.push_back(task->destPath);
+        }
     }
 
     auto taken = [&](const std::filesystem::path& candidate) {

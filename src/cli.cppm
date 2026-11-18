@@ -351,7 +351,18 @@ std::string runControl(const std::vector<std::string>& tokens) {
         g_pendingControls.push_back({tokens, reply});
     }
     core::platform::requestUiUpdate();
-    if (fu.wait_for(std::chrono::seconds(10)) != std::future_status::ready) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    bool ready = false;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (g_appExiting.load(std::memory_order_acquire)) {
+            return "error: TinyNext is shutting down\n";
+        }
+        if (fu.wait_for(std::chrono::milliseconds(100)) == std::future_status::ready) {
+            ready = true;
+            break;
+        }
+    }
+    if (!ready) {
         if (!tokens.empty() && tokens[0] == "quit") {
             g_forceQuitAfterResponse.store(true);
             return "ok: TinyNext is force quitting (window hidden to tray; "
@@ -369,9 +380,28 @@ std::string runControl(const std::vector<std::string>& tokens) {
 
 // 主实例：后台线程阻塞在 accept 上（队列空就挂起），收到转发 URL 后入队并唤醒
 // UI 线程处理。TCP loopback，端口系统分配后写进端口文件供第二实例发现。
-// g_listenFd 暴露给 atexit：退出时 shutdown 唤醒 accept 让线程退出（可 join）。
-std::atomic<CliFd> g_listenFd{kCliInvalidFd};
+// 注意：Windows Winsock 与 macOS/BSD 对未连接的 LISTEN socket 调用 shutdown()
+// 会报 WSAENOTCONN / ENOTCONN，根本不会唤醒 accept（否则 atexit 的 join 会永久
+// 死锁，进而阻塞后面的 g_tasks.shutdown()）。退出时通过本地回环短连唤醒 accept。
+std::atomic<std::uint16_t> g_listenPort{0};
 std::thread g_listenerThread;
+
+void wakeListenerForExit() {
+    g_appExiting.store(true, std::memory_order_seq_cst);
+    const std::uint16_t port = g_listenPort.load(std::memory_order_seq_cst);
+    if (port == 0) return;
+#ifdef _WIN32
+    const WsSession wsa;
+    if (!wsa) return;
+#endif
+    CliSocket wake(::socket(AF_INET, SOCK_STREAM, 0));
+    if (!wake) return;
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    (void)::connect(wake.get(), reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
+}
 
 void cliListenerLoop() {
 #ifdef _WIN32
@@ -388,7 +418,6 @@ void cliListenerLoop() {
         ::listen(listenFd.get(), 8) != 0) {
         return;
     }
-    g_listenFd.store(listenFd.get());
     sockaddr_in got{};
 #ifdef _WIN32
     int len = static_cast<int>(sizeof(got));
@@ -396,18 +425,28 @@ void cliListenerLoop() {
     socklen_t len = sizeof(got);
 #endif
     ::getsockname(listenFd.get(), reinterpret_cast<sockaddr*>(&got), &len);
-    std::ofstream(portPath(), std::ios::trunc) << ntohs(got.sin_port);
+    const std::uint16_t boundPort = ntohs(got.sin_port);
+    g_listenPort.store(boundPort, std::memory_order_seq_cst);
+    std::ofstream(portPath(), std::ios::trunc) << boundPort;
 
-    // 线程退出前统一关监听 socket（两处 return 共用；atexit 里 shutdown 只负责
-    // 唤醒 accept，释放归本函数）。
+    // 线程退出前统一关监听 socket 并清理端口文件（释放完全归本线程，无跨线程关句柄竞态）。
     const auto closeListen = [&] {
-        g_listenFd.store(kCliInvalidFd);
+        g_listenPort.store(0, std::memory_order_seq_cst);
         listenFd.reset();
+        std::error_code ec;
+        std::filesystem::remove(portPath(), ec);
     };
     for (;;) {
+        if (g_appExiting.load(std::memory_order_seq_cst)) {
+            closeListen();
+            return;
+        }
         CliSocket client(::accept(listenFd.get(), nullptr, nullptr));
+        if (g_appExiting.load(std::memory_order_seq_cst)) {
+            closeListen();
+            return;
+        }
         if (!client) {
-            if (g_appExiting.load()) { closeListen(); return; }
 #ifdef _WIN32
             if (WSAGetLastError() == WSAEINTR) continue;
 #else
@@ -416,6 +455,8 @@ void cliListenerLoop() {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
+        // 防御半开连接无限挂起监听线程。
+        setRecvTimeout(client.get(), 2000);
         // 握手横幅先发（trySendUrls 校验用），再读到对方关闭（URL 转发全关 /
         // 控制请求半关写侧，都在这一步收束）。
         ::send(client.get(), kCliBanner.data(), static_cast<int>(kCliBanner.size()),
@@ -991,20 +1032,10 @@ export void startCliIpc() {
     static std::atomic<bool> started = false;
     if (started.exchange(true)) return;
     g_listenerThread = std::thread(cliListenerLoop);
-    // atexit 先于静态析构：shutdown 监听 socket 把 accept 唤醒，线程看到
-    // g_appExiting 退出后 join，避免退出途中线程仍在往 g_pendingUrls 写。
+    // atexit 先于静态析构：本地回环连接把阻塞的 accept 唤醒，线程看到
+    // g_appExiting 退出后 join，确保后续 g_tasks.shutdown() 能正常执行。
     std::atexit([] {
-        // 与 housekeep 的 atexit 顺序不定，这里也置位，保证 accept 被 shutdown
-        // 唤醒后第一轮就看到退出标志（否则空转到 housekeep 的 atexit 才停）。
-        g_appExiting.store(true);
-        const CliFd fd = g_listenFd.load();
-        if (fd != kCliInvalidFd) {
-#ifdef _WIN32
-            ::shutdown(fd, SD_BOTH);
-#else
-            ::shutdown(fd, SHUT_RDWR);
-#endif
-        }
+        wakeListenerForExit();
         if (g_listenerThread.joinable()) g_listenerThread.join();
     });
 }

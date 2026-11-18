@@ -16,10 +16,13 @@ destPath 由 `refreshStates` 从 `files[0].path` 更新为真实路径。
 接口）。aria2-next 复用原 GID + URL + 输出路径，并从 `aria2-state/stream/state.db`
 恢复已提交分片；旧版旁置 `.aria2` 文件不导入。
 
-**会话恢复**：aria2 daemon 启动带 `--save-session`/`--input-file`（
-`aria2_engine.cpp::daemonExtraOpts`），`shutdown()` 先 `aria2.saveSession` 再
-forceShutdown；重启后 `recoverSession()` 用 `tellActive/tellWaiting/tellStopped`
-重建任务表。
+**会话恢复与隔离模式**：GUI 主实例（`SessionMode::Persistent`）带
+`--save-session`/`--input-file`（`aria2_engine.cpp::daemonExtraOpts`），
+退出/重启前先 `aria2.saveSession` 再 `aria2.forceShutdown` 并等待进程优雅退出后
+再兜底强杀，重启后 `recoverSession()` 用 `tellActive/tellWaiting/tellStopped`
+重建或原地对齐任务表；`--headless` 使用 `SessionMode::Isolated`（独立临时
+`state-dir`，不读写主会话文件、不占用固定监听口，退出自动清理）。运行期若 daemon
+意外退出，`ensureDaemon()` 在下次任务启动或重试时自动清理旧句柄并重新拉起。
 
 ## 通信、线程与锁
 

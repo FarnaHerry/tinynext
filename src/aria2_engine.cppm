@@ -22,9 +22,16 @@ namespace dl {
 
 struct WsNotifier;  // defined in aria2_engine.cpp
 
+// 会话模式：GUI 主实例使用 Persistent（读写 tinynext.session 与 aria2-state）；
+// --headless 使用 Isolated（独立临时 state-dir、不读写主会话文件、不占用固定监听口）。
+export enum class SessionMode {
+    Persistent,
+    Isolated,
+};
+
 export class Aria2Engine : public DownloadEngine {
 public:
-    Aria2Engine();
+    explicit Aria2Engine(SessionMode mode = SessionMode::Persistent);
     ~Aria2Engine() override;
 
     Aria2Engine(const Aria2Engine&) = delete;
@@ -73,15 +80,19 @@ public:
 
 private:
     struct Task;
-    bool ensureDaemon() const;      // spawn + wait until RPC answers
-    void recoverSession() const;    // 重启后重建会话任务（tellActive/Waiting/Stopped）
+    struct RpcEndpoint;
+    RpcEndpoint currentEndpoint() const;  // 短锁快照当前存活的 RPC 端点
+    bool ensureDaemon() const;            // 加 daemonMutex_ 后调 ensureDaemonLocked
+    bool ensureDaemonLocked() const;      // 调用方须持 daemonMutex_：检测崩溃重拉起 + 就绪等待
+    void stopDaemonLocked(bool saveSession) const;  // 调用方须持 daemonMutex_：优雅停机 + 停 WS
+    void recoverSession(int port, const std::string& secret) const;  // 重建/对齐会话任务
     // 写会话文件（saveSession）前的统一闸门：「启动时自动重试失败任务」关闭时，
     // 把 Failed/Cancelled 记录从 daemon 结果列表清掉，使其不进入会话文件——
     // aria2 的 --save-session 会连 error 记录一起保存，下次启动 --input-file 会
     // 自动重新添加并直接开下载，整条路径绕过
     // 应用层开关（实测：开关关闭后失败任务重启仍被自动重新下载）。开启时不清，
     // 失败记录进会话、aria2 自动续传，与开关语义一致。
-    void purgeFailedBeforeSessionSave() const;
+    void purgeFailedBeforeSessionSave(int port, const std::string& secret) const;
     void refreshStates() const;     // poll tellStatus for live tasks (~1 Hz), 内部管理锁
     std::shared_ptr<Task> findTask(std::uint64_t id) const;
     std::filesystem::path makeUniqueDest(const std::filesystem::path& dest) const;
@@ -96,22 +107,23 @@ private:
     void handleWsEvent(const std::string& method, const std::string& gid) const;
 
     // daemon 生命周期成员（port_/secret_/daemonSpawned_/ws_/process_/
-    // lastError_）由 UI 线程（start/retry/shutdown）与启动预热后台线程（warmup，
-    // 见 app.cpp）共享，一律经 daemonMutex_ 访问；锁序固定 daemonMutex_ →
-    // tasksMutex_（recoverSession 在 ensureDaemon 内取 tasksMutex_）。
-    // tasks_ 及其 Task 字段由 UI 线程 + WS 后台线程共享，一律经 tasksMutex_ 访问。
+    // lastError_/restoreFailedOnRecover_）由 UI 线程、预热线程、命令线程与
+    // housekeep 线程共享，一律经 daemonMutex_ 访问；锁序固定 daemonMutex_ →
+    // tasksMutex_（recoverSession / stopDaemonLocked 均遵守此锁序）。
+    // tasks_ 及其 Task 字段由多线程共享，一律经 tasksMutex_ 访问。
+    SessionMode sessionMode_ = SessionMode::Persistent;
+    std::filesystem::path isolatedStateDir_;
     mutable std::mutex daemonMutex_;
     mutable std::vector<std::shared_ptr<Task>> tasks_;
     mutable std::mutex tasksMutex_;
-    mutable std::uint64_t nextId_ = 1;
+    mutable std::atomic<std::uint64_t> nextId_{1};
     mutable bool daemonSpawned_ = false;
-    // warmup(restoreFailed) 记录「启动时自动重试失败任务」开关：recoverSession
-    // 据此决定失败记录是恢复成 Failed 任务（供上层随后 retry）还是丢弃。
-    // 进程生命周期内只在 warmup 写一次（daemon 未 spawn 前），此后只读。
-    bool restoreFailedOnRecover_ = false;
+    // 记录「启动时自动重试失败任务」开关：构造时按当前配置初始化，warmup 在
+    // daemonMutex_ 下更新，recoverSession 据此决定失败记录恢复还是清除。
+    mutable bool restoreFailedOnRecover_ = false;
     mutable int port_ = 0;
     mutable std::string secret_;
-    mutable std::string lastError_;   // 最近一次 daemon 启动失败原因（仅 UI 线程）
+    mutable std::string lastError_;   // 最近一次 daemon 启动失败原因（daemonMutex_ 保护）
     struct Process;
     struct NetworkSession;
     mutable std::unique_ptr<NetworkSession> networkSession_;

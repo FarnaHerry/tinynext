@@ -77,7 +77,9 @@ struct ComponentSnapshot {
 ComponentSnapshot snapshot();
 void setWakeUi(std::function<void()> fn);   // app.cpp 注入 requestUiUpdate
 void prepareForShutdown(dl::DownloadEngine& eng); // 退出时停止引擎下载并 join updater worker
-void probeAria2Version();   // 跑 aria2-next --version（后台线程调用，可能数秒）
+void notifyAppShuttingDown();               // 退出最前端置位，立即中止探测/等待循环
+void setCurrentVersion(std::string ver);    // 预热 RPC 已拿到版本时直接回填，免二次拉起子进程
+void probeAria2Version();   // 跑 aria2-next --version（daemon 未就绪时的回退探测）
 void checkLatest(dl::DownloadEngine& eng);
 void startUpdate(dl::DownloadEngine& eng);
 
@@ -302,12 +304,16 @@ std::string stripLeadingV(std::string tag) {
     return tag;
 }
 
-// 发布资产名按编译期平台映射（我们只发 win64 / linux-x86_64 / macos-arm64）。
+// 发布资产名按编译期平台映射（win64 / linux-x86_64 / macos-arm64 / macos-x86_64）。
 std::string assetNameOf(const std::string& ver) {
 #ifdef _WIN32
     return "aria2-next-" + ver + "-windows-x86_64.exe";
 #elif defined(__APPLE__)
+#if defined(__x86_64__)
+    return "aria2-next-" + ver + "-macos-x86_64";
+#else
     return "aria2-next-" + ver + "-macos-arm64";
+#endif
 #else
     return "aria2-next-" + ver + "-linux-x86_64";
 #endif
@@ -544,7 +550,8 @@ CapturedProc runCapture(const std::string& exe,
             continue;
         }
         if (process.exited()) { exited = true; break; }
-        if (GetTickCount() > deadline) {
+        if (g_workersShuttingDown.load(std::memory_order_acquire) ||
+            GetTickCount() > deadline) {
             process.terminate();
             result.timedOut = true;
             break;
@@ -616,7 +623,8 @@ CapturedProc runCapture(const std::string& exe,
         const ssize_t n = read(readPipe.get(), buf, sizeof(buf));
         if (n > 0) { result.out.append(buf, (std::size_t)n); continue; }
         if (child.exited()) { exited = true; break; }
-        if (std::chrono::steady_clock::now() > deadline) {
+        if (g_workersShuttingDown.load(std::memory_order_acquire) ||
+            std::chrono::steady_clock::now() > deadline) {
             child.terminate();
             result.timedOut = true;
             break;
@@ -796,9 +804,20 @@ void prepareForShutdown(dl::DownloadEngine& eng) {
     std::call_once(g_workerExitHook, [] { std::atexit(stopAndJoinUpdaterWorkers); });
 }
 
-// 预热线程调用：跑 aria2-next --version 填充当前版本。
+void notifyAppShuttingDown() {
+    g_workersShuttingDown.store(true, std::memory_order_release);
+}
+
+void setCurrentVersion(std::string ver) {
+    mutate([&](CompState& s) { s.current = std::move(ver); });
+}
+
+// 预热回退探测：跑 aria2-next --version 填充当前版本。
 void probeAria2Version() {
-    mutate([](CompState& s) { s.current = probeVersion(); });
+    if (g_workersShuttingDown.load(std::memory_order_acquire)) return;
+    const std::string ver = probeVersion();
+    if (g_workersShuttingDown.load(std::memory_order_acquire)) return;
+    mutate([&](CompState& s) { s.current = ver; });
 }
 
 void checkLatest(dl::DownloadEngine& eng) {

@@ -208,9 +208,15 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
             g_tasks.warmup();
             if (!g_tasks.engineActive()) g_warmupFailed.store(true);
             g_warmupDone.store(true);
-            // 顺手探测引擎版本（组件更新页的当前版本；一次进程启动，放预热
-            // 线程而非 UI 线程做）。
-            updater::probeAria2Version();
+            // 优先直接复用 daemon getVersion 已拿到的版本号，避免重复拉起一次
+            // aria2-next --version；仅当 daemon 未就绪时才回退跑进程探测。
+            if (!g_appShuttingDown.load()) {
+                if (const std::string ver = g_tasks.health().version; !ver.empty()) {
+                    updater::setCurrentVersion(ver);
+                } else {
+                    updater::probeAria2Version();
+                }
+            }
             if (!g_appShuttingDown.load()) core::platform::requestUiUpdate();
         });
         // g_tasks is a process-lifetime singleton. Join its warmup worker before
@@ -218,8 +224,12 @@ void compose(eui::Ui& ui, const eui::Screen& screen) {
         std::atexit([] {
             if (g_warmupThread.joinable()) g_warmupThread.join();
         });
-        // Set this before joining warmup so it skips its final UI wake during exit.
-        std::atexit([] { g_appShuttingDown.store(true); });
+        // Set this before joining warmup so it skips its final UI wake and aborts
+        // any in-flight fallback version probe immediately during exit.
+        std::atexit([] {
+            g_appShuttingDown.store(true);
+            updater::notifyAppShuttingDown();
+        });
     }
 
     // 预热失败（如引擎完整性校验不通过）：在 UI 线程给出具体原因。

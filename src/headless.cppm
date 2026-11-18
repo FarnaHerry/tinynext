@@ -5,10 +5,9 @@
 // daemon + JSON-RPC，不依赖 eui / UI 状态（headless 是纯引擎驱动的下载器）。
 //
 // 接线：cli.cppm 的 CliBoot 在 main 之前检测 --headless 并调 headless::run()，
-// 不抢单实例锁、不进 GUI、不转发 URL —— headless 独立起自己的 daemon 下载。
-// 失败任务是否进会话文件受「启动时自动重试失败任务」开关约束：关闭时退出前
-// 清掉失败/取消记录（不自动续传重开）；恢复数据由 aria2-next 按 GID 管理，
-// 不从下载目录旁置 .aria2 文件导入。
+// 不抢单实例锁、不进 GUI、不转发 URL —— headless 以 SessionMode::Isolated
+// 独立起自己的 daemon 下载（使用临时隔离 state-dir，不读写 GUI 的 tinynext.session
+// 与 aria2-state，也不占用固定 BT/ED2K 监听端口）。
 module;
 
 #ifdef _WIN32
@@ -73,7 +72,7 @@ export int run() {
         return 1;
     }
 
-    dl::Aria2Engine engine;
+    dl::Aria2Engine engine(dl::SessionMode::Isolated);
     const std::filesystem::path dir = cfg::downloadDir();
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);

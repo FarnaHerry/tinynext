@@ -293,8 +293,21 @@ export std::vector<std::string> commandLineArgs() {
             if (wargv) {
                 tinynext::native::UniqueLocalAlloc argsOwner(static_cast<HLOCAL>(wargv));
                 for (int i = 1; i < argc; ++i) {
-                    const std::wstring w(wargv[i]);
-                    args.push_back(std::string(w.begin(), w.end()));
+                    const std::wstring_view w(wargv[i]);
+                    if (w.empty()) {
+                        args.emplace_back();
+                        continue;
+                    }
+                    const int n = WideCharToMultiByte(
+                        CP_UTF8, 0, w.data(), static_cast<int>(w.size()),
+                        nullptr, 0, nullptr, nullptr);
+                    if (n > 0) {
+                        std::string utf8(static_cast<std::size_t>(n), '\0');
+                        WideCharToMultiByte(
+                            CP_UTF8, 0, w.data(), static_cast<int>(w.size()),
+                            utf8.data(), n, nullptr, nullptr);
+                        args.push_back(std::move(utf8));
+                    }
                 }
             }
         }
